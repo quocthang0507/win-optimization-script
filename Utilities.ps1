@@ -1,3 +1,7 @@
+param(
+    [switch]$Compile
+)
+
 # Check for Administrator privileges
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "This script must be run as Administrator." -ForegroundColor Red
@@ -128,7 +132,7 @@ function Get-DirectoryCleanupInitializationScript {
 
 $script:MenuTitle = "System Maintenance Tool"
 $script:MenuSubtitle = "Run tasks by number (or 'q' to quit)"
-$script:MenuGroupOrder = @('Quick Cleanup', 'Deep Cleanup', 'Repair', 'Software', 'Network', 'Privacy', 'Info', 'Exit')
+$script:MenuGroupOrder = @('Quick Cleanup', 'Deep Cleanup', 'Optimization', 'Repair', 'Software', 'Network', 'Privacy', 'Info', 'Exit')
 $script:MenuItemsRaw = @(
     [pscustomobject]@{ Group = 'Quick Cleanup'; Label = 'Clean temporary files'; Action = { Clean-TempFiles } }
     [pscustomobject]@{ Group = 'Quick Cleanup'; Label = 'Clear browser cache (Edge, Chrome)'; Action = { Clear-BrowserCache } }
@@ -141,6 +145,9 @@ $script:MenuItemsRaw = @(
     [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Clear Windows Update cache'; Action = { Clear-WindowsUpdateCache } }
     [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Clear Windows Event Logs'; Action = { Clear-EventLogs } }
     [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Remove old Windows installation files'; Action = { Remove-OldWindowsFiles } }
+
+    [pscustomobject]@{ Group = 'Optimization'; Label = 'Optimize drives (Trim/Defrag)'; Action = { Optimize-Drives } }
+    [pscustomobject]@{ Group = 'Optimization'; Label = 'Disable Hibernation (reclaim GBs of space)'; Action = { Disable-Hibernation } }
 
     [pscustomobject]@{ Group = 'Repair'; Label = 'Repair system issues using DISM'; Action = { Run-DISMRepair } }
     [pscustomobject]@{ Group = 'Repair'; Label = 'Run System File Checker (sfc /scannow)'; Action = { Run-SFCScan } }
@@ -180,6 +187,26 @@ function Show-FullMenu {
     }
     Write-Host "  0  Exit" -ForegroundColor DarkGray
     Write-Rule
+}
+
+function Optimize-Drives {
+    Invoke-Spinner -Message "Optimizing drives (Trim/Defrag)" -ScriptBlock {
+        $drives = Get-Volume | Where-Object { $_.DriveLetter -ne $null -and $_.DriveType -eq 'Fixed' }
+        foreach ($drive in $drives) {
+            Write-Output "Optimizing $($drive.DriveLetter): ($($drive.FileSystemLabel))..."
+            # -ReTrim for SSDs, -Defrag for HDDs (Optimize-Volume handles this automatically)
+            Optimize-Volume -DriveLetter $drive.DriveLetter -ReTrim -Defrag -Verbose
+        }
+    }
+    Pause-ForUser
+}
+
+function Disable-Hibernation {
+    Invoke-Spinner -Message "Disabling Hibernation" -ScriptBlock {
+        powercfg -h off
+        Write-Output "Hibernation disabled and hiberfil.sys removed."
+    }
+    Pause-ForUser
 }
 
 function Clear-History {
@@ -582,27 +609,32 @@ function Clear-Clipboard {
 }
 
 # Main Loop
-do {
-    Show-FullMenu
-    $choice = (Read-Host "Select tool").Trim()
-    
-    if ($choice -eq '0' -or $choice -match '^[qQ]$') {
-        Write-Host "`nGoodbye!" -ForegroundColor DarkGray
-        break
-    }
-    
-    if ($choice -match '^\d+$') {
-        $toolIndex = [int]$choice - 1
-        $flatItems = Get-OrderedMenuItems
+if ($Compile) {
+    Compile-UtilitiesToExe
+}
+else {
+    do {
+        Show-FullMenu
+        $choice = (Read-Host "Select tool").Trim()
         
-        if ($toolIndex -ge 0 -and $toolIndex -lt $flatItems.Count) {
-            $action = $flatItems[$toolIndex].Action
-            & $action
-            continue
+        if ($choice -eq '0' -or $choice -match '^[qQ]$') {
+            Write-Host "`nGoodbye!" -ForegroundColor DarkGray
+            break
         }
-    }
-    
-    Write-Host "Invalid selection." -ForegroundColor Yellow
-    Start-Sleep -Seconds 1
-    
-} while ($true)
+        
+        if ($choice -match '^\d+$') {
+            $toolIndex = [int]$choice - 1
+            $flatItems = Get-OrderedMenuItems
+            
+            if ($toolIndex -ge 0 -and $toolIndex -lt $flatItems.Count) {
+                $action = $flatItems[$toolIndex].Action
+                & $action
+                continue
+            }
+        }
+        
+        Write-Host "Invalid selection." -ForegroundColor Yellow
+        Start-Sleep -Seconds 1
+        
+    } while ($true)
+}

@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "PowerShell",
+            "request": "launch",
+            "name": "PowerShell: Run Utilities",
+            "script": "${workspaceFolder}/Utilities.ps1",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "PowerShell",
+            "request": "launch",
+            "name": "PowerShell: Compile to EXE",
+            "script": "${workspaceFolder}/Utilities.ps1",
+            "args": [
+                "-Compile"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
