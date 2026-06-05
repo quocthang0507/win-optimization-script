@@ -68,16 +68,8 @@ public sealed class StartupService
 
     private static string GetRiskHint(string command)
     {
-        if (command.Contains(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase))
-        {
-            return "Temp path";
-        }
-
-        if (command.Contains("AppData", StringComparison.OrdinalIgnoreCase))
-        {
-            return "User profile";
-        }
-
-        return "Standard";
+        return command.Contains(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase)
+            ? "Temp path"
+            : command.Contains("AppData", StringComparison.OrdinalIgnoreCase) ? "User profile" : "Standard";
     }
 }

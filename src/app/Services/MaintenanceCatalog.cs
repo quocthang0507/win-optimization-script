@@ -4,8 +4,7 @@ namespace WinOptimizationApp.Services;
 
 public sealed class MaintenanceCatalog
 {
-    private readonly IReadOnlyList<MaintenanceTask> _tasks =
-    [
+    public IReadOnlyList<MaintenanceTask> All { get; } = [
         new("cleanup.temp", "Cleanup", "Temporary files", "User and Windows temporary folders.", RiskLevel.Safe, false, false, true, false, "Frees local temporary files."),
         new("cleanup.browser", "Cleanup", "Browser cache", "Edge, Chrome, Firefox, Brave and Opera cache folders.", RiskLevel.Medium, false, true, true, false, "Browsers may reload cached assets."),
         new("cleanup.dev", "Cleanup", "Developer caches", "NuGet, pip, npm and yarn cache commands.", RiskLevel.Medium, false, true, true, false, "Build tools may download packages again."),
@@ -26,15 +25,13 @@ public sealed class MaintenanceCatalog
         new("cli.launch", "Settings", "Launch CLI tool", "Starts src/cli/Utilities.ps1 in PowerShell.", RiskLevel.Medium, true, true, false, false, "Runs the existing console workflow.")
     ];
 
-    public IReadOnlyList<MaintenanceTask> All => _tasks;
-
     public MaintenanceTask GetById(string id)
     {
-        return _tasks.First(task => task.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        return All.First(task => task.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
     }
 
     public IReadOnlyList<MaintenanceTask> ByGroup(string group)
     {
-        return _tasks.Where(task => task.Group.Equals(group, StringComparison.OrdinalIgnoreCase)).ToList();
+        return All.Where(task => task.Group.Equals(group, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 }

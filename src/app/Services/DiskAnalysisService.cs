@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.IO.Enumeration;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
@@ -51,12 +49,7 @@ public sealed class DiskAnalysisService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (File.Exists(path))
-            {
-                return ScanFile(path, parent);
-            }
-
-            return ScanDirectory(path, parent);
+            return File.Exists(path) ? ScanFile(path, parent) : ScanDirectory(path, parent);
         }
 
         DiskItem ScanDirectory(string path, DiskItem? parent)
@@ -220,12 +213,9 @@ public sealed class DiskAnalysisService
 
     private static string NormalizeRoot(string rootPath)
     {
-        if (string.IsNullOrWhiteSpace(rootPath))
-        {
-            return Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
-        }
-
-        return Path.GetFullPath(Environment.ExpandEnvironmentVariables(rootPath));
+        return string.IsNullOrWhiteSpace(rootPath)
+            ? Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\"
+            : Path.GetFullPath(Environment.ExpandEnvironmentVariables(rootPath));
     }
 
     private static bool ShouldSkip(FileSystemInfo info, DiskScanOptions options)
@@ -240,17 +230,7 @@ public sealed class DiskAnalysisService
             return true;
         }
 
-        if (!options.FollowReparsePoints && info.Attributes.HasFlag(FileAttributes.ReparsePoint))
-        {
-            return true;
-        }
-
-        if (options.ExcludedPaths is null)
-        {
-            return false;
-        }
-
-        return options.ExcludedPaths.Any(excluded =>
+        return !options.FollowReparsePoints && info.Attributes.HasFlag(FileAttributes.ReparsePoint) || options.ExcludedPaths is not null && options.ExcludedPaths.Any(excluded =>
             info.FullName.StartsWith(Path.GetFullPath(excluded), StringComparison.OrdinalIgnoreCase));
     }
 

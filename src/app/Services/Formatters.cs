@@ -19,16 +19,8 @@ public static class Formatters
 
     public static string FormatDuration(TimeSpan duration)
     {
-        if (duration.TotalDays >= 1)
-        {
-            return $"{(int)duration.TotalDays}d {duration.Hours}h";
-        }
-
-        if (duration.TotalHours >= 1)
-        {
-            return $"{(int)duration.TotalHours}h {duration.Minutes}m";
-        }
-
-        return $"{duration.Minutes}m";
+        return duration.TotalDays >= 1
+            ? $"{(int)duration.TotalDays}d {duration.Hours}h"
+            : duration.TotalHours >= 1 ? $"{(int)duration.TotalHours}h {duration.Minutes}m" : $"{duration.Minutes}m";
     }
 }

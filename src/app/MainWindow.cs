@@ -735,12 +735,7 @@ public sealed class MainWindow : Window
 
     private static string FormatStorageDate(DateTimeOffset value)
     {
-        if (value <= DateTimeOffset.MinValue.AddDays(1))
-        {
-            return "-";
-        }
-
-        return value.LocalDateTime.ToString("yyyy-MM-dd");
+        return value <= DateTimeOffset.MinValue.AddDays(1) ? "-" : value.LocalDateTime.ToString("yyyy-MM-dd");
     }
 
     private void AddTaskRow(MaintenanceTask task)

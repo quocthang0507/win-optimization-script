@@ -27,11 +27,6 @@ public sealed class RestorePointService
         var command = $"Checkpoint-Computer -Description '{description}' -RestorePointType MODIFY_SETTINGS";
         var result = await _commands.RunCaptureAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -Command \"{command}\"", cancellationToken);
 
-        if (result.ExitCode == 0)
-        {
-            return $"Restore point requested: {description}.";
-        }
-
-        return $"Restore point failed: {result.StandardError.Trim()}";
+        return result.ExitCode == 0 ? $"Restore point requested: {description}." : $"Restore point failed: {result.StandardError.Trim()}";
     }
 }

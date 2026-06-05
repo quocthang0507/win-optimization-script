@@ -145,17 +145,7 @@ public sealed class StorageCleanupService
     private static bool IsLikelyCleanupCandidate(DiskItem item)
     {
         var extension = item.Extension.ToLowerInvariant();
-        if (extension is ".tmp" or ".log" or ".dmp" or ".bak")
-        {
-            return true;
-        }
-
-        if (extension is ".iso" or ".zip" or ".7z" or ".rar" or ".msi" or ".exe")
-        {
-            return IsInDownloads(item.FullPath);
-        }
-
-        return false;
+        return extension is ".tmp" or ".log" or ".dmp" or ".bak" || extension is ".iso" or ".zip" or ".7z" or ".rar" or ".msi" or ".exe" && IsInDownloads(item.FullPath);
     }
 
     private static bool IsLikelyCacheFolder(DiskItem item)
@@ -167,29 +157,21 @@ public sealed class StorageCleanupService
 
     private static RiskLevel GetRisk(DiskItem item)
     {
-        if (IsInDownloads(item.FullPath))
-        {
-            return RiskLevel.Medium;
-        }
-
-        return item.Extension is ".tmp" or ".log" ? RiskLevel.Safe : RiskLevel.Medium;
+        return IsInDownloads(item.FullPath) ? RiskLevel.Medium : item.Extension is ".tmp" or ".log" ? RiskLevel.Safe : RiskLevel.Medium;
     }
 
     private static string GetReason(DiskItem item)
     {
-        if (IsInDownloads(item.FullPath))
-        {
-            return "Large installer/archive in Downloads.";
-        }
-
-        return item.Extension switch
-        {
-            ".tmp" => "Temporary file.",
-            ".log" => "Log file.",
-            ".dmp" => "Crash dump.",
-            ".bak" => "Backup-like file.",
-            _ => "Large cleanup candidate."
-        };
+        return IsInDownloads(item.FullPath)
+            ? "Large installer/archive in Downloads."
+            : item.Extension switch
+            {
+                ".tmp" => "Temporary file.",
+                ".log" => "Log file.",
+                ".dmp" => "Crash dump.",
+                ".bak" => "Backup-like file.",
+                _ => "Large cleanup candidate."
+            };
     }
 
     private static bool IsInDownloads(string path)

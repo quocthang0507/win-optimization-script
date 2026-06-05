@@ -19,12 +19,7 @@ public sealed class WingetService
         }
 
         var result = await _commands.RunCaptureAsync("winget.exe", "upgrade", cancellationToken);
-        if (result.ExitCode != 0)
-        {
-            return [];
-        }
-
-        return Parse(result.StandardOutput);
+        return result.ExitCode != 0 ? [] : Parse(result.StandardOutput);
     }
 
     private static IReadOnlyList<WingetPackage> Parse(string output)

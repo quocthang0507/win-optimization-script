@@ -435,12 +435,7 @@ public sealed class LocalizationService
     public string Get(string key)
     {
         var selected = CurrentLanguage == AppLanguage.Vietnamese ? _vietnamese : _english;
-        if (selected.TryGetValue(key, out var value))
-        {
-            return value;
-        }
-
-        return _english.TryGetValue(key, out var fallback) ? fallback : key;
+        return selected.TryGetValue(key, out var value) ? value : _english.TryGetValue(key, out var fallback) ? fallback : key;
     }
 
     public string Format(string key, params object[] args)

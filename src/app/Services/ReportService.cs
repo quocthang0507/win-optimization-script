@@ -15,12 +15,9 @@ public sealed class ReportService
 
     public string? GetLastReportPath()
     {
-        if (!Directory.Exists(_paths.LogsDirectory))
-        {
-            return null;
-        }
-
-        return Directory.GetFiles(_paths.LogsDirectory, "maintenance-*.json")
+        return !Directory.Exists(_paths.LogsDirectory)
+            ? null
+            : Directory.GetFiles(_paths.LogsDirectory, "maintenance-*.json")
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
     }
