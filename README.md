@@ -1,72 +1,119 @@
-# Windows System Maintenance Tool 🛠️
+# Windows System Maintenance Tool
 
-Một script PowerShell mạnh mẽ giúp tối ưu hóa, dọn dẹp và sửa lỗi hệ thống Windows một cách nhanh chóng và hiệu quả.
+Windows System Maintenance Tool là bộ công cụ dọn dẹp, tối ưu và sửa lỗi Windows. Repo hiện có hai giao diện sử dụng:
 
-![GitHub last commit](https://img.shields.io/github/last-commit/quoct/win-optimization-script)
-![PowerShell](https://img.shields.io/badge/PowerShell-%3E%3D%205.1-blue.svg)
+- **WinUI app** trong `src/app`: giao diện hiện đại có dashboard, scan/preview, xác nhận theo mức rủi ro và report.
+- **PowerShell CLI** trong `src/cli`: script console hiện có, phù hợp khi cần chạy nhanh bằng PowerShell.
 
-## 🌟 Tính năng chính
+## Tính năng chính
 
-Công cụ được chia thành các nhóm chức năng rõ ràng:
+### WinUI app
 
-### 1. Dọn dẹp nhanh (Quick Cleanup)
-- Xóa file tạm hệ thống (Temp files).
-- Xóa cache trình duyệt (Edge, Chrome).
-- Làm trống Thùng rác (Recycle Bin).
-- Xóa bộ nhớ đệm Clipboard.
+- Dashboard hiển thị trạng thái máy: Windows version, quyền admin, uptime, dung lượng ổ hệ thống, pending reboot và WinGet.
+- Cleanup có scan/preview trước khi chạy.
+- Badge mức rủi ro: `Safe`, `Medium`, `High`.
+- Chặn hoặc cảnh báo các tác vụ cần Administrator.
+- Report sau khi chạy task, lưu vào `logs/` ở root repo.
+- Startup inventory dạng read-only.
+- WinGet update preview.
+- Settings có lối mở Storage Sense và chạy lại CLI ở `src/cli/Utilities.ps1`.
 
-### 2. Dọn dẹp chuyên sâu (Deep Cleanup)
-- Chạy Disk Cleanup (Tự động hoặc Giao diện).
-- Dọn dẹp cache của lập trình viên (NuGet, pip, npm, yarn).
-- Xóa bộ nhớ đệm Windows Update.
-- Xóa Windows Event Logs để giải phóng không gian.
-- Gỡ bỏ các file cài đặt Windows cũ (`Windows.old`).
+### PowerShell CLI
 
-### 3. Sửa lỗi hệ thống (Repair)
-- Chạy DISM Repair để sửa lỗi Windows Image.
-- Chạy System File Checker (SFC Scan) để kiểm tra tính toàn vẹn của file hệ thống.
-- Khởi động lại Windows Explorer.
+CLI hiện có các nhóm chức năng:
 
-### 4. Phần mềm & Tiện ích
-- Cập nhật tất cả phần mềm qua `winget upgrade --all`.
-- Hỗ trợ biên dịch script sang file `.exe`.
+- Quick Cleanup: temp files, browser cache, Recycle Bin, clipboard.
+- Deep Cleanup: Disk Cleanup, developer caches, Windows Update cache, Event Logs, Windows.old.
+- Optimization: optimize drives, disable hibernation.
+- Repair: DISM, SFC, restart Explorer.
+- Software: `winget upgrade --all`, compile script sang EXE.
+- Network: flush DNS.
+- Privacy: PowerShell history, Start/Taskbar recent list.
+- Info: uptime.
 
-### 5. Mạng & Thông tin
-- Làm mới bộ nhớ đệm DNS (Flush DNS).
-- Kiểm tra thời gian hệ thống đã hoạt động (Uptime).
+## Cấu trúc project
 
-### 6. Quyền riêng tư (Privacy)
-- Xóa lịch sử lệnh PowerShell.
-- Xóa danh sách các mục đã mở gần đây trên Start/Taskbar (Windows 11).
+```text
+docs/
+  implementation_plan.md
+src/
+  app/
+    WinOptimizationApp.csproj
+    App.cs
+    Program.cs
+    MainWindow.cs
+    Models/
+    Services/
+  cli/
+    Utilities.ps1
+    Utilities.exe
+logs/
+  maintenance-*.json
+  maintenance-*.log
+```
 
-## 📋 Yêu cầu hệ thống
+`src/app/Services` đang là core engine MVP cho WinUI app. Kế hoạch tiếp theo là tách phần này sang `src/core` để WinUI, CLI và test dùng chung.
 
-- **Hệ điều hành:** Windows 10 hoặc Windows 11.
-- **Quyền hạn:** Cần chạy dưới quyền **Administrator**.
-- **PowerShell:** Phiên bản 5.1 trở lên.
+## Yêu cầu hệ thống
 
-## 🚀 Cách sử dụng
+- Windows 10 hoặc Windows 11.
+- PowerShell 5.1 trở lên cho CLI.
+- .NET SDK 8 trở lên để build WinUI app.
+- Một số tác vụ cần chạy app hoặc PowerShell dưới quyền Administrator.
 
-1. Tải về hoặc clone repository này.
-2. Chuột phải vào file `Utilities.ps1` và chọn **Run with PowerShell**.
-3. Nếu script yêu cầu quyền Admin, hãy chọn **Yes**.
-4. Chọn các tùy chọn theo số tương ứng trong menu.
+## Chạy WinUI app
 
-**Mẹo:** Bạn có thể sử dụng file `Utilities.exe` (nếu đã được biên dịch) để chạy trực tiếp mà không cần mở PowerShell.
+Từ root repo:
 
-## 🛠️ Biên dịch sang EXE
+```powershell
+dotnet restore .\src\app\WinOptimizationApp.csproj
+dotnet run --project .\src\app\WinOptimizationApp.csproj
+```
 
-Nếu bạn muốn tạo file thực thi riêng:
-1. Mở script bằng PowerShell.
-2. Chọn mục **Software** -> **Quick compile this tool to EXE**.
-3. Script sẽ tự động cài đặt module `PS2EXE` (nếu chưa có) và tạo file `.exe` cho bạn.
+Build:
 
-## ⚠️ Cảnh báo (Disclaimer)
+```powershell
+dotnet build .\src\app\WinOptimizationApp.csproj
+```
 
-Script này thực hiện các thay đổi sâu vào hệ thống. Mặc dù nó đã được thiết kế an toàn, hãy lưu ý:
-- Tác giả không chịu trách nhiệm về bất kỳ sự cố mất dữ liệu hoặc lỗi hệ thống nào phát sinh.
-- Nên đóng các trình duyệt trước khi chạy tính năng dọn dẹp cache trình duyệt.
-- Nên tạo điểm khôi phục hệ thống (Restore Point) trước khi thực hiện các thay đổi lớn.
+## Chạy PowerShell CLI
+
+Mở PowerShell với quyền Administrator, rồi chạy:
+
+```powershell
+.\src\cli\Utilities.ps1
+```
+
+Hoặc chạy EXE nếu đã build:
+
+```powershell
+.\src\cli\Utilities.exe
+```
+
+## An toàn khi sử dụng
+
+- Luôn ưu tiên `Scan` hoặc `Preview` trước khi cleanup.
+- Đóng trình duyệt trước khi dọn browser cache.
+- Với task `High`, nên tạo Restore Point trước khi chạy.
+- Không chạy các tác vụ repair/optimization khi máy đang cập nhật Windows.
+- Report được lưu trong `logs/` để kiểm tra lại kết quả và lỗi.
+
+## Roadmap
+
+Xem kế hoạch chi tiết tại [docs/implementation_plan.md](docs/implementation_plan.md).
+
+Các hướng ưu tiên:
+
+- Tách core engine sang `src/core`.
+- Thêm test cho cleanup, path validation, WinGet parser và report JSON.
+- Tách UI WinUI thành `Views/` và `ViewModels/`.
+- Mở rộng Startup Manager có backup trước khi enable/disable.
+- Hoàn thiện packaging/publish cho WinUI app.
+
+## Disclaimer
+
+Công cụ này có thể thực hiện thay đổi sâu vào hệ thống. Hãy đọc mô tả và mức rủi ro trước khi chạy task. Tác giả không chịu trách nhiệm cho mất dữ liệu hoặc lỗi hệ thống phát sinh từ việc sử dụng sai cách.
 
 ---
-*Phát triển bởi [quoct](https://github.com/quoct)*
+
+Phát triển bởi [quoct](https://github.com/quoct)

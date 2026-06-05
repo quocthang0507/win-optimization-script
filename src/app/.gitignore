@@ -1,0 +1,14 @@
+bin/
+obj/
+
+# Local publish output
+publish/
+AppPackages/
+
+# Visual Studio and user-specific files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
