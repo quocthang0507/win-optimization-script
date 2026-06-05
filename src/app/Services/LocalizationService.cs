@@ -67,6 +67,10 @@ public sealed class LocalizationService
         ["dashboard.scanUpdates"] = "Scan Updates",
         ["dashboard.openLogs"] = "Open Logs",
         ["dashboard.lastReport"] = "Last Report",
+        ["dashboard.hardware"] = "System Resources & Hardware",
+        ["dashboard.cpu"] = "Processor (CPU)",
+        ["dashboard.ram"] = "System Memory (RAM)",
+        ["dashboard.storage"] = "System Disk Usage",
 
         ["taskPage.subtitle"] = "Preview first, then run selected tasks with risk-aware confirmation.",
         ["startup.title"] = "Startup",
@@ -287,6 +291,10 @@ public sealed class LocalizationService
         ["dashboard.scanUpdates"] = "Quét cập nhật",
         ["dashboard.openLogs"] = "Mở nhật ký",
         ["dashboard.lastReport"] = "Báo cáo gần nhất",
+        ["dashboard.hardware"] = "Tài nguyên & Phần cứng hệ thống",
+        ["dashboard.cpu"] = "Bộ vi xử lý (CPU)",
+        ["dashboard.ram"] = "Bộ nhớ hệ thống (RAM)",
+        ["dashboard.storage"] = "Dung lượng ổ hệ thống",
 
         ["taskPage.subtitle"] = "Xem trước trước khi chạy, kèm xác nhận theo mức rủi ro.",
         ["startup.title"] = "Khởi động",

@@ -36,6 +36,15 @@ src/
     WinOptimizationApp.csproj
     app.manifest
     README.md
+    Views/
+      BasePage.cs
+      DashboardPage.cs
+      MaintenancePage.cs
+      StoragePage.cs
+      StartupPage.cs
+      UpdatesPage.cs
+      HistoryPage.cs
+      SettingsPage.cs
     Models/
       AppLanguage.cs
       CleanupTargetPreview.cs
@@ -859,20 +868,20 @@ Tiêu chí nghiệm thu:
 
 ## Checklist MVP nâng cấp
 
-- [ ] Menu item có `RiskLevel` và `Description`.
-- [ ] Có chế độ scan cho ít nhất temp files, browser cache và recycle bin.
-- [ ] Có log text và report JSON cho mỗi task.
-- [ ] Tác vụ High risk có xác nhận riêng.
+- [x] Menu item có `RiskLevel` và `Description`.
+- [x] Có chế độ scan cho ít nhất temp files, browser cache và recycle bin.
+- [x] Có log text và report JSON cho mỗi task.
+- [x] Tác vụ High risk có xác nhận riêng.
 - [ ] README hiển thị tiếng Việt đúng encoding.
-- [ ] `winget upgrade` có preview trước khi chạy `--all`.
-- [ ] Có summary cuối phiên: dung lượng giải phóng, số task chạy, cảnh báo.
-- [ ] Form chính có navigation rõ ràng giữa Maintenance và Storage Analyzer.
-- [ ] Storage Analyzer quét được ổ đĩa hoặc thư mục bất kỳ.
-- [ ] Storage Analyzer có tree table với size, percent, file count và last modified.
-- [ ] Có largest files và file types dùng chung kết quả scan.
-- [ ] Có treemap hoặc visualization tỷ lệ dung lượng.
-- [ ] Có cleanup review trước khi xóa/move to Recycle Bin từ Storage Analyzer.
-- [ ] Scan storage có cancel/progress và không block UI.
+- [x] `winget upgrade` có preview trước khi chạy `--all`.
+- [x] Có summary cuối phiên: dung lượng giải phóng, số task chạy, cảnh báo.
+- [x] Form chính có navigation rõ ràng giữa Maintenance và Storage Analyzer.
+- [x] Storage Analyzer quét được ổ đĩa hoặc thư mục bất kỳ.
+- [x] Storage Analyzer có tree table với size, percent, file count và last modified.
+- [x] Có largest files và file types dùng chung kết quả scan.
+- [x] Có treemap hoặc visualization tỷ lệ dung lượng (Biểu đồ phân bổ dạng thanh/space map).
+- [x] Có cleanup review trước khi xóa/move to Recycle Bin từ Storage Analyzer.
+- [x] Scan storage có cancel/progress và không block UI.
 
 ## Rủi ro kỹ thuật cần lưu ý
 

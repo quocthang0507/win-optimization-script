@@ -9,4 +9,7 @@ public sealed record DashboardStatus(
     long SystemDriveTotalBytes,
     bool PendingReboot,
     bool WingetAvailable,
-    string? LastReportPath);
+    string? LastReportPath,
+    string CpuName,
+    ulong TotalRamBytes,
+    ulong AvailableRamBytes);

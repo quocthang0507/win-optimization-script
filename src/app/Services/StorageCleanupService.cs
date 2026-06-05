@@ -145,7 +145,7 @@ public sealed class StorageCleanupService
     private static bool IsLikelyCleanupCandidate(DiskItem item)
     {
         var extension = item.Extension.ToLowerInvariant();
-        return extension is ".tmp" or ".log" or ".dmp" or ".bak" || extension is ".iso" or ".zip" or ".7z" or ".rar" or ".msi" or ".exe" && IsInDownloads(item.FullPath);
+        return extension is ".tmp" or ".log" or ".dmp" or ".bak" || (extension is ".iso" or ".zip" or ".7z" or ".rar" or ".msi" or ".exe" && IsInDownloads(item.FullPath));
     }
 
     private static bool IsLikelyCacheFolder(DiskItem item)
