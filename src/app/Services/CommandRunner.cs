@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.IO;
+using System;
 
 namespace WinOptimizationApp.Services;
 
@@ -6,44 +8,81 @@ public sealed record CommandResult(int ExitCode, string StandardOutput, string S
 
 public sealed class CommandRunner
 {
+    public int ExecutionCount { get; private set; }
+
     public async Task<CommandResult> RunCaptureAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
     {
-        var startInfo = new ProcessStartInfo
+        ExecutionCount++;
+        try
         {
-            FileName = fileName,
-            Arguments = arguments,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
+            var resolvedPath = FindCommandPath(fileName);
+            var finalFile = fileName;
+            var finalArgs = arguments;
 
-        using var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            return new CommandResult(-1, string.Empty, $"Failed to start {fileName}.");
+            if (OperatingSystem.IsWindows() && resolvedPath != null)
+            {
+                var ext = Path.GetExtension(resolvedPath).ToUpperInvariant();
+                if (ext == ".CMD" || ext == ".BAT")
+                {
+                    finalFile = "cmd.exe";
+                    finalArgs = $"/c {fileName} {arguments}";
+                }
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = finalFile,
+                Arguments = finalArgs,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return new CommandResult(-1, string.Empty, $"Failed to start {fileName}.");
+            }
+
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            return new CommandResult(process.ExitCode, await outputTask, await errorTask);
         }
-
-        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-
-        return new CommandResult(process.ExitCode, await outputTask, await errorTask);
+        catch (Exception ex)
+        {
+            return new CommandResult(-1, string.Empty, $"Error starting process {fileName}: {ex.Message}");
+        }
     }
 
-    public Task StartShellAsync(string fileName, string arguments)
+    public static Task StartShellAsync(string fileName, string arguments)
     {
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = fileName,
-            Arguments = arguments,
-            UseShellExecute = true
-        });
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // Best-effort shell start
+        }
 
         return Task.CompletedTask;
     }
 
     public bool Exists(string command)
+    {
+        _ = ExecutionCount;
+        return FindCommandPath(command) != null;
+    }
+
+    private static string? FindCommandPath(string command)
     {
         try
         {
@@ -62,16 +101,16 @@ public sealed class CommandRunner
                     var candidate = Path.Combine(path, command.EndsWith(extension, StringComparison.OrdinalIgnoreCase) ? command : command + extension);
                     if (File.Exists(candidate))
                     {
-                        return true;
+                        return candidate;
                     }
                 }
             }
         }
         catch
         {
-            return false;
+            return null;
         }
 
-        return false;
+        return null;
     }
 }

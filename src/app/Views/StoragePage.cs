@@ -403,9 +403,10 @@ public sealed partial class StoragePage : BasePage
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         });
 
-        foreach (var candidate in candidates.Take(16))
+        var listPanel = new StackPanel { Spacing = 6 };
+        foreach (var candidate in candidates.Take(100))
         {
-            panel.Children.Add(new TextBlock
+            listPanel.Children.Add(new TextBlock
             {
                 Text = $"{candidate.Label} / {Formatters.FormatBytes(candidate.EstimatedBytes)} / {candidate.RiskLevel}\n{candidate.SourcePath}",
                 TextWrapping = TextWrapping.Wrap,
@@ -413,10 +414,20 @@ public sealed partial class StoragePage : BasePage
             });
         }
 
-        if (candidates.Count > 16)
+        if (candidates.Count > 100)
         {
-            panel.Children.Add(new TextBlock { Text = F("storage.moreItems", candidates.Count - 16), Opacity = 0.65 });
+            listPanel.Children.Add(new TextBlock { Text = F("storage.moreItems", candidates.Count - 100), Opacity = 0.65 });
         }
+
+        var scrollViewer = new ScrollViewer
+        {
+            Content = listPanel,
+            MaxHeight = 300,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        panel.Children.Add(scrollViewer);
 
         var dialog = new ContentDialog
         {

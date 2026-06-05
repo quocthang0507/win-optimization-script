@@ -1,0 +1,13 @@
+# NuGet Packages redirected local folder
+packages/
+
+# Application execution logs
+logs/
+
+# IDE/User-specific configurations
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates

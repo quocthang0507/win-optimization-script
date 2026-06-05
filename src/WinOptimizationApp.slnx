@@ -1,3 +1,7 @@
 <Solution>
+  <Folder Name="/cli/">
+    <File Path="cli/Utilities.ps1" />
+    <File Path="cli/Utilities.exe" />
+  </Folder>
   <Project Path="app/WinOptimizationApp.csproj" />
 </Solution>

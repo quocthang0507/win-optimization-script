@@ -6,6 +6,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Windows.UI;
+using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp.Views;
@@ -47,7 +48,7 @@ public sealed partial class DashboardPage : BasePage
         Grid.SetRow(card3, 1); Grid.SetColumn(card3, 0);
         grid.Children.Add(card3);
 
-        var card4 = CreateMetricCardWithIcon(T("dashboard.uptime"), Formatters.FormatDuration(status.Uptime), status.WingetAvailable ? T("dashboard.wingetAvailable") : T("dashboard.wingetNotFound"), status.WingetAvailable ? Colors.SeaGreen : Colors.Gray, "\uE916");
+        var card4 = CreateMetricCardWithIcon(T("dashboard.uptime"), Formatters.FormatDuration(status.Uptime, MainWindow.Localization.CurrentLanguage), status.WingetAvailable ? T("dashboard.wingetAvailable") : T("dashboard.wingetNotFound"), status.WingetAvailable ? Colors.SeaGreen : Colors.Gray, "\uE916");
         Grid.SetRow(card4, 1); Grid.SetColumn(card4, 1);
         grid.Children.Add(card4);
 
@@ -209,7 +210,78 @@ public sealed partial class DashboardPage : BasePage
 
         if (!string.IsNullOrWhiteSpace(status.LastReportPath))
         {
-            MainContent.Children.Add(Card(T("dashboard.lastReport"), status.LastReportPath, T("common.open"), (_, _) => MainWindow.OpenFile_Internal(status.LastReportPath)));
+            var border = new Border
+            {
+                Padding = new Thickness(14),
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                BorderBrush = Brush(Colors.LightGray),
+                Background = Brush(Color.FromArgb(18, 128, 128, 128))
+            };
+
+            var cardGrid = new Grid { ColumnSpacing = 12 };
+            cardGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            cardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            cardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var textStack = new StackPanel { Spacing = 4 };
+            textStack.Children.Add(new TextBlock { Text = T("dashboard.lastReport"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            textStack.Children.Add(new TextBlock { Text = status.LastReportPath, TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+            cardGrid.Children.Add(textStack);
+
+            var openBtn = new Button { Content = T("common.open"), MinWidth = 86 };
+            ToolTipService.SetToolTip(openBtn, T("common.open"));
+            openBtn.Click += (_, _) => MainWindow.OpenFile_Internal(status.LastReportPath);
+            Grid.SetColumn(openBtn, 1);
+            cardGrid.Children.Add(openBtn);
+
+            var deleteBtn = new Button { Content = T("common.delete"), MinWidth = 86 };
+            ToolTipService.SetToolTip(deleteBtn, T("common.delete"));
+            deleteBtn.Click += async (_, _) =>
+            {
+                var isVi = MainWindow.Localization.CurrentLanguage == AppLanguage.Vietnamese;
+                var confirmTitle = isVi ? "Xóa báo cáo?" : "Delete report?";
+                var confirmBody = isVi 
+                    ? "Bạn có chắc chắn muốn xóa file báo cáo gần nhất và file log của nó không?" 
+                    : "Are you sure you want to delete the last report file and its logs?";
+
+                var confirmDialog = new ContentDialog
+                {
+                    Title = confirmTitle,
+                    Content = new TextBlock { Text = confirmBody, TextWrapping = TextWrapping.Wrap },
+                    PrimaryButtonText = T("common.delete"),
+                    CloseButtonText = T("common.cancel"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = MainWindow.Navigation_Internal.XamlRoot
+                };
+
+                if (await confirmDialog.ShowAsync() == ContentDialogResult.Primary)
+                {
+                    try
+                    {
+                        var logFile = Path.ChangeExtension(status.LastReportPath, ".log");
+                        if (File.Exists(status.LastReportPath))
+                        {
+                            File.Delete(status.LastReportPath);
+                        }
+                        if (File.Exists(logFile))
+                        {
+                            File.Delete(logFile);
+                        }
+                        MainWindow.SetStatusText(T("settings.saved"));
+                        await MainWindow.NavigateAsync("dashboard");
+                    }
+                    catch (Exception ex)
+                    {
+                        await MainWindow.ShowDialogAsync_Internal(T("common.delete"), InfoBlock(ex.Message), T("common.close"));
+                    }
+                }
+            };
+            Grid.SetColumn(deleteBtn, 2);
+            cardGrid.Children.Add(deleteBtn);
+
+            border.Child = cardGrid;
+            MainContent.Children.Add(border);
         }
     }
 

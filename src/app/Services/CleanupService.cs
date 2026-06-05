@@ -3,18 +3,22 @@ using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
 
-public sealed class CleanupService
+public sealed class CleanupService(CommandRunner commands)
 {
-    private readonly CommandRunner _commands;
+    private readonly CommandRunner _commands = commands;
 
-    public CleanupService(CommandRunner commands)
-    {
-        _commands = commands;
-    }
+    public IpcClient? Client { get; set; }
 
-    public Task<TaskPreview> PreviewAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
+    public async Task<TaskPreview> PreviewAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
     {
-        return Task.Run(() =>
+        if (Client != null)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(new PreviewTaskRequestPayload { TaskId = task.Id });
+            var response = await Client.SendRequestAsync("PreviewTask", payload);
+            return System.Text.Json.JsonSerializer.Deserialize<TaskPreview>(response) ?? throw new InvalidOperationException("Failed to deserialize TaskPreview");
+        }
+
+        return await Task.Run(() =>
         {
             var targets = GetTargets(task.Id)
                 .Select(target => PreviewTarget(target.Name, target.Path))
@@ -49,8 +53,8 @@ public sealed class CleanupService
                 case "cleanup.dev":
                     foreach (var command in GetPlannedCommands(task.Id))
                     {
-                        var parts = SplitCommand(command);
-                        var result = await _commands.RunCaptureAsync(parts.FileName, parts.Arguments, cancellationToken);
+                        var (fileName, arguments) = SplitCommand(command);
+                        var result = await _commands.RunCaptureAsync(fileName, arguments, cancellationToken);
                         messages.Add($"{command}: exit {result.ExitCode}");
                         if (!string.IsNullOrWhiteSpace(result.StandardOutput))
                         {
@@ -105,7 +109,7 @@ public sealed class CleanupService
                     }
 
                 case "settings.storage":
-                    await _commands.StartShellAsync("ms-settings:storagesense", string.Empty);
+                    await CommandRunner.StartShellAsync("ms-settings:storagesense", string.Empty);
                     messages.Add("Opened Storage Sense settings.");
                     break;
 
@@ -125,10 +129,10 @@ public sealed class CleanupService
                             continue;
                         }
 
-                        var removed = DeleteContents(target.Path, errors);
+                        var (removedCount, skippedCount) = DeleteContents(target.Path, errors);
                         freedBytes += preview.Bytes;
-                        filesRemoved += removed.Removed;
-                        filesSkipped += removed.Skipped;
+                        filesRemoved += removedCount;
+                        filesSkipped += skippedCount;
                         messages.Add($"Cleaned {target.Name}: {Formatters.FormatBytes(preview.Bytes)}.");
                     }
                     break;
@@ -152,11 +156,10 @@ public sealed class CleanupService
             errors);
     }
 
-    private IEnumerable<(string Name, string Path)> GetTargets(string taskId)
+    private static IEnumerable<(string Name, string Path)> GetTargets(string taskId)
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var windir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         var systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
@@ -199,23 +202,23 @@ public sealed class CleanupService
 
         string[] chromiumCachePaths = ["Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage"), Path.Combine("Service Worker", "ScriptCache")];
 
-        foreach (var browser in chromiumRoots)
+        foreach (var (name, root) in chromiumRoots)
         {
-            if (!Directory.Exists(browser.Root))
+            if (!Directory.Exists(root))
             {
                 continue;
             }
 
-            var profiles = Directory.GetDirectories(browser.Root)
+            var profiles = Directory.GetDirectories(root)
                 .Where(path => Path.GetFileName(path).Equals("Default", StringComparison.OrdinalIgnoreCase) ||
                                Path.GetFileName(path).StartsWith("Profile ", StringComparison.OrdinalIgnoreCase))
-                .DefaultIfEmpty(browser.Root);
+                .DefaultIfEmpty(root);
 
             foreach (var profile in profiles)
             {
                 foreach (var cachePath in chromiumCachePaths)
                 {
-                    yield return ($"{browser.Name} {Path.GetFileName(profile)} {cachePath}", Path.Combine(profile, cachePath));
+                    yield return ($"{name} {Path.GetFileName(profile)} {cachePath}", Path.Combine(profile, cachePath));
                 }
             }
         }
@@ -231,7 +234,7 @@ public sealed class CleanupService
         }
     }
 
-    private IEnumerable<string> GetWarnings(string taskId)
+    private static IEnumerable<string> GetWarnings(string taskId)
     {
         if (taskId == "cleanup.browser")
         {

@@ -26,8 +26,8 @@ public abstract partial class BasePage : UserControl
         return Task.CompletedTask;
     }
 
-    protected string T(string key) => MainWindow.T_Internal(key);
-    protected string F(string key, params object[] args) => MainWindow.F_Internal(key, args);
+    protected string T(string key) => MainWindow.Translate(key);
+    protected string F(string key, params object[] args) => MainWindow.FormatTranslation(key, args);
 
     protected void AddHeader(string title, string subtitle)
     {

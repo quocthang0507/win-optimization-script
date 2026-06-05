@@ -5,9 +5,17 @@ namespace WinOptimizationApp.Services;
 
 public sealed class StartupService
 {
-    public Task<IReadOnlyList<StartupEntry>> ScanAsync()
+    public IpcClient? Client { get; set; }
+
+    public async Task<IReadOnlyList<StartupEntry>> ScanAsync()
     {
-        return Task.Run<IReadOnlyList<StartupEntry>>(() =>
+        if (Client != null)
+        {
+            var response = await Client.SendRequestAsync("ScanStartup");
+            return System.Text.Json.JsonSerializer.Deserialize<List<StartupEntry>>(response) ?? new List<StartupEntry>();
+        }
+
+        return await Task.Run<IReadOnlyList<StartupEntry>>(() =>
         {
             var entries = new List<StartupEntry>();
             ReadRunKey(entries, Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKCU Run", true);

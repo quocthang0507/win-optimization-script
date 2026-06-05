@@ -38,15 +38,22 @@ public sealed class SystemStatusService
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
 
+    public IpcClient? Client { get; set; }
+
     public SystemStatusService(CommandRunner commands, ReportService reports)
     {
         _commands = commands;
         _reports = reports;
     }
 
-    public Task<DashboardStatus> GetAsync()
+    public async Task<DashboardStatus> GetAsync()
     {
-        return Task.Run(() =>
+        if (Client != null)
+        {
+            var response = await Client.SendRequestAsync("GetStatus");
+            return System.Text.Json.JsonSerializer.Deserialize<DashboardStatus>(response) ?? throw new InvalidOperationException("Failed to deserialize DashboardStatus");
+        }
+        return await Task.Run(() =>
         {
             var systemDrivePath = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
             var systemDrive = new DriveInfo(systemDrivePath);

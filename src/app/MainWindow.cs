@@ -34,11 +34,13 @@ public sealed class MainWindow : Window
     private readonly MaintenanceExecutionService _execution;
     private readonly DiskAnalysisService _diskAnalysis = new();
     private readonly StorageCleanupService _storageCleanup;
+    private readonly IpcClient _ipcClient = new();
 
     private readonly NavigationView _navigation;
     private readonly Dictionary<string, NavigationViewItem> _navItems = new(StringComparer.OrdinalIgnoreCase);
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _statusText;
+    private readonly ProgressBar _statusProgress;
     
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
     private string _currentPageTag = "dashboard";
@@ -70,6 +72,23 @@ public sealed class MainWindow : Window
         _execution = new MaintenanceExecutionService(_cleanup, _commands, _paths, _reports, new RestorePointService(_commands));
         _storageCleanup = new StorageCleanupService(_reports);
 
+        try
+        {
+            var connected = Task.Run(() => _ipcClient.ConnectAsync(2000)).GetAwaiter().GetResult();
+            if (connected)
+            {
+                _cleanup.Client = _ipcClient;
+                _status.Client = _ipcClient;
+                _winget.Client = _ipcClient;
+                _execution.Client = _ipcClient;
+                _startup.Client = _ipcClient;
+            }
+        }
+        catch
+        {
+            // Fallback
+        }
+
         Title = T("app.title");
 
         try
@@ -89,6 +108,15 @@ public sealed class MainWindow : Window
         }
 
         _scrollViewer = new ScrollViewer();
+        _statusProgress = new ProgressBar
+        {
+            IsIndeterminate = true,
+            Width = 140,
+            Height = 6,
+            CornerRadius = new CornerRadius(3),
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed
+        };
         _statusText = new TextBlock 
         { 
             Text = T("common.ready"), 
@@ -139,8 +167,8 @@ public sealed class MainWindow : Window
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Spacing = 6,
-                Children = { _statusText }
+                Spacing = 12,
+                Children = { _statusProgress, _statusText }
             }
         };
         Grid.SetRow(statusBar, 1);
@@ -203,14 +231,23 @@ public sealed class MainWindow : Window
         _localization.CurrentLanguage = language;
         _settings.Language = language;
         var saved = _settingsService.Save(_settings);
+        if (_ipcClient.IsConnected)
+        {
+            try
+            {
+                var payload = System.Text.Json.JsonSerializer.Serialize(new SettingsPayload { Language = language.ToString() });
+                await _ipcClient.SendRequestAsync("SaveSettings", payload);
+            }
+            catch { }
+        }
         RefreshShellText();
         _pages.Clear();
         await NavigateAsync("settings");
         SetStatus(saved ? T("settings.saved") : F("settings.saveFailed", _settingsService.SettingsPath));
     }
 
-    internal string T_Internal(string key) => T(key);
-    internal string F_Internal(string key, params object[] args) => F(key, args);
+    internal string Translate(string key) => T(key);
+    internal string FormatTranslation(string key, params object[] args) => F(key, args);
     internal string TaskLabel_Internal(MaintenanceTask task) => TaskLabel(task);
     internal string TaskDescription_Internal(MaintenanceTask task) => TaskDescription(task);
     internal string TaskImpact_Internal(MaintenanceTask task) => TaskImpact(task);
@@ -222,36 +259,56 @@ public sealed class MainWindow : Window
     {
         SetStatus(F("status.scanningTask", TaskLabel(task)));
         var preview = await _cleanup.PreviewAsync(task);
-        var panel = new StackPanel { Spacing = 8 };
+        var panel = new StackPanel { Spacing = 8, MaxWidth = 720 };
         panel.Children.Add(new TextBlock { Text = preview.Summary, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+
+        var detailsPanel = new StackPanel { Spacing = 6 };
+        var hasDetails = false;
 
         foreach (var warning in preview.Warnings)
         {
-            panel.Children.Add(new TextBlock { Text = warning, Foreground = new SolidColorBrush(Colors.DarkOrange), TextWrapping = TextWrapping.Wrap });
+            detailsPanel.Children.Add(new TextBlock { Text = warning, Foreground = new SolidColorBrush(Colors.DarkOrange), TextWrapping = TextWrapping.Wrap });
+            hasDetails = true;
         }
 
         foreach (var command in preview.PlannedCommands)
         {
-            panel.Children.Add(new TextBlock { Text = command, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono"), TextWrapping = TextWrapping.Wrap });
+            detailsPanel.Children.Add(new TextBlock { Text = command, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono"), TextWrapping = TextWrapping.Wrap });
+            hasDetails = true;
         }
 
-        foreach (var target in preview.Targets.Take(20))
+        foreach (var target in preview.Targets.Take(100))
         {
-            panel.Children.Add(new TextBlock
+            detailsPanel.Children.Add(new TextBlock
             {
                 Text = F("preview.targetLine", target.Name, Formatters.FormatBytes(target.Bytes), target.FileCount, target.Status),
                 TextWrapping = TextWrapping.Wrap,
                 Opacity = target.Exists ? 0.9 : 0.55
             });
+            hasDetails = true;
         }
 
-        if (preview.Targets.Count > 20)
+        if (preview.Targets.Count > 100)
         {
-            panel.Children.Add(new TextBlock { Text = F("preview.moreTargets", preview.Targets.Count - 20), Opacity = 0.65 });
+            detailsPanel.Children.Add(new TextBlock { Text = F("preview.moreTargets", preview.Targets.Count - 100), Opacity = 0.65 });
+            hasDetails = true;
         }
 
-        await ShowDialogAsync(F("preview.title", TaskLabel(task)), panel, T("common.close"));
+        if (hasDetails)
+        {
+            var scrollViewer = new ScrollViewer
+            {
+                Content = detailsPanel,
+                MaxHeight = 320,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            panel.Children.Add(scrollViewer);
+        }
+
         SetStatus(T("common.ready"));
+        await ShowDialogAsync(F("preview.title", TaskLabel(task)), panel, T("common.close"));
     }
 
     internal async Task RunTaskAsync(MaintenanceTask task)
@@ -277,8 +334,8 @@ public sealed class MainWindow : Window
 
         SetStatus(F("status.runningTask", TaskLabel(task)));
         var result = await _execution.RunAsync(task);
-        await ShowRunResultAsync(result);
         SetStatus(T("common.ready"));
+        await ShowRunResultAsync(result);
     }
 
     private async Task<bool> ConfirmAsync(MaintenanceTask task)
@@ -311,14 +368,32 @@ public sealed class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = result.Success ? T("run.completed") : T("run.completedWarnings"), FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         panel.Children.Add(new TextBlock { Text = F("run.summary", Formatters.FormatBytes(result.FreedBytes), result.FilesRemoved, result.FilesSkipped), TextWrapping = TextWrapping.Wrap });
 
-        foreach (var message in result.Messages.Where(message => !string.IsNullOrWhiteSpace(message)).Take(8))
+        var logPanel = new StackPanel { Spacing = 6 };
+        var hasDetails = false;
+
+        foreach (var message in result.Messages.Where(message => !string.IsNullOrWhiteSpace(message)).Take(100))
         {
-            panel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+            logPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+            hasDetails = true;
         }
 
-        foreach (var error in result.Errors.Where(error => !string.IsNullOrWhiteSpace(error)).Take(8))
+        foreach (var error in result.Errors.Where(error => !string.IsNullOrWhiteSpace(error)).Take(100))
         {
-            panel.Children.Add(new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Colors.IndianRed) });
+            logPanel.Children.Add(new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Colors.IndianRed) });
+            hasDetails = true;
+        }
+
+        if (hasDetails)
+        {
+            var scrollViewer = new ScrollViewer
+            {
+                Content = logPanel,
+                MaxHeight = 320,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            panel.Children.Add(scrollViewer);
         }
 
         await ShowDialogAsync(LocalizeTaskLabel(result.TaskId, result.TaskLabel), panel, T("common.close"));
@@ -337,7 +412,7 @@ public sealed class MainWindow : Window
         SetStatus(T("common.ready"));
     }
 
-    private FrameworkElement PackageRow(WingetPackage package)
+    private Border PackageRow(WingetPackage package)
     {
         return Card_Helper(package.Name, $"{package.Id}\n{package.InstalledVersion} -> {package.AvailableVersion} / {package.Source}", T("common.open"), (_, _) => { });
     }
@@ -392,7 +467,19 @@ public sealed class MainWindow : Window
     private void SetStatus(string text)
     {
         _statusText.Text = text;
-        _statusText.Foreground = GetStatusBrush(text);
+        var brush = GetStatusBrush(text);
+        _statusText.Foreground = brush;
+
+        var isBusy = !string.IsNullOrEmpty(text) 
+            && text != T("common.ready") 
+            && text != T("settings.saved") 
+            && !text.Contains(T("run.completed"))
+            && !text.Contains(T("storage.scanCanceled"))
+            && !text.Contains("Canceled")
+            && !text.Contains("Hủy");
+
+        _statusProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        _statusProgress.Foreground = brush;
     }
 
     private SolidColorBrush GetStatusBrush(string text)

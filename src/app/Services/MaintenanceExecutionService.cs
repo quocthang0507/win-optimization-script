@@ -2,30 +2,35 @@ using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
 
-public sealed class MaintenanceExecutionService
+public sealed class MaintenanceExecutionService(
+    CleanupService cleanup,
+    CommandRunner commands,
+    PathService paths,
+    ReportService reports,
+    RestorePointService restorePoints)
 {
-    private readonly CleanupService _cleanup;
-    private readonly CommandRunner _commands;
-    private readonly PathService _paths;
-    private readonly ReportService _reports;
-    private readonly RestorePointService _restorePoints;
+    private readonly CleanupService _cleanup = cleanup;
+    private readonly CommandRunner _commands = commands;
+    private readonly PathService _paths = paths;
+    private readonly ReportService _reports = reports;
+    private readonly RestorePointService _restorePoints = restorePoints;
 
-    public MaintenanceExecutionService(
-        CleanupService cleanup,
-        CommandRunner commands,
-        PathService paths,
-        ReportService reports,
-        RestorePointService restorePoints)
-    {
-        _cleanup = cleanup;
-        _commands = commands;
-        _paths = paths;
-        _reports = reports;
-        _restorePoints = restorePoints;
-    }
+    public IpcClient? Client { get; set; }
 
     public async Task<TaskRunResult> RunAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
     {
+        if (Client != null)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(new RunTaskRequestPayload
+            {
+                TaskId = task.Id,
+                TaskLabel = task.Label,
+                TaskGroup = task.Group,
+                CanRollback = task.CanRollback
+            });
+            var response = await Client.SendRequestAsync("RunTask", payload);
+            return System.Text.Json.JsonSerializer.Deserialize<TaskRunResult>(response) ?? throw new InvalidOperationException("Failed to deserialize TaskRunResult");
+        }
         var started = DateTimeOffset.Now;
         var preMessages = new List<string>();
         var preErrors = new List<string>();
@@ -40,15 +45,15 @@ public sealed class MaintenanceExecutionService
             "Cleanup" or "Privacy" => await _cleanup.RunAsync(task, cancellationToken),
             "Repair" => await RunRepairAsync(task, started, [], [], cancellationToken),
             "Optimization" => await RunOptimizationAsync(task, started, [], [], cancellationToken),
-            "Settings" => await RunSettingsAsync(task, started, [], [], cancellationToken),
+            "Settings" => await RunSettingsAsync(task, started, [], []),
             "Updates" => await RunWingetUpgradeAsync(task, started, [], [], cancellationToken),
             _ => new TaskRunResult(task.Id, task.Label, started, DateTimeOffset.Now, false, 0, 0, 0, [], ["No runner is registered for this task."])
         };
 
         var merged = result with
         {
-            Messages = preMessages.Concat(result.Messages).ToList(),
-            Errors = preErrors.Concat(result.Errors).ToList()
+            Messages = [..preMessages, ..result.Messages],
+            Errors = [..preErrors, ..result.Errors]
         };
 
         await _reports.SaveAsync(merged, cancellationToken);
@@ -109,11 +114,11 @@ public sealed class MaintenanceExecutionService
         return Finish(task, started, messages, errors);
     }
 
-    private async Task<TaskRunResult> RunSettingsAsync(MaintenanceTask task, DateTimeOffset started, List<string> messages, List<string> errors, CancellationToken cancellationToken)
+    private async Task<TaskRunResult> RunSettingsAsync(MaintenanceTask task, DateTimeOffset started, List<string> messages, List<string> errors)
     {
         if (task.Id == "settings.storage")
         {
-            await _commands.StartShellAsync("ms-settings:storagesense", string.Empty);
+            await CommandRunner.StartShellAsync("ms-settings:storagesense", string.Empty);
             messages.Add("Opened Storage Sense settings.");
         }
         else if (task.Id == "cli.launch")
@@ -124,7 +129,7 @@ public sealed class MaintenanceExecutionService
             }
             else
             {
-                await _commands.StartShellAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{_paths.CliScriptPath}\"");
+                await CommandRunner.StartShellAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{_paths.CliScriptPath}\"");
                 messages.Add($"Started CLI script: {_paths.CliScriptPath}");
             }
         }

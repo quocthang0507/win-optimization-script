@@ -126,7 +126,7 @@ public sealed partial class SettingsPage : BasePage
                 MainWindow.Settings.Theme = theme;
                 MainWindow.ApplyTheme_Internal(theme);
                 var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
-                MainWindow.SetStatusText(saved ? T("settings.saved") : MainWindow.F_Internal("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+                MainWindow.SetStatusText(saved ? T("settings.saved") : MainWindow.FormatTranslation("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
             }
         };
 
@@ -176,7 +176,7 @@ public sealed partial class SettingsPage : BasePage
                 MainWindow.Settings.WinUiStyle = style;
                 MainWindow.ApplyWinUiStyle_Internal(style);
                 var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
-                MainWindow.SetStatusText(saved ? T("settings.saved") : MainWindow.F_Internal("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+                MainWindow.SetStatusText(saved ? T("settings.saved") : MainWindow.FormatTranslation("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
             }
         };
 

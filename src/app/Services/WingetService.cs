@@ -6,6 +6,8 @@ public sealed class WingetService
 {
     private readonly CommandRunner _commands;
 
+    public IpcClient? Client { get; set; }
+
     public WingetService(CommandRunner commands)
     {
         _commands = commands;
@@ -13,6 +15,11 @@ public sealed class WingetService
 
     public async Task<IReadOnlyList<WingetPackage>> ScanAsync(CancellationToken cancellationToken = default)
     {
+        if (Client != null)
+        {
+            var response = await Client.SendRequestAsync("ScanWinget");
+            return System.Text.Json.JsonSerializer.Deserialize<List<WingetPackage>>(response) ?? new List<WingetPackage>();
+        }
         if (!_commands.Exists("winget"))
         {
             return [];
