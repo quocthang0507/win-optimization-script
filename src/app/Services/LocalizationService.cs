@@ -163,6 +163,8 @@ public sealed class LocalizationService
         ["preview.title"] = "{0} preview",
         ["admin.title"] = "Administrator required",
         ["admin.message"] = "{0} needs an elevated app session.",
+        ["admin.elevateButton"] = "Restart as Admin",
+        ["admin.bannerDesc"] = "Some tasks require Administrator privileges. Run with elevated privileges to enable all features.",
         ["confirm.risk"] = "Risk: {0}",
         ["confirm.restorePoint"] = "A restore point will be requested before running when possible.",
         ["confirm.runQuestion"] = "Run {0}?",
@@ -226,7 +228,13 @@ public sealed class LocalizationService
         ["task.cli.launch.label"] = "Launch CLI tool",
         ["task.cli.launch.description"] = "Starts src/cli/Utilities.ps1 in PowerShell.",
         ["task.cli.launch.impact"] = "Runs the existing console workflow.",
-        ["task.storage.cleanup.label"] = "Storage Analyzer Cleanup"
+        ["task.storage.cleanup.label"] = "Storage Analyzer Cleanup",
+
+        ["storage.adminRequiredTitle"] = "Administrator Recommended",
+        ["storage.adminRequiredDesc"] = "To perform a full storage analysis (including locked system folders), please run the application as Administrator.",
+        ["storage.scanning"] = "Analyzing drive storage capacity...",
+        ["dashboard.deleteConfirmTitle"] = "Delete report?",
+        ["dashboard.deleteConfirmBody"] = "Are you sure you want to delete the last report file and its logs?"
     };
 
     private readonly Dictionary<string, string> _vietnamese = new(StringComparer.OrdinalIgnoreCase)
@@ -387,6 +395,8 @@ public sealed class LocalizationService
         ["preview.title"] = "Xem trước {0}",
         ["admin.title"] = "Cần quyền Administrator",
         ["admin.message"] = "{0} cần chạy app ở quyền nâng cao.",
+        ["admin.elevateButton"] = "Chạy lại dưới quyền Admin",
+        ["admin.bannerDesc"] = "Một số tác vụ yêu cầu quyền Administrator. Hãy chạy lại với quyền nâng cao để sử dụng đầy đủ tính năng.",
         ["confirm.risk"] = "Rủi ro: {0}",
         ["confirm.restorePoint"] = "App sẽ yêu cầu tạo điểm khôi phục trước khi chạy nếu có thể.",
         ["confirm.runQuestion"] = "Chạy {0}?",
@@ -450,7 +460,13 @@ public sealed class LocalizationService
         ["task.cli.launch.label"] = "Mở công cụ CLI",
         ["task.cli.launch.description"] = "Chạy src/cli/Utilities.ps1 bằng PowerShell.",
         ["task.cli.launch.impact"] = "Chạy workflow console hiện có.",
-        ["task.storage.cleanup.label"] = "Dọn dẹp từ Phân tích lưu trữ"
+        ["task.storage.cleanup.label"] = "Dọn dẹp từ Phân tích lưu trữ",
+
+        ["storage.adminRequiredTitle"] = "Quyền Administrator Khuyên Dùng",
+        ["storage.adminRequiredDesc"] = "Để thực hiện phân tích dung lượng đầy đủ (bao gồm các thư mục hệ thống bị khóa), vui lòng chạy ứng dụng dưới quyền Administrator.",
+        ["storage.scanning"] = "Đang tiến hành phân tích dung lượng ổ đĩa...",
+        ["dashboard.deleteConfirmTitle"] = "Xóa báo cáo?",
+        ["dashboard.deleteConfirmBody"] = "Bạn có chắc chắn muốn xóa file báo cáo gần nhất và file log của nó không?"
     };
 
     public LocalizationService(AppLanguage? savedLanguage = null)

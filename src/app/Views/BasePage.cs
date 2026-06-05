@@ -176,4 +176,47 @@ public abstract partial class BasePage : UserControl
             _ => Brush(Colors.Gray)
         };
     }
+
+    protected Border CreateAdminWarningBanner(string? title = null, string? description = null)
+    {
+        var adminWarningBanner = new Border
+        {
+            Padding = new Thickness(16),
+            Margin = new Thickness(0, 0, 0, 8),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.DarkOrange),
+            Background = Brush(Color.FromArgb(18, 255, 140, 0))
+        };
+
+        var bannerGrid = new Grid { ColumnSpacing = 16 };
+        bannerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        bannerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var bannerText = new StackPanel { Spacing = 4 };
+        bannerText.Children.Add(new TextBlock
+        {
+            Text = title ?? T("admin.title"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = Brush(Colors.DarkOrange)
+        });
+        bannerText.Children.Add(new TextBlock
+        {
+            Text = description ?? T("admin.bannerDesc"),
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.85
+        });
+        Grid.SetColumn(bannerText, 0);
+        bannerGrid.Children.Add(bannerText);
+
+        var elevateBtn = ActionButton(
+            T("admin.elevateButton"),
+            Symbol.Admin,
+            (_, _) => MainWindow.ElevateApplication());
+        Grid.SetColumn(elevateBtn, 1);
+        bannerGrid.Children.Add(elevateBtn);
+
+        adminWarningBanner.Child = bannerGrid;
+        return adminWarningBanner;
+    }
 }

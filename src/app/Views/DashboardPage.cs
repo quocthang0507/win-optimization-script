@@ -239,16 +239,10 @@ public sealed partial class DashboardPage : BasePage
             ToolTipService.SetToolTip(deleteBtn, T("common.delete"));
             deleteBtn.Click += async (_, _) =>
             {
-                var isVi = MainWindow.Localization.CurrentLanguage == AppLanguage.Vietnamese;
-                var confirmTitle = isVi ? "Xóa báo cáo?" : "Delete report?";
-                var confirmBody = isVi 
-                    ? "Bạn có chắc chắn muốn xóa file báo cáo gần nhất và file log của nó không?" 
-                    : "Are you sure you want to delete the last report file and its logs?";
-
                 var confirmDialog = new ContentDialog
                 {
-                    Title = confirmTitle,
-                    Content = new TextBlock { Text = confirmBody, TextWrapping = TextWrapping.Wrap },
+                    Title = T("dashboard.deleteConfirmTitle"),
+                    Content = new TextBlock { Text = T("dashboard.deleteConfirmBody"), TextWrapping = TextWrapping.Wrap },
                     PrimaryButtonText = T("common.delete"),
                     CloseButtonText = T("common.cancel"),
                     DefaultButton = ContentDialogButton.Close,

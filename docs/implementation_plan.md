@@ -31,6 +31,7 @@ docs/
 src/
   app/
     App.cs
+    App.xaml
     Program.cs
     MainWindow.cs
     WinOptimizationApp.csproj
@@ -47,6 +48,9 @@ src/
       SettingsPage.cs
     Models/
       AppLanguage.cs
+      AppSettings.cs
+      AppTheme.cs
+      AppWinUiStyle.cs
       CleanupTargetPreview.cs
       DashboardStatus.cs
       DiskItem.cs
@@ -63,10 +67,14 @@ src/
       TaskRunResult.cs
       WingetPackage.cs
     Services/
+      AppSettingsService.cs
       CleanupService.cs
       CommandRunner.cs
       DiskAnalysisService.cs
       Formatters.cs
+      IpcClient.cs
+      IpcMessages.cs
+      IpcServer.cs
       LocalizationService.cs
       MaintenanceCatalog.cs
       MaintenanceExecutionService.cs
@@ -872,7 +880,7 @@ Tiêu chí nghiệm thu:
 - [x] Có chế độ scan cho ít nhất temp files, browser cache và recycle bin.
 - [x] Có log text và report JSON cho mỗi task.
 - [x] Tác vụ High risk có xác nhận riêng.
-- [ ] README hiển thị tiếng Việt đúng encoding.
+- [x] README hiển thị tiếng Việt đúng encoding.
 - [x] `winget upgrade` có preview trước khi chạy `--all`.
 - [x] Có summary cuối phiên: dung lượng giải phóng, số task chạy, cảnh báo.
 - [x] Form chính có navigation rõ ràng giữa Maintenance và Storage Analyzer.

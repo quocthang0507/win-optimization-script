@@ -65,6 +65,7 @@ public sealed partial class StoragePage : BasePage
 
         Button? scanButton = null;
         Button? stopButton = null;
+        Border? progressCard = null;
 
         scanButton = ActionButton(T("common.scan"), Symbol.Find, async (_, _) =>
         {
@@ -77,6 +78,7 @@ public sealed partial class StoragePage : BasePage
                 progressText,
                 resultPanel);
         });
+        scanButton.VerticalAlignment = VerticalAlignment.Bottom;
 
         stopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) =>
         {
@@ -93,6 +95,7 @@ public sealed partial class StoragePage : BasePage
                 rootBox.Text = folder;
             }
         });
+        browseButton.VerticalAlignment = VerticalAlignment.Bottom;
 
         var commandGrid = new Grid { ColumnSpacing = 12, RowSpacing = 10 };
         commandGrid.ColumnDefinitions.Add(new ColumnDefinition());
@@ -118,13 +121,34 @@ public sealed partial class StoragePage : BasePage
         Grid.SetColumn(scanButton, 6);
         commandGrid.Children.Add(scanButton);
 
-        var stopRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        stopRow.Children.Add(stopButton);
-        stopRow.Children.Add(progressText);
+        if (!SystemStatusService.IsAdministrator())
+        {
+            MainContent.Children.Add(CreateAdminWarningBanner(T("storage.adminRequiredTitle"), T("storage.adminRequiredDesc")));
+        }
+
+        progressCard = new Border
+        {
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            Visibility = Visibility.Collapsed
+        };
+
+        var progressStack = new StackPanel { Spacing = 10 };
+        progressStack.Children.Add(new TextBlock { Text = T("storage.scanning"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        progressStack.Children.Add(progress);
+        progressStack.Children.Add(progressText);
+
+        var progressButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        progressButtons.Children.Add(stopButton);
+        progressStack.Children.Add(progressButtons);
+
+        progressCard.Child = progressStack;
 
         MainContent.Children.Add(commandGrid);
-        MainContent.Children.Add(progress);
-        MainContent.Children.Add(stopRow);
+        MainContent.Children.Add(progressCard);
         MainContent.Children.Add(resultPanel);
 
         if (_lastDiskScan is not null)
@@ -157,6 +181,7 @@ public sealed partial class StoragePage : BasePage
             _diskScanCts = new CancellationTokenSource();
             scanButton!.IsEnabled = false;
             stopButton!.IsEnabled = true;
+            progressCard!.Visibility = Visibility.Visible;
             progressBar.Visibility = Visibility.Visible;
             progressBar.IsIndeterminate = true;
             output.Children.Clear();
@@ -189,6 +214,7 @@ public sealed partial class StoragePage : BasePage
             {
                 progressBar.IsIndeterminate = false;
                 progressBar.Visibility = Visibility.Collapsed;
+                progressCard!.Visibility = Visibility.Collapsed;
                 scanButton!.IsEnabled = true;
                 stopButton!.IsEnabled = false;
                 MainWindow.SetStatusText(T("common.ready"));

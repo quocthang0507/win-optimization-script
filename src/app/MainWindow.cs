@@ -117,9 +117,15 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed
         };
+        var initialStatus = T("common.ready");
+        if (SystemStatusService.IsAdministrator())
+        {
+            initialStatus += _settings.Language == AppLanguage.Vietnamese ? " (Quyền Admin)" : " (Admin)";
+        }
+
         _statusText = new TextBlock 
         { 
-            Text = T("common.ready"), 
+            Text = initialStatus, 
             Foreground = new SolidColorBrush(Colors.MediumSeaGreen),
             Opacity = 0.9, 
             Margin = new Thickness(0),
@@ -145,11 +151,18 @@ public sealed class MainWindow : Window
         AddNavItem("history", "nav.history", Symbol.Document);
         AddNavItem("settings", "nav.settings", Symbol.Setting, isFooter: true);
 
-        _navigation.SelectionChanged += (sender, args) =>
+        _navigation.SelectionChanged += async (sender, args) =>
         {
             if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
             {
-                var ignored = NavigateAsync(tag);
+                try
+                {
+                    await NavigateAsync(tag);
+                }
+                catch (Exception ex)
+                {
+                    SetStatus($"Error: {ex.Message}");
+                }
             }
         };
 
@@ -311,15 +324,62 @@ public sealed class MainWindow : Window
         await ShowDialogAsync(F("preview.title", TaskLabel(task)), panel, T("common.close"));
     }
 
+    public void ElevateApplication()
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exePath))
+            {
+                exePath = typeof(Program).Assembly.Location;
+                if (Path.GetExtension(exePath).Equals(".dll", StringComparison.OrdinalIgnoreCase))
+                {
+                    exePath = Path.ChangeExtension(exePath, ".exe");
+                }
+            }
+
+            if (File.Exists(exePath))
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true,
+                    Verb = "runas"
+                };
+
+                Process.Start(startInfo);
+                Application.Current.Exit();
+            }
+        }
+        catch
+        {
+            // Cancelled
+        }
+    }
+
     internal async Task RunTaskAsync(MaintenanceTask task)
     {
         if (task.RequiresAdmin && !SystemStatusService.IsAdministrator())
         {
-            await ShowDialogAsync(T("admin.title"), new TextBlock
+            var dialog = new ContentDialog
             {
-                Text = F("admin.message", TaskLabel(task)),
-                TextWrapping = TextWrapping.Wrap
-            }, T("common.close"));
+                Title = T("admin.title"),
+                Content = new TextBlock
+                {
+                    Text = F("admin.message", TaskLabel(task)),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                PrimaryButtonText = T("admin.elevateButton"),
+                CloseButtonText = T("common.close"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = _navigation.XamlRoot
+            };
+
+            var dialogResult = await dialog.ShowAsync();
+            if (dialogResult == ContentDialogResult.Primary)
+            {
+                ElevateApplication();
+            }
             return;
         }
 
@@ -414,7 +474,10 @@ public sealed class MainWindow : Window
 
     private Border PackageRow(WingetPackage package)
     {
-        return Card_Helper(package.Name, $"{package.Id}\n{package.InstalledVersion} -> {package.AvailableVersion} / {package.Source}", T("common.open"), (_, _) => { });
+        return Card_Helper(package.Name, $"{package.Id}\n{package.InstalledVersion} -> {package.AvailableVersion} / {package.Source}", T("common.open"), (_, _) =>
+        {
+            try { Process.Start(new ProcessStartInfo { FileName = $"https://winget.run/pkg/{package.Id}", UseShellExecute = true }); } catch { }
+        });
     }
 
     private static Border Card_Helper(string title, string body, string buttonText, RoutedEventHandler action)
@@ -466,7 +529,18 @@ public sealed class MainWindow : Window
 
     private void SetStatus(string text)
     {
-        _statusText.Text = text;
+        var displayText = text;
+        if (text == T("common.ready"))
+        {
+            var isAdmin = SystemStatusService.IsAdministrator();
+            if (isAdmin)
+            {
+                var isVi = _localization.CurrentLanguage == AppLanguage.Vietnamese;
+                displayText += isVi ? " (Quyền Admin)" : " (Admin)";
+            }
+        }
+
+        _statusText.Text = displayText;
         var brush = GetStatusBrush(text);
         _statusText.Foreground = brush;
 
@@ -645,6 +719,12 @@ public sealed class MainWindow : Window
             return;
         }
 
-        Process.Start(new ProcessStartInfo { FileName = Path.GetDirectoryName(path), UseShellExecute = true });
+        var dirPath = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(dirPath))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo { FileName = dirPath, UseShellExecute = true });
     }
 }

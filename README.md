@@ -9,76 +9,116 @@ Windows System Maintenance Tool là bộ công cụ dọn dẹp, tối ưu và s
 
 ### WinUI app
 
-- Dashboard hiển thị trạng thái máy: Windows version, quyền admin, uptime, dung lượng ổ hệ thống, pending reboot và WinGet.
-- Cleanup có scan/preview trước khi chạy.
-- Storage Analyzer quét ổ đĩa hoặc thư mục, hiển thị thư mục lớn, file lớn, loại file và cleanup candidates.
-- Badge mức rủi ro: `Safe`, `Medium`, `High`.
-- Chặn hoặc cảnh báo các tác vụ cần Administrator.
-- Report sau khi chạy task, lưu vào `logs/` ở root repo.
-- Startup inventory dạng read-only.
-- WinGet update preview.
-- Hỗ trợ giao diện tiếng Việt và tiếng Anh, có thể đổi trong Settings.
-- Settings có lối mở Storage Sense và chạy lại CLI ở `src/cli/Utilities.ps1`.
+- Dashboard hiển thị trạng thái hệ thống: Thông tin Windows version, trạng thái Administrator, Uptime, dung lượng trống ổ đĩa, Pending Reboot và các bản cập nhật WinGet khả dụng.
+- Chế độ dọn dẹp (Cleanup) hỗ trợ Scan / Preview trước khi thực thi thực tế.
+- Bộ phân tích dung lượng (Storage Analyzer) giống TreeSize: Quét thư mục/ổ đĩa bất kỳ trực quan, hiển thị các thư mục/file dung lượng lớn nhất, biểu đồ phân bổ loại file, và đề xuất dọn dẹp.
+- Giao tiếp đa tiến trình (IPC) qua Windows Named Pipes (`WinOptimizationApp_Runner`) để đồng bộ trạng thái và gửi lệnh an toàn.
+- Mô hình Runner-Module: Tiến trình Runner quản lý ứng dụng, có thể khởi động lại UI Module nếu gặp sự cố, đồng thời xử lý các tác vụ nền.
+- Cảnh báo chạy dưới quyền Administrator (Admin Warning Banner) và hỗ trợ tự động yêu cầu nâng quyền (UAC elevation) khi thực hiện các chức năng phân tích/dọn dẹp hệ thống sâu.
+- Huy hiệu mức độ rủi ro (Risk Badge) trực quan: `Safe`, `Medium`, `High`.
+- Lưu báo cáo dọn dẹp chi tiết (JSON và Log) trong thư mục `logs/` ở thư mục gốc của repo.
+- Startup Inventory cho phép xem thông tin các chương trình khởi động cùng Windows.
+- Xem trước và cập nhật ứng dụng qua WinGet Update Preview.
+- Hỗ trợ đa ngôn ngữ hoàn chỉnh (tiếng Anh và tiếng Việt) chuyển đổi tức thì trong Settings.
 
 ### PowerShell CLI
 
-CLI hiện có các nhóm chức năng:
+CLI hiện có các nhóm chức năng ổn định:
 
-- Quick Cleanup: temp files, browser cache, Recycle Bin, clipboard.
-- Deep Cleanup: Disk Cleanup, developer caches, Windows Update cache, Event Logs, Windows.old.
-- Optimization: optimize drives, disable hibernation.
-- Repair: DISM, SFC, restart Explorer.
-- Software: `winget upgrade --all`, compile script sang EXE.
-- Network: flush DNS.
-- Privacy: PowerShell history, Start/Taskbar recent list.
-- Info: uptime.
+- Quick Cleanup: Các tệp tạm, bộ nhớ đệm trình duyệt, Thùng rác (Recycle Bin), clipboard.
+- Deep Cleanup: Disk Cleanup chính chủ, cache lập trình viên (NuGet, NPM, pip, Yarn), Windows Update cache, Event Logs, Windows.old.
+- Optimization: Tối ưu hóa ổ đĩa, tắt chế độ ngủ đông (hibernation).
+- Repair: Quét và sửa lỗi hệ thống bằng DISM, SFC, khởi động lại Explorer.
+- Software: Chạy nâng cấp ứng dụng qua `winget upgrade --all`, biên dịch script sang EXE.
+- Network: Xóa bộ nhớ đệm DNS.
+- Privacy: Xóa lịch sử PowerShell, danh sách file mở gần đây trên Start/Taskbar.
+- Info: Uptime của hệ thống.
+
+## Kiến trúc Runner-Module & IPC
+
+Ứng dụng WinUI 3 áp dụng mô hình kiến trúc hai tiến trình:
+
+1. **Runner Mode (Daemon)**: Khi chạy `WinOptimizationApp.exe` không có tham số, nó sẽ đóng vai trò là **Runner** (tiến trình quản lý chính). Runner sẽ:
+   - Khởi tạo `IpcServer` và lắng nghe kết nối Named Pipe tại `\\.\pipe\WinOptimizationApp_Runner`.
+   - Chạy các dịch vụ nền (Cleanup, SystemStatus, Winget, Startup).
+   - Khởi chạy tiến trình UI con với đối số `--ui`.
+   - Giám sát vòng đời tiến trình UI (tự động dọn dẹp IPC khi UI thoát).
+2. **UI Mode (Module)**: Khi chạy với đối số `--ui`, ứng dụng sẽ khởi động giao diện người dùng WinUI 3. UI sẽ:
+   - Kết nối tới Named Pipe của Runner bằng `IpcClient`.
+   - Gửi yêu cầu qua định dạng tin nhắn JSON-serialized (`IpcMessage`) và hiển thị tiến trình, dữ liệu trả về từ Runner.
+
+Sự tách biệt này đảm bảo nếu tiến trình UI gặp lỗi hoặc cần nâng cấp đặc quyền (UAC elevation), nó có thể kết nối lại liền mạch tới Runner nền mà không làm gián đoạn trạng thái hệ thống.
 
 ## Cấu trúc project
 
 ```text
 docs/
-  implementation_plan.md
+  implementation_plan.md        # Kế hoạch chi tiết và trạng thái triển khai
 src/
   app/
-    WinOptimizationApp.csproj
-    App.cs
-    Program.cs
-    MainWindow.cs
-    Models/
-    Services/
+    WinOptimizationApp.csproj   # File dự án WinUI 3
+    App.cs                      # Application class
+    Program.cs                  # Điểm khởi đầu chính (phân luồng Runner / UI Mode)
+    MainWindow.cs               # Cửa sổ chính và điều hướng Navigation
+    Models/                     # Chứa các thực thể dữ liệu (Data models)
+      AppSettings.cs
+      AppTheme.cs
+      AppWinUiStyle.cs
+      DiskItem.cs
+      DiskScanResult.cs
+      ...
+    Views/                      # Các trang giao diện người dùng WinUI 3
+      BasePage.cs               # Lớp cơ sở chứa Admin Warning Banner dùng chung
+      DashboardPage.cs
+      MaintenancePage.cs
+      StoragePage.cs            # Giao diện Storage Analyzer
+      StartupPage.cs
+      UpdatesPage.cs
+      HistoryPage.cs
+      SettingsPage.cs
+    Services/                   # Các dịch vụ logic và giao tiếp IPC
+      IpcClient.cs              # Client kết nối Named Pipe gửi yêu cầu từ UI
+      IpcServer.cs              # Server Named Pipe xử lý yêu cầu ở Runner
+      IpcMessages.cs            # Định nghĩa các gói tin IPC
+      CleanupService.cs
+      DiskAnalysisService.cs
+      LocalizationService.cs    # Dịch vụ Việt hóa / Anh hóa toàn bộ UI
+      ...
   cli/
-    Utilities.ps1
-    Utilities.exe
+    Utilities.ps1               # Script PowerShell tối ưu hệ thống
+    Utilities.exe               # Executable biên dịch từ script
 logs/
-  maintenance-*.json
-  maintenance-*.log
+  maintenance-*.json            # Báo cáo dạng JSON
+  maintenance-*.log             # Log chi tiết quá trình chạy
 ```
 
-`src/app/Services` đang là core engine MVP cho WinUI app. Kế hoạch tiếp theo là tách phần này sang `src/core` để WinUI, CLI và test dùng chung.
+`src/app/Services` đóng vai trò là core engine cho WinUI app. Kế hoạch tiếp theo là tách phần này sang `src/core` thành một class library dùng chung cho WinUI, CLI và test.
 
 ## Yêu cầu hệ thống
 
 - Windows 10 hoặc Windows 11.
 - PowerShell 5.1 trở lên cho CLI.
-- .NET SDK 10 trở lên để build WinUI app.
-- Một số tác vụ cần chạy app hoặc PowerShell dưới quyền Administrator.
+- .NET SDK 10 trở lên để biên dịch WinUI app.
+- Quyền Administrator (để thực hiện các tác vụ dọn dẹp hệ thống, DISM/SFC, hoặc quét ổ đĩa đầy đủ).
 
-## Chạy WinUI app
+## Hướng dẫn chạy và biên dịch
 
-Từ root repo:
+### Chạy WinUI app
+
+Từ thư mục gốc (root) của kho lưu trữ:
 
 ```powershell
 dotnet restore .\src\app\WinOptimizationApp.csproj
 dotnet run --project .\src\app\WinOptimizationApp.csproj
 ```
 
-Build:
+### Biên dịch WinUI app
 
 ```powershell
-dotnet build .\src\app\WinOptimizationApp.csproj
+dotnet build .\src\app\WinOptimizationApp.csproj -c Release
 ```
 
-## Chạy PowerShell CLI
+### Chạy PowerShell CLI
 
 Mở PowerShell với quyền Administrator, rồi chạy:
 
@@ -86,37 +126,23 @@ Mở PowerShell với quyền Administrator, rồi chạy:
 .\src\cli\Utilities.ps1
 ```
 
-Hoặc chạy EXE nếu đã build:
+Hoặc chạy file EXE trực tiếp nếu đã build:
 
 ```powershell
 .\src\cli\Utilities.exe
 ```
 
-## An toàn khi sử dụng
+## Hướng dẫn An toàn
 
-- Luôn ưu tiên `Scan` hoặc `Preview` trước khi cleanup.
-- Trong Storage Analyzer, mọi file/thư mục được chọn để dọn đều đi qua `Cleanup Review`.
-- Đóng trình duyệt trước khi dọn browser cache.
-- Với task `High`, nên tạo Restore Point trước khi chạy.
-- Không chạy các tác vụ repair/optimization khi máy đang cập nhật Windows.
-- Report được lưu trong `logs/` để kiểm tra lại kết quả và lỗi.
+- **Xem trước (Preview/Scan)**: Luôn sử dụng nút `Scan` hoặc `Preview` để xem trước dung lượng tệp tin và các thư mục bị ảnh hưởng trước khi thực hiện dọn dẹp thực tế.
+- **Dọn dẹp lưu trữ**: Khi sử dụng Storage Analyzer, mọi thư mục/tệp tin được chọn xóa sẽ được đưa qua hộp xác nhận `Cleanup Review` trước khi thực sự bị di chuyển vào Thùng rác (Recycle Bin) hoặc xóa vĩnh viễn.
+- **Trình duyệt**: Đóng tất cả trình duyệt trước khi dọn dẹp bộ nhớ đệm trình duyệt để tránh xung đột khoá tệp.
+- **Điểm khôi phục (Restore Point)**: Đối với các tác vụ có mức rủi ro `High` (như xóa Event Logs hoặc Windows.old), hệ thống sẽ tạo một điểm khôi phục (System Restore Point) trước khi chạy.
+- **Báo cáo**: Lịch sử dọn dẹp được ghi lại đầy đủ tại thư mục `logs/` giúp bạn có thể theo dõi và đối chiếu khi cần thiết.
 
-## Roadmap
+## Roadmap & Kế hoạch
 
-Xem kế hoạch chi tiết tại [docs/implementation_plan.md](docs/implementation_plan.md).
-
-Các hướng ưu tiên:
-
-- Tách core engine sang `src/core`.
-- Thêm test cho cleanup, disk scan, path validation, WinGet parser và report JSON.
-- Tách UI WinUI thành `Views/` và `ViewModels/`.
-- Nâng cấp visualization của Storage Analyzer thành treemap/canvas virtualized.
-- Mở rộng Startup Manager có backup trước khi enable/disable.
-- Hoàn thiện packaging/publish cho WinUI app.
-
-## Disclaimer
-
-Công cụ này có thể thực hiện thay đổi sâu vào hệ thống. Hãy đọc mô tả và mức rủi ro trước khi chạy task. Tác giả không chịu trách nhiệm cho mất dữ liệu hoặc lỗi hệ thống phát sinh từ việc sử dụng sai cách.
+Chi tiết kế hoạch triển khai và tiến trình hiện tại có thể xem tại [docs/implementation_plan.md](docs/implementation_plan.md).
 
 ---
 

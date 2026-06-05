@@ -1,8 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using WinOptimizationApp.Models;
+using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp.Views;
 
@@ -26,6 +28,15 @@ public sealed partial class MaintenancePage : BasePage
         if (includeOptimization)
         {
             groups.Add("Optimization");
+        }
+
+        if (!SystemStatusService.IsAdministrator())
+        {
+            var hasAdminTasks = groups.Any(g => MainWindow.Catalog.ByGroup(g).Any(t => t.RequiresAdmin));
+            if (hasAdminTasks)
+            {
+                MainContent.Children.Add(CreateAdminWarningBanner());
+            }
         }
 
         foreach (var groupName in groups)

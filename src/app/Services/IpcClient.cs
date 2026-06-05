@@ -16,6 +16,7 @@ public sealed class IpcClient
     private readonly CancellationTokenSource _cts = new();
     
     private TaskCompletionSource<string>? _activeResponseTcs;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
     
     public event Action<string>? OnProgressReceived;
     public event Action? OnDisconnected;
@@ -48,15 +49,23 @@ public sealed class IpcClient
             throw new InvalidOperationException("IPC Client is not connected to Runner.");
         }
 
-        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _activeResponseTcs = tcs;
+        await _sendLock.WaitAsync();
+        try
+        {
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _activeResponseTcs = tcs;
 
-        var message = new IpcMessage(type, payload);
-        var json = JsonSerializer.Serialize(message);
-        
-        await _writer.WriteLineAsync(json);
+            var message = new IpcMessage(type, payload);
+            var json = JsonSerializer.Serialize(message);
+            
+            await _writer.WriteLineAsync(json);
 
-        return await tcs.Task;
+            return await tcs.Task;
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
     public void Disconnect()

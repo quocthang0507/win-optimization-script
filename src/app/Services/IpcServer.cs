@@ -67,7 +67,7 @@ public sealed class IpcServer
                 using var pipeServer = new NamedPipeServerStream(
                     "WinOptimizationApp_Runner",
                     PipeDirection.InOut,
-                    1,
+                    2,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous);
 
