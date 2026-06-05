@@ -5,7 +5,9 @@ namespace WinOptimizationApp.Services;
 public sealed class DiskAnalysisService
 {
     private const int ProgressInterval = 250;
-    private const int LargestFileLimit = 250;
+    private const int LargestFileLimit = 60;
+    private const int ProgressUpdateIntervalMilliseconds = 150;
+    private const int SnapshotIntervalMilliseconds = 500;
 
     public Task<DiskScanResult> ScanAsync(
         DiskScanOptions options,
@@ -25,34 +27,29 @@ public sealed class DiskAnalysisService
         var filesScanned = 0;
         var foldersScanned = 0;
         long totalBytes = 0;
+        var lastProgressAt = DateTimeOffset.MinValue;
+        var lastSnapshotAt = DateTimeOffset.MinValue;
 
         var rootPath = NormalizeRoot(options.RootPath);
-        var root = ScanPath(rootPath, null);
-        CalculatePercentages(root);
+        DiskItem? currentRoot = null;
+        try
+        {
+            currentRoot = ScanPath(rootPath, null, keepChildren: true, isRoot: true);
+            return BuildResult(currentRoot, isPartial: false);
+        }
+        catch (OperationCanceledException)
+        {
+            return BuildResult(currentRoot ?? CreateFallbackRoot(rootPath), isPartial: true);
+        }
 
-        return new DiskScanResult(
-            root,
-            started,
-            DateTimeOffset.Now,
-            totalBytes,
-            filesScanned,
-            foldersScanned,
-            skipped,
-            errors,
-            largestFiles.OrderByDescending(item => item.Size).Take(LargestFileLimit).ToList(),
-            fileTypes
-                .Select(pair => pair.Value.ToSummary(pair.Key))
-                .OrderByDescending(summary => summary.TotalBytes)
-                .ToList());
-
-        DiskItem ScanPath(string path, DiskItem? parent)
+        DiskItem ScanPath(string path, DiskItem? parent, bool keepChildren, bool isRoot = false)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            return File.Exists(path) ? ScanFile(path, parent) : ScanDirectory(path, parent);
+            return File.Exists(path) ? ScanFile(path, parent) : ScanDirectory(path, parent, keepChildren, isRoot);
         }
 
-        DiskItem ScanDirectory(string path, DiskItem? parent)
+        DiskItem ScanDirectory(string path, DiskItem? parent, bool keepChildren, bool isRoot = false)
         {
             var directory = new DirectoryInfo(path);
             foldersScanned++;
@@ -65,18 +62,22 @@ public sealed class DiskAnalysisService
                 LastModified = SafeLastWrite(directory),
                 ScanStatus = "Scanned"
             };
+            if (isRoot)
+            {
+                currentRoot = item;
+            }
 
-            if (ShouldSkip(directory, options))
+            if (!isRoot && ShouldSkip(directory, options))
             {
                 skipped++;
                 item.ScanStatus = "Skipped";
                 return item;
             }
 
-            IEnumerable<string> entries;
+            IEnumerator<string>? entries;
             try
             {
-                entries = Directory.EnumerateFileSystemEntries(directory.FullName);
+                entries = Directory.EnumerateFileSystemEntries(directory.FullName).GetEnumerator();
             }
             catch (Exception ex)
             {
@@ -86,42 +87,77 @@ public sealed class DiskAnalysisService
                 return item;
             }
 
-            foreach (var entry in entries)
+            using (entries)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
+                while (TryMoveNext(entries, directory, item, out var entry))
                 {
-                    var child = ScanPath(entry, item);
-                    item.Children.Add(child);
-                    item.Size += child.Size;
-                    item.AllocatedSize += child.AllocatedSize;
-                    item.FileCount += child.IsDirectory ? child.FileCount : 1;
-                    item.FolderCount += child.IsDirectory ? child.FolderCount + 1 : 0;
-                    if (child.LastModified > item.LastModified)
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    try
                     {
-                        item.LastModified = child.LastModified;
+                        var child = ScanPath(entry, item, keepChildren: false);
+                        AddChildStats(item, child);
+                        if (keepChildren)
+                        {
+                            item.Children.Add(child);
+                            item.Children.Sort((left, right) => right.Size.CompareTo(left.Size));
+                            ReportProgress(entry);
+                        }
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    skipped++;
-                    errors.Add($"{entry}: {ex.Message}");
-                }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        skipped++;
+                        errors.Add($"{entry}: {ex.Message}");
+                    }
 
-                if ((filesScanned + foldersScanned) % ProgressInterval == 0)
-                {
-                    progress?.Report(new DiskScanProgress(directory.FullName, totalBytes, filesScanned, foldersScanned, skipped));
+                    if ((filesScanned + foldersScanned) % ProgressInterval == 0)
+                    {
+                        ReportProgress(directory.FullName);
+                    }
                 }
             }
 
             item.Children.Sort((left, right) => right.Size.CompareTo(left.Size));
-            progress?.Report(new DiskScanProgress(directory.FullName, totalBytes, filesScanned, foldersScanned, skipped));
+            ReportProgress(directory.FullName);
             return item;
+        }
+
+        bool TryMoveNext(IEnumerator<string> entries, DirectoryInfo directory, DiskItem item, out string entry)
+        {
+            entry = string.Empty;
+            try
+            {
+                if (!entries.MoveNext())
+                {
+                    return false;
+                }
+
+                entry = entries.Current;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                skipped++;
+                item.ScanStatus = "Partial";
+                errors.Add($"{directory.FullName}: {ex.Message}");
+                return false;
+            }
+        }
+
+        void AddChildStats(DiskItem item, DiskItem child)
+        {
+            item.Size += child.Size;
+            item.AllocatedSize += child.AllocatedSize;
+            item.FileCount += child.IsDirectory ? child.FileCount : 1;
+            item.FolderCount += child.IsDirectory ? child.FolderCount + 1 : 0;
+            if (child.LastModified > item.LastModified)
+            {
+                item.LastModified = child.LastModified;
+            }
         }
 
         DiskItem ScanFile(string path, DiskItem? parent)
@@ -155,14 +191,66 @@ public sealed class DiskAnalysisService
 
             return item;
         }
+
+        void ReportProgress(string currentPath)
+        {
+            var now = DateTimeOffset.Now;
+            var shouldSendProgress = lastProgressAt == DateTimeOffset.MinValue ||
+                                     (now - lastProgressAt).TotalMilliseconds >= ProgressUpdateIntervalMilliseconds;
+            if (!shouldSendProgress)
+            {
+                return;
+            }
+
+            lastProgressAt = now;
+            if (currentRoot is null)
+            {
+                progress?.Report(new DiskScanProgress(currentPath, totalBytes, filesScanned, foldersScanned, skipped));
+                return;
+            }
+
+            DiskScanResult? partialResult = null;
+            if (lastSnapshotAt == DateTimeOffset.MinValue || (now - lastSnapshotAt).TotalMilliseconds >= SnapshotIntervalMilliseconds)
+            {
+                lastSnapshotAt = now;
+                partialResult = BuildResult(currentRoot, isPartial: true);
+            }
+
+            progress?.Report(new DiskScanProgress(
+                currentPath,
+                totalBytes,
+                filesScanned,
+                foldersScanned,
+                skipped,
+                partialResult));
+        }
+
+        DiskScanResult BuildResult(DiskItem root, bool isPartial)
+        {
+            var snapshotRoot = CloneDiskItem(root);
+            CalculatePercentages(snapshotRoot);
+            return new DiskScanResult(
+                snapshotRoot,
+                started,
+                DateTimeOffset.Now,
+                totalBytes,
+                filesScanned,
+                foldersScanned,
+                skipped,
+                errors.ToList(),
+                largestFiles.OrderByDescending(item => item.Size).Take(LargestFileLimit).Select(CloneDiskItem).ToList(),
+                fileTypes
+                    .Select(pair => pair.Value.ToSummary(pair.Key))
+                    .OrderByDescending(summary => summary.TotalBytes)
+                    .ToList(),
+                isPartial);
+        }
     }
 
     public IReadOnlyList<DiskItem> GetLargestDirectories(DiskScanResult result, int count)
     {
-        var directories = new List<DiskItem>();
-        CollectDirectories(result.Root, directories);
-        return directories
-            .Where(item => item.FullPath != result.Root.FullPath)
+        return result.Root.Children
+            .Where(item => item.IsDirectory)
             .OrderByDescending(item => item.Size)
             .Take(count)
             .ToList();
@@ -170,36 +258,20 @@ public sealed class DiskAnalysisService
 
     public IReadOnlyList<DiskItem> FlattenVisibleTree(DiskItem root, int maxItems)
     {
-        var items = new List<DiskItem>();
-        Collect(root, items, maxItems);
-        return items;
-
-        static void Collect(DiskItem item, List<DiskItem> items, int maxItems)
+        if (maxItems <= 0)
         {
-            if (items.Count >= maxItems)
-            {
-                return;
-            }
-
-            items.Add(item);
-            foreach (var child in item.Children.Where(child => child.IsDirectory).OrderByDescending(child => child.Size).Take(80))
-            {
-                Collect(child, items, maxItems);
-            }
-        }
-    }
-
-    private static void CollectDirectories(DiskItem item, List<DiskItem> directories)
-    {
-        if (item.IsDirectory)
-        {
-            directories.Add(item);
+            return [];
         }
 
-        foreach (var child in item.Children)
+        if (!root.IsDirectory)
         {
-            CollectDirectories(child, directories);
+            return [root];
         }
+
+        return root.Children
+            .OrderByDescending(child => child.Size)
+            .Take(maxItems)
+            .ToList();
     }
 
     private static void CalculatePercentages(DiskItem item)
@@ -209,6 +281,43 @@ public sealed class DiskAnalysisService
             child.PercentOfParent = item.Size > 0 ? child.Size * 100d / item.Size : 0;
             CalculatePercentages(child);
         }
+    }
+
+    private static DiskItem CloneDiskItem(DiskItem item)
+    {
+        var clone = new DiskItem
+        {
+            Name = item.Name,
+            FullPath = item.FullPath,
+            IsDirectory = item.IsDirectory,
+            Size = item.Size,
+            AllocatedSize = item.AllocatedSize,
+            PercentOfParent = item.PercentOfParent,
+            FileCount = item.FileCount,
+            FolderCount = item.FolderCount,
+            LastModified = item.LastModified,
+            Extension = item.Extension,
+            ScanStatus = item.ScanStatus
+        };
+
+        foreach (var child in item.Children)
+        {
+            clone.Children.Add(CloneDiskItem(child));
+        }
+
+        return clone;
+    }
+
+    private static DiskItem CreateFallbackRoot(string rootPath)
+    {
+        return new DiskItem
+        {
+            Name = string.IsNullOrWhiteSpace(Path.GetFileName(rootPath)) ? rootPath : Path.GetFileName(rootPath),
+            FullPath = rootPath,
+            IsDirectory = Directory.Exists(rootPath),
+            LastModified = DateTimeOffset.MinValue,
+            ScanStatus = "Canceled"
+        };
     }
 
     private static string NormalizeRoot(string rootPath)

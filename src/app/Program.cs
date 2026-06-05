@@ -1,6 +1,5 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using System.Diagnostics;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp;
@@ -12,19 +11,28 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        var runUi = false;
-        foreach (var arg in args)
+        var runRunner = args.Any(arg => arg.Equals(AppProcessLauncher.RunnerArgument, StringComparison.OrdinalIgnoreCase));
+
+        if (runRunner)
         {
-            if (arg.Equals("--ui", StringComparison.OrdinalIgnoreCase))
-            {
-                runUi = true;
-                break;
-            }
+            RunRunner();
+        }
+        else
+        {
+            RunUi();
+        }
+    }
+
+    private static void RunUi()
+    {
+        var singleInstance = SingleInstanceGuard.TryAcquireForCurrentProcess();
+        if (singleInstance is null)
+        {
+            return;
         }
 
-        if (runUi)
+        try
         {
-            // Run UI Mode
             WinRT.ComWrappersSupport.InitializeComWrappers();
             Application.Start(callbackParams =>
             {
@@ -33,58 +41,48 @@ public static class Program
                 _app = new App();
             });
         }
-        else
+        finally
         {
-            // Run Runner Mode
-            var paths = new PathService();
-            var settingsService = new AppSettingsService();
-            var commands = new CommandRunner();
-            var reports = new ReportService(paths);
-            var cleanup = new CleanupService(commands);
-            var status = new SystemStatusService(commands, reports);
-            var winget = new WingetService(commands);
-            var startup = new StartupService();
-            var execution = new MaintenanceExecutionService(cleanup, commands, paths, reports, new RestorePointService(commands));
+            singleInstance.Dispose();
+        }
 
-            var server = new IpcServer(cleanup, execution, status, settingsService, reports, startup, winget);
-            server.Start();
+        AppRestartService.RestartIfScheduled();
+    }
 
-            try
+    private static void RunRunner()
+    {
+        var paths = new PathService();
+        var settingsService = new AppSettingsService();
+        var commands = new CommandRunner();
+        var reports = new ReportService(paths);
+        var cleanup = new CleanupService(commands);
+        var status = new SystemStatusService(commands, reports);
+        var winget = new WingetService(commands);
+        var startup = new StartupService();
+        var execution = new MaintenanceExecutionService(cleanup, commands, paths, reports, new RestorePointService(commands));
+
+        var server = new IpcServer(cleanup, execution, status, settingsService, reports, startup, winget);
+        server.Start();
+
+        try
+        {
+            using var uiProcess = AppProcessLauncher.StartUi(elevated: false, connectRunner: true);
+            if (uiProcess != null)
             {
-                var exePath = Environment.ProcessPath;
-                if (string.IsNullOrEmpty(exePath))
-                {
-                    exePath = typeof(Program).Assembly.Location;
-                    if (Path.GetExtension(exePath).Equals(".dll", StringComparison.OrdinalIgnoreCase))
-                    {
-                        exePath = Path.ChangeExtension(exePath, ".exe");
-                    }
-                }
-
-                if (File.Exists(exePath))
-                {
-                    var startInfo = new ProcessStartInfo
-                    {
-                        FileName = exePath,
-                        Arguments = "--ui",
-                        UseShellExecute = false
-                    };
-
-                    using var uiProcess = Process.Start(startInfo);
-                    if (uiProcess != null)
-                    {
-                        uiProcess.WaitForExit();
-                    }
-                }
+                uiProcess.WaitForExit();
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine($"Runner error: {ex.Message}");
+                Console.WriteLine("Runner error: unable to resolve application executable.");
             }
-            finally
-            {
-                server.Stop();
-            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Runner error: {ex.Message}");
+        }
+        finally
+        {
+            server.Stop();
         }
     }
 }

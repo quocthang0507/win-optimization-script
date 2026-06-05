@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using System.Text;
+using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp;
 
@@ -48,7 +49,7 @@ public sealed partial class App : Application
     {
         try
         {
-            var root = FindRepositoryRoot(AppContext.BaseDirectory);
+            var root = FindRepositoryRoot(AppRuntimePaths.OriginalBaseDirectory);
             var logs = Path.Combine(root, "logs");
             Directory.CreateDirectory(logs);
             var path = Path.Combine(logs, $"app-crash-{DateTime.Now:yyyyMMdd-HHmmss}.log");
@@ -78,6 +79,6 @@ public sealed partial class App : Application
             directory = directory.Parent;
         }
 
-        return AppContext.BaseDirectory;
+        return AppRuntimePaths.OriginalBaseDirectory;
     }
 }

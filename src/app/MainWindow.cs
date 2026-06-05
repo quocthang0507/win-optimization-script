@@ -50,21 +50,24 @@ public sealed class MainWindow : Window
         Execution = new MaintenanceExecutionService(Cleanup, Commands, Paths, Reports, new RestorePointService(Commands));
         StorageCleanup = new StorageCleanupService(Reports);
 
-        try
+        if (ShouldConnectToRunner())
         {
-            var connected = Task.Run(() => _ipcClient.ConnectAsync(2000)).GetAwaiter().GetResult();
-            if (connected)
+            try
             {
-                Cleanup.Client = _ipcClient;
-                Status.Client = _ipcClient;
-                Winget.Client = _ipcClient;
-                Execution.Client = _ipcClient;
-                Startup.Client = _ipcClient;
+                var connected = Task.Run(() => _ipcClient.ConnectAsync(2000)).GetAwaiter().GetResult();
+                if (connected)
+                {
+                    Cleanup.Client = _ipcClient;
+                    Status.Client = _ipcClient;
+                    Winget.Client = _ipcClient;
+                    Execution.Client = _ipcClient;
+                    Startup.Client = _ipcClient;
+                }
             }
-        }
-        catch
-        {
-            // Fallback
+            catch
+            {
+                // Fallback
+            }
         }
 
         Title = T("app.title");
@@ -335,35 +338,22 @@ public sealed class MainWindow : Window
 
     public static void ElevateApplication()
     {
-        try
+        if (SystemStatusService.IsAdministrator())
         {
-            var exePath = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exePath))
-            {
-                exePath = typeof(Program).Assembly.Location;
-                if (Path.GetExtension(exePath).Equals(".dll", StringComparison.OrdinalIgnoreCase))
-                {
-                    exePath = Path.ChangeExtension(exePath, ".exe");
-                }
-            }
-
-            if (File.Exists(exePath))
-            {
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = exePath,
-                    UseShellExecute = true,
-                    Verb = "runas"
-                };
-
-                Process.Start(startInfo);
-                Application.Current.Exit();
-            }
+            return;
         }
-        catch
+
+        if (AppRestartService.ScheduleRestartAsAdministrator())
         {
-            // Cancelled
+            Application.Current.Exit();
         }
+    }
+
+    private static bool ShouldConnectToRunner()
+    {
+        var args = Environment.GetCommandLineArgs();
+        return args.Any(arg => arg.Equals(AppProcessLauncher.ConnectRunnerArgument, StringComparison.OrdinalIgnoreCase)) &&
+               !args.Any(arg => arg.Equals(AppProcessLauncher.StandaloneArgument, StringComparison.OrdinalIgnoreCase));
     }
 
     internal async Task RunTaskAsync(MaintenanceTask task)

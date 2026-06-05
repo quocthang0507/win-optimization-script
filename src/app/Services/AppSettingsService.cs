@@ -12,7 +12,7 @@ public sealed class AppSettingsService
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public string SettingsPath { get; } = Path.Combine(AppContext.BaseDirectory, "settings.json");
+    public string SettingsPath { get; } = Path.Combine(AppRuntimePaths.OriginalBaseDirectory, "settings.json");
 
     public AppSettings Load()
     {

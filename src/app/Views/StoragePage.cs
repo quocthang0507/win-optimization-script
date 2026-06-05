@@ -1,6 +1,9 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Pickers;
 using Windows.UI;
 using WinOptimizationApp.Models;
@@ -14,18 +17,42 @@ public sealed partial class StoragePage : BasePage
 {
     private CancellationTokenSource? _diskScanCts;
     private DiskScanResult? _lastDiskScan;
+    private TextBox? _storageRootBox;
+    private CheckBox? _includeHiddenBox;
+    private CheckBox? _includeSystemBox;
+    private CheckBox? _followLinksBox;
+    private StackPanel? _storageResultPanel;
+    private ProgressBar? _storageProgress;
+    private TextBlock? _storageProgressText;
+    private Button? _storageScanButton;
+    private Button? _storageStopButton;
+    private Border? _storageProgressCard;
+    private DiskItemSortColumn _diskItemSortColumn = DiskItemSortColumn.Size;
+    private bool _diskItemSortAscending;
+    private DateTimeOffset _lastPartialRenderAt = DateTimeOffset.MinValue;
 
     public StoragePage(MainWindow mainWindow) : base(mainWindow)
     {
         RenderStorageAnalyzerPage();
     }
 
+    private enum DiskItemSortColumn
+    {
+        Name,
+        Size,
+        PercentOfParent,
+        Files,
+        Modified
+    }
+
+    private sealed record StorageChartSlice(string Name, string FullPath, long Size, double Percent, Color Color);
+
     private void RenderStorageAnalyzerPage()
     {
         AddHeader(T("storage.title"), T("storage.subtitle"));
 
         var systemRoot = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
-        var rootBox = new TextBox
+        _storageRootBox = new TextBox
         {
             Header = T("storage.driveOrFolder"),
             Text = _lastDiskScan?.Root.FullPath ?? systemRoot,
@@ -43,49 +70,48 @@ public sealed partial class StoragePage : BasePage
         {
             if (driveBox.SelectedItem is string selected && selected.Length >= 3)
             {
-                rootBox.Text = selected[..3];
+                _storageRootBox.Text = selected[..3];
             }
         };
 
-        var includeHidden = new CheckBox { Content = T("common.hidden"), VerticalAlignment = VerticalAlignment.Bottom };
-        var includeSystem = new CheckBox { Content = T("common.system"), VerticalAlignment = VerticalAlignment.Bottom };
-        var followLinks = new CheckBox { Content = T("common.followLinks"), VerticalAlignment = VerticalAlignment.Bottom };
-        ToolTipService.SetToolTip(followLinks, T("storage.followTooltip"));
+        _includeHiddenBox = new CheckBox { Content = T("common.hidden"), VerticalAlignment = VerticalAlignment.Bottom };
+        _includeSystemBox = new CheckBox { Content = T("common.system"), VerticalAlignment = VerticalAlignment.Bottom };
+        _followLinksBox = new CheckBox { Content = T("common.followLinks"), VerticalAlignment = VerticalAlignment.Bottom };
+        ToolTipService.SetToolTip(_followLinksBox, T("storage.followTooltip"));
 
-        var resultPanel = new StackPanel { Spacing = 14 };
-        var progress = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Visibility = Visibility.Collapsed };
-        var progressText = new TextBlock { Opacity = 0.72, TextWrapping = TextWrapping.Wrap };
+        _storageResultPanel = new StackPanel { Spacing = 14 };
+        _storageProgress = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Visibility = Visibility.Collapsed };
+        _storageProgressText = new TextBlock { Opacity = 0.72, TextWrapping = TextWrapping.Wrap };
 
-        Button? scanButton = null;
-        Button? stopButton = null;
-        Border? progressCard = null;
-
-        scanButton = ActionButton(T("common.scan"), Symbol.Find, async (_, _) =>
+        _storageScanButton = ActionButton(T("common.scan"), Symbol.Find, async (_, _) =>
         {
-            await StartDiskScanAsync(
-                rootBox.Text,
-                includeHidden.IsChecked == true,
-                includeSystem.IsChecked == true,
-                followLinks.IsChecked == true,
-                progress,
-                progressText,
-                resultPanel);
+            await StartDiskScanAsync(_storageRootBox.Text);
         });
-        scanButton.VerticalAlignment = VerticalAlignment.Bottom;
+        _storageScanButton.VerticalAlignment = VerticalAlignment.Bottom;
 
-        stopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) =>
+        _storageStopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) =>
         {
             _diskScanCts?.Cancel();
+            if (_storageStopButton is not null)
+            {
+                _storageStopButton.IsEnabled = false;
+            }
+
+            if (_storageProgressText is not null)
+            {
+                _storageProgressText.Text = T("storage.stopping");
+            }
+
             MainWindow.SetStatusText(T("storage.stopping"));
         });
-        stopButton.IsEnabled = false;
+        _storageStopButton.IsEnabled = false;
 
         var browseButton = ActionButton(T("common.browse"), Symbol.OpenFile, async (_, _) =>
         {
             var folder = await PickFolderAsync();
             if (!string.IsNullOrWhiteSpace(folder))
             {
-                rootBox.Text = folder;
+                _storageRootBox.Text = folder;
             }
         });
         browseButton.VerticalAlignment = VerticalAlignment.Bottom;
@@ -99,27 +125,27 @@ public sealed partial class StoragePage : BasePage
         commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        Grid.SetColumn(rootBox, 0);
-        commandGrid.Children.Add(rootBox);
+        Grid.SetColumn(_storageRootBox, 0);
+        commandGrid.Children.Add(_storageRootBox);
         Grid.SetColumn(driveBox, 1);
         commandGrid.Children.Add(driveBox);
-        Grid.SetColumn(includeHidden, 2);
-        commandGrid.Children.Add(includeHidden);
-        Grid.SetColumn(includeSystem, 3);
-        commandGrid.Children.Add(includeSystem);
-        Grid.SetColumn(followLinks, 4);
-        commandGrid.Children.Add(followLinks);
+        Grid.SetColumn(_includeHiddenBox, 2);
+        commandGrid.Children.Add(_includeHiddenBox);
+        Grid.SetColumn(_includeSystemBox, 3);
+        commandGrid.Children.Add(_includeSystemBox);
+        Grid.SetColumn(_followLinksBox, 4);
+        commandGrid.Children.Add(_followLinksBox);
         Grid.SetColumn(browseButton, 5);
         commandGrid.Children.Add(browseButton);
-        Grid.SetColumn(scanButton, 6);
-        commandGrid.Children.Add(scanButton);
+        Grid.SetColumn(_storageScanButton, 6);
+        commandGrid.Children.Add(_storageScanButton);
 
         if (!SystemStatusService.IsAdministrator())
         {
             MainContent.Children.Add(CreateAdminWarningBanner(T("storage.adminRequiredTitle"), T("storage.adminRequiredDesc")));
         }
 
-        progressCard = new Border
+        _storageProgressCard = new Border
         {
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(8),
@@ -131,88 +157,119 @@ public sealed partial class StoragePage : BasePage
 
         var progressStack = new StackPanel { Spacing = 10 };
         progressStack.Children.Add(new TextBlock { Text = T("storage.scanning"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        progressStack.Children.Add(progress);
-        progressStack.Children.Add(progressText);
+        progressStack.Children.Add(_storageProgress);
+        progressStack.Children.Add(_storageProgressText);
 
         var progressButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        progressButtons.Children.Add(stopButton);
+        progressButtons.Children.Add(_storageStopButton);
         progressStack.Children.Add(progressButtons);
 
-        progressCard.Child = progressStack;
+        _storageProgressCard.Child = progressStack;
 
         MainContent.Children.Add(commandGrid);
-        MainContent.Children.Add(progressCard);
-        MainContent.Children.Add(resultPanel);
+        MainContent.Children.Add(_storageProgressCard);
+        MainContent.Children.Add(_storageResultPanel);
 
         if (_lastDiskScan is not null)
         {
-            RenderStorageResults(resultPanel, _lastDiskScan);
+            RenderStorageResults(_storageResultPanel, _lastDiskScan);
         }
+    }
 
-        async Task StartDiskScanAsync(
-            string rootPath,
-            bool withHidden,
-            bool withSystem,
-            bool withLinks,
-            ProgressBar progressBar,
-            TextBlock statusBlock,
-            StackPanel output)
+    private async Task StartDiskScanAsync(string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath))
         {
-            if (string.IsNullOrWhiteSpace(rootPath))
-            {
-                await MainWindow.ShowDialogAsync_Internal(T("storage.cleanupReview"), InfoBlock(T("storage.selectAtLeastOne")), T("common.close"));
-                return;
-            }
-
-            if (!Directory.Exists(rootPath) && !File.Exists(rootPath))
-            {
-                await MainWindow.ShowDialogAsync_Internal(T("storage.pathNotFound"), InfoBlock(rootPath), T("common.close"));
-                return;
-            }
-
-            _diskScanCts?.Cancel();
-            _diskScanCts = new CancellationTokenSource();
-            scanButton!.IsEnabled = false;
-            stopButton!.IsEnabled = true;
-            progressCard!.Visibility = Visibility.Visible;
-            progressBar.Visibility = Visibility.Visible;
-            progressBar.IsIndeterminate = true;
-            output.Children.Clear();
-            MainWindow.SetStatusText(T("storage.scanning"));
-
-            var options = new DiskScanOptions(rootPath, withHidden, withSystem, withLinks);
-            var scanProgress = new Progress<DiskScanProgress>(value =>
-            {
-                statusBlock.Text = F("storage.progress", Formatters.FormatBytes(value.TotalBytes), value.FileCount, value.FolderCount, value.SkippedCount, value.CurrentPath);
-            });
-
-            try
-            {
-                var result = await MainWindow.DiskAnalysis.ScanAsync(options, scanProgress, _diskScanCts.Token);
-                _lastDiskScan = result;
-                RenderStorageResults(output, result);
-                statusBlock.Text = F("storage.completedIn", (result.FinishedAt - result.StartedAt).TotalSeconds);
-            }
-            catch (OperationCanceledException)
-            {
-                statusBlock.Text = T("storage.scanCanceled");
-                output.Children.Add(InfoBlock(T("storage.scanCanceledDetail")));
-            }
-            catch (Exception ex)
-            {
-                statusBlock.Text = ex.Message;
-                output.Children.Add(InfoBlock(F("storage.scanFailed", ex.Message)));
-            }
-            finally
-            {
-                progressBar.IsIndeterminate = false;
-                progressBar.Visibility = Visibility.Collapsed;
-                progressCard!.Visibility = Visibility.Collapsed;
-                scanButton!.IsEnabled = true;
-                stopButton!.IsEnabled = false;
-                MainWindow.SetStatusText(T("common.ready"));
-            }
+            await MainWindow.ShowDialogAsync_Internal(T("storage.cleanupReview"), InfoBlock(T("storage.selectAtLeastOne")), T("common.close"));
+            return;
         }
+
+        if (!Directory.Exists(rootPath) && !File.Exists(rootPath))
+        {
+            await MainWindow.ShowDialogAsync_Internal(T("storage.pathNotFound"), InfoBlock(rootPath), T("common.close"));
+            return;
+        }
+
+        if (_storageRootBox is not null)
+        {
+            _storageRootBox.Text = rootPath;
+        }
+
+        _diskScanCts?.Cancel();
+        _diskScanCts = new CancellationTokenSource();
+        _storageScanButton!.IsEnabled = false;
+        _storageStopButton!.IsEnabled = true;
+        _storageProgressCard!.Visibility = Visibility.Visible;
+        _storageProgress!.Visibility = Visibility.Visible;
+        _storageProgress.IsIndeterminate = true;
+        _storageResultPanel!.Children.Clear();
+        _lastPartialRenderAt = DateTimeOffset.MinValue;
+        MainWindow.SetStatusText(T("storage.scanning"));
+
+        var options = new DiskScanOptions(
+            rootPath,
+            _includeHiddenBox?.IsChecked == true,
+            _includeSystemBox?.IsChecked == true,
+            _followLinksBox?.IsChecked == true);
+
+        var scanFinished = false;
+        var scanProgress = new Progress<DiskScanProgress>(value =>
+        {
+            if (scanFinished)
+            {
+                return;
+            }
+
+            _storageProgressText!.Text = F("storage.progress", Formatters.FormatBytes(value.TotalBytes), value.FileCount, value.FolderCount, value.SkippedCount, value.CurrentPath);
+            if (value.PartialResult is not null && ShouldRenderPartialResult())
+            {
+                _lastDiskScan = value.PartialResult;
+                RenderStorageResults(_storageResultPanel, value.PartialResult);
+            }
+        });
+
+        try
+        {
+            var result = await MainWindow.DiskAnalysis.ScanAsync(options, scanProgress, _diskScanCts.Token);
+            scanFinished = true;
+            _lastDiskScan = result;
+            RenderStorageResults(_storageResultPanel, result);
+            _storageProgressText!.Text = result.IsPartial
+                ? T("storage.partialResult")
+                : F("storage.completedIn", (result.FinishedAt - result.StartedAt).TotalSeconds);
+        }
+        catch (OperationCanceledException)
+        {
+            _storageProgressText!.Text = T("storage.scanCanceled");
+            _storageResultPanel.Children.Add(InfoBlock(T("storage.scanCanceledDetail")));
+        }
+        catch (Exception ex)
+        {
+            _storageProgressText!.Text = ex.Message;
+            _storageResultPanel.Children.Add(InfoBlock(F("storage.scanFailed", ex.Message)));
+        }
+        finally
+        {
+            scanFinished = true;
+            _storageProgress.IsIndeterminate = false;
+            _storageProgress.Visibility = Visibility.Collapsed;
+            _storageProgressCard.Visibility = Visibility.Collapsed;
+            _storageScanButton.IsEnabled = true;
+            _storageStopButton.IsEnabled = false;
+            MainWindow.SetStatusText(T("common.ready"));
+        }
+    }
+
+    private bool ShouldRenderPartialResult()
+    {
+        var now = DateTimeOffset.Now;
+        if ((now - _lastPartialRenderAt).TotalMilliseconds < 600)
+        {
+            return false;
+        }
+
+        _lastPartialRenderAt = now;
+        return true;
     }
 
     private void RenderStorageResults(StackPanel resultPanel, DiskScanResult result)
@@ -230,6 +287,252 @@ public sealed partial class StoragePage : BasePage
         AddMetric(summary, 0, 1, T("storage.largestFolder"), largestFolder is null ? T("common.none") : Formatters.FormatBytes(largestFolder.Size), largestFolder?.FullPath ?? result.Root.FullPath, Colors.DarkCyan);
         AddMetric(summary, 0, 2, T("storage.skipped"), $"{result.SkippedCount:N0}", F("storage.errors", result.Errors.Count), result.Errors.Count > 0 ? Colors.DarkOrange : Colors.SeaGreen);
         resultPanel.Children.Add(summary);
+        resultPanel.Children.Add(StorageResultTabs(result));
+    }
+
+    private TabView StorageResultTabs(DiskScanResult result)
+    {
+        var tabs = new TabView
+        {
+            IsAddTabButtonVisible = false,
+            CanDragTabs = false,
+            TabWidthMode = TabViewWidthMode.SizeToContent,
+            MinHeight = 420
+        };
+
+        tabs.TabItems.Add(new TabViewItem
+        {
+            Header = T("storage.chart"),
+            IsClosable = false,
+            Content = StorageChartTab(result)
+        });
+
+        tabs.TabItems.Add(new TabViewItem
+        {
+            Header = T("storage.details"),
+            IsClosable = false,
+            Content = StorageDetailsTab(result)
+        });
+
+        return tabs;
+    }
+
+    private StackPanel StorageChartTab(DiskScanResult result)
+    {
+        var panel = new StackPanel { Spacing = 14, Padding = new Thickness(0, 12, 0, 0) };
+        var slices = BuildChartSlices(result);
+        if (slices.Count == 0)
+        {
+            panel.Children.Add(InfoBlock(T("storage.chartEmpty")));
+            return panel;
+        }
+
+        var chartGrid = new Grid { ColumnSpacing = 24, RowSpacing = 12 };
+        chartGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
+        chartGrid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var chartView = new Viewbox
+        {
+            Stretch = Stretch.Uniform,
+            MaxWidth = 360,
+            Height = 320,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = StoragePieChart(slices)
+        };
+        chartGrid.Children.Add(chartView);
+
+        var legend = new StackPanel
+        {
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        foreach (var slice in slices)
+        {
+            legend.Children.Add(StorageChartLegendRow(slice));
+        }
+
+        Grid.SetColumn(legend, 1);
+        chartGrid.Children.Add(legend);
+        panel.Children.Add(chartGrid);
+        return panel;
+    }
+
+    private List<StorageChartSlice> BuildChartSlices(DiskScanResult result)
+    {
+        var palette = StorageChartPalette();
+        var visibleItems = MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 12)
+            .Where(item => item.Size > 0)
+            .OrderByDescending(item => item.Size)
+            .ToList();
+        if (visibleItems.Count == 0 || result.TotalBytes <= 0)
+        {
+            return [];
+        }
+
+        var slices = visibleItems
+            .Take(8)
+            .Select((item, index) => new StorageChartSlice(
+                item.Name,
+                item.FullPath,
+                item.Size,
+                item.Size * 100d / result.TotalBytes,
+                palette[index % palette.Count]))
+            .ToList();
+
+        var shownBytes = slices.Sum(slice => slice.Size);
+        var remainingBytes = Math.Max(0, result.TotalBytes - shownBytes);
+        if (remainingBytes > 0)
+        {
+            slices.Add(new StorageChartSlice(
+                T("storage.other"),
+                result.Root.FullPath,
+                remainingBytes,
+                remainingBytes * 100d / result.TotalBytes,
+                Colors.Gray));
+        }
+
+        return slices;
+    }
+
+    private static Canvas StoragePieChart(IReadOnlyList<StorageChartSlice> slices)
+    {
+        const double size = 300;
+        const double center = size / 2;
+        const double radius = 132;
+        var canvas = new Canvas
+        {
+            Width = size,
+            Height = size
+        };
+
+        var startAngle = -90d;
+        for (var index = 0; index < slices.Count; index++)
+        {
+            var slice = slices[index];
+            var sweepAngle = Math.Max(0.1, Math.Min(359.99, slice.Percent * 3.6));
+            var path = StoragePieSlice(center, radius, startAngle, sweepAngle, slice.Color, index);
+            ToolTipService.SetToolTip(path, $"{slice.Name}\n{Formatters.FormatBytes(slice.Size)} ({slice.Percent:N1}%)");
+            canvas.Children.Add(path);
+            startAngle += sweepAngle;
+        }
+
+        return canvas;
+    }
+
+    private static Microsoft.UI.Xaml.Shapes.Path StoragePieSlice(double center, double radius, double startAngle, double sweepAngle, Color color, int index)
+    {
+        var start = PointOnCircle(center, radius, startAngle);
+        var end = PointOnCircle(center, radius, startAngle + sweepAngle);
+        var figure = new PathFigure
+        {
+            StartPoint = new Windows.Foundation.Point(center, center),
+            IsClosed = true
+        };
+        figure.Segments.Add(new LineSegment { Point = start });
+        figure.Segments.Add(new ArcSegment
+        {
+            Point = end,
+            Size = new Windows.Foundation.Size(radius, radius),
+            IsLargeArc = sweepAngle > 180,
+            SweepDirection = SweepDirection.Clockwise
+        });
+        figure.Segments.Add(new LineSegment { Point = new Windows.Foundation.Point(center, center) });
+
+        var geometry = new PathGeometry();
+        geometry.Figures.Add(figure);
+
+        var transform = new ScaleTransform
+        {
+            ScaleX = 0.94,
+            ScaleY = 0.94,
+            CenterX = center,
+            CenterY = center
+        };
+        var path = new Microsoft.UI.Xaml.Shapes.Path
+        {
+            Data = geometry,
+            Fill = Brush(color),
+            Stroke = Brush(Colors.White),
+            StrokeThickness = 1,
+            Opacity = 0,
+            RenderTransform = transform
+        };
+
+        var storyboard = new Storyboard();
+        var beginTime = TimeSpan.FromMilliseconds(index * 70);
+        AddSliceAnimation(storyboard, path, "Opacity", 0, 1, beginTime);
+        AddSliceAnimation(storyboard, transform, "ScaleX", 0.94, 1, beginTime);
+        AddSliceAnimation(storyboard, transform, "ScaleY", 0.94, 1, beginTime);
+        path.Loaded += (_, _) => storyboard.Begin();
+        return path;
+    }
+
+    private static Grid StorageChartLegendRow(StorageChartSlice slice)
+    {
+        var row = new Grid { ColumnSpacing = 10, MinHeight = 34 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
+
+        var swatch = new Rectangle
+        {
+            Width = 14,
+            Height = 14,
+            RadiusX = 3,
+            RadiusY = 3,
+            Fill = Brush(slice.Color),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        row.Children.Add(swatch);
+
+        row.Children.Add(CellText(slice.Name, 1, slice.FullPath));
+        row.Children.Add(CellText(Formatters.FormatBytes(slice.Size), 2));
+        row.Children.Add(CellText($"{slice.Percent:N1}%", 3));
+        return row;
+    }
+
+    private static void AddSliceAnimation(Storyboard storyboard, DependencyObject target, string property, double from, double to, TimeSpan beginTime)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = new Duration(TimeSpan.FromMilliseconds(280)),
+            BeginTime = beginTime,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, property);
+        storyboard.Children.Add(animation);
+    }
+
+    private static Windows.Foundation.Point PointOnCircle(double center, double radius, double angleDegrees)
+    {
+        var angleRadians = angleDegrees * Math.PI / 180d;
+        return new Windows.Foundation.Point(
+            center + radius * Math.Cos(angleRadians),
+            center + radius * Math.Sin(angleRadians));
+    }
+
+    private static IReadOnlyList<Color> StorageChartPalette()
+    {
+        return
+        [
+            Colors.SteelBlue,
+            Colors.SeaGreen,
+            Colors.DarkOrange,
+            Colors.IndianRed,
+            Colors.DarkCyan,
+            Colors.Goldenrod,
+            Colors.MediumOrchid,
+            Colors.CornflowerBlue
+        ];
+    }
+
+    private StackPanel StorageDetailsTab(DiskScanResult result)
+    {
+        var panel = new StackPanel { Spacing = 14, Padding = new Thickness(0, 12, 0, 0) };
 
         var candidatePanel = new StackPanel { Spacing = 8 };
         var candidates = StorageCleanupService.CreateCandidates(result);
@@ -252,44 +555,114 @@ public sealed partial class StoragePage : BasePage
                 candidatePanel.Children.Add(StorageCandidateRow(candidate, checkBox));
             }
 
-            resultPanel.Children.Add(candidatePanel);
+            panel.Children.Add(candidatePanel);
         }
 
-        resultPanel.Children.Add(SectionTitle(T("storage.spaceMap")));
-        foreach (var directory in MainWindow.DiskAnalysis.GetLargestDirectories(result, 12))
+        panel.Children.Add(SectionTitle(T("storage.folderTree")));
+        panel.Children.Add(StorageDiskItemHeaderRow());
+        foreach (var item in SortDiskItems(MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 160), result.Root))
         {
-            resultPanel.Children.Add(StorageBarRow(directory, result.TotalBytes));
+            panel.Children.Add(StorageDiskItemRow(item, result.Root));
         }
 
-        resultPanel.Children.Add(SectionTitle(T("storage.folderTree")));
-        resultPanel.Children.Add(StorageHeaderRow(T("storage.name"), T("storage.size"), T("storage.files"), T("storage.modified"), T("storage.action")));
-        foreach (var item in MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 120))
-        {
-            resultPanel.Children.Add(StorageDiskItemRow(item, result.Root));
-        }
-
-        resultPanel.Children.Add(SectionTitle(T("storage.largestFiles")));
-        resultPanel.Children.Add(StorageHeaderRow(T("storage.name"), T("storage.size"), T("storage.type"), T("storage.modified"), T("storage.action")));
-        foreach (var file in result.LargestFiles.Take(80))
-        {
-            resultPanel.Children.Add(StorageFileRow(file));
-        }
-
-        resultPanel.Children.Add(SectionTitle(T("storage.fileTypes")));
-        resultPanel.Children.Add(StorageHeaderRow(T("storage.extension"), T("storage.size"), T("storage.count"), T("storage.lastModified"), T("storage.largest")));
+        panel.Children.Add(SectionTitle(T("storage.fileTypes")));
+        panel.Children.Add(StorageHeaderRow(T("storage.extension"), T("storage.size"), T("storage.count"), T("storage.lastModified"), T("storage.largest")));
         foreach (var type in result.FileTypes.Take(40))
         {
-            resultPanel.Children.Add(StorageFileTypeRow(type));
+            panel.Children.Add(StorageFileTypeRow(type));
         }
 
         if (result.Errors.Count > 0)
         {
-            resultPanel.Children.Add(SectionTitle(T("storage.skippedErrors")));
+            panel.Children.Add(SectionTitle(T("storage.skippedErrors")));
             foreach (var error in result.Errors.Take(20))
             {
-                resultPanel.Children.Add(new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap, Opacity = 0.72 });
+                panel.Children.Add(new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap, Opacity = 0.72 });
             }
         }
+
+        return panel;
+    }
+
+    private Grid StorageDiskItemHeaderRow()
+    {
+        var row = StorageDiskItemGrid();
+        row.Children.Add(SortHeaderButton(T("storage.name"), DiskItemSortColumn.Name, 0));
+        row.Children.Add(SortHeaderButton(T("storage.size"), DiskItemSortColumn.Size, 1));
+        row.Children.Add(SortHeaderButton(T("storage.percentOfParent"), DiskItemSortColumn.PercentOfParent, 2));
+        row.Children.Add(SortHeaderButton(T("storage.files"), DiskItemSortColumn.Files, 3));
+        row.Children.Add(SortHeaderButton(T("storage.modified"), DiskItemSortColumn.Modified, 4));
+        row.Children.Add(HeaderText(T("storage.action"), 5));
+        return row;
+
+        static TextBlock HeaderText(string text, int column)
+        {
+            var block = new TextBlock
+            {
+                Text = text,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Opacity = 0.75,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(block, column);
+            return block;
+        }
+    }
+
+    private Button SortHeaderButton(string text, DiskItemSortColumn column, int gridColumn)
+    {
+        var isActive = _diskItemSortColumn == column;
+        var button = new Button
+        {
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Content = $"{text}{(isActive ? (_diskItemSortAscending ? " ^" : " v") : string.Empty)}"
+        };
+        ToolTipService.SetToolTip(button, F("storage.sortBy", text));
+        button.Click += (_, _) =>
+        {
+            if (_diskItemSortColumn == column)
+            {
+                _diskItemSortAscending = !_diskItemSortAscending;
+            }
+            else
+            {
+                _diskItemSortColumn = column;
+                _diskItemSortAscending = column is DiskItemSortColumn.Name or DiskItemSortColumn.Modified;
+            }
+
+            if (_lastDiskScan is not null && _storageResultPanel is not null)
+            {
+                RenderStorageResults(_storageResultPanel, _lastDiskScan);
+            }
+        };
+
+        Grid.SetColumn(button, gridColumn);
+        return button;
+    }
+
+    private IEnumerable<DiskItem> SortDiskItems(IReadOnlyList<DiskItem> items, DiskItem root)
+    {
+        return _diskItemSortColumn switch
+        {
+            DiskItemSortColumn.Name => _diskItemSortAscending
+                ? items.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+                : items.OrderByDescending(item => item.Name, StringComparer.CurrentCultureIgnoreCase),
+            DiskItemSortColumn.Size => _diskItemSortAscending
+                ? items.OrderBy(item => item.Size)
+                : items.OrderByDescending(item => item.Size),
+            DiskItemSortColumn.PercentOfParent => _diskItemSortAscending
+                ? items.OrderBy(item => GetPercentOfParent(item, root))
+                : items.OrderByDescending(item => GetPercentOfParent(item, root)),
+            DiskItemSortColumn.Files => _diskItemSortAscending
+                ? items.OrderBy(item => item.FileCount)
+                : items.OrderByDescending(item => item.FileCount),
+            DiskItemSortColumn.Modified => _diskItemSortAscending
+                ? items.OrderBy(item => item.LastModified)
+                : items.OrderByDescending(item => item.LastModified),
+            _ => items.OrderByDescending(item => item.Size)
+        };
     }
 
     private static Grid StorageHeaderRow(string first, string second, string third, string fourth, string fifth)
@@ -312,14 +685,19 @@ public sealed partial class StoragePage : BasePage
 
     private Grid StorageDiskItemRow(DiskItem item, DiskItem root)
     {
-        var row = StorageGrid();
+        var row = StorageDiskItemGrid();
         row.Children.Add(CellText($"{(item.IsDirectory ? "[D]" : "[F]")} {item.Name}", 0, item.FullPath));
         row.Children.Add(CellText(Formatters.FormatBytes(item.Size), 1));
-        row.Children.Add(CellText(item.FileCount.ToString("N0"), 2));
-        row.Children.Add(CellText(FormatStorageDate(item.LastModified), 3));
+        row.Children.Add(PercentOfParentCell(GetPercentOfParent(item, root), 2));
+        row.Children.Add(CellText(item.FileCount.ToString("N0"), 3));
+        row.Children.Add(CellText(FormatStorageDate(item.LastModified), 4));
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        actions.Children.Add(IconButton(Symbol.OpenFile, T("common.openLocation"), (_, _) => MainWindow.OpenContainingFolder_Internal(item.FullPath)));
+        actions.Children.Add(IconButton(Symbol.OpenFile, T("storage.openInExplorer"), (_, _) => OpenDiskItemInExplorer(item)));
+        if (item.IsDirectory)
+        {
+            actions.Children.Add(IconButton(Symbol.Find, T("storage.analyzeThisFolder"), async (_, _) => await AnalyzeDiskItemAsync(item)));
+        }
         if (item.FullPath != root.FullPath)
         {
             actions.Children.Add(IconButton(Symbol.Add, T("common.addCleanupReview"), async (_, _) =>
@@ -327,28 +705,86 @@ public sealed partial class StoragePage : BasePage
                 await ReviewStorageCandidatesAsync([CreateManualCandidate(item)]);
             }));
         }
-        Grid.SetColumn(actions, 4);
+        Grid.SetColumn(actions, 5);
         row.Children.Add(actions);
+        row.ContextFlyout = CreateDiskItemContextMenu(item, root);
+        if (item.IsDirectory)
+        {
+            row.DoubleTapped += async (_, _) => await AnalyzeDiskItemAsync(item);
+        }
         return row;
     }
 
-    private Grid StorageFileRow(DiskItem file)
+    private MenuFlyout CreateDiskItemContextMenu(DiskItem item, DiskItem root)
     {
-        var row = StorageGrid();
-        row.Children.Add(CellText(file.Name, 0, file.FullPath));
-        row.Children.Add(CellText(Formatters.FormatBytes(file.Size), 1));
-        row.Children.Add(CellText(file.Extension, 2));
-        row.Children.Add(CellText(FormatStorageDate(file.LastModified), 3));
+        var flyout = new MenuFlyout();
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        actions.Children.Add(IconButton(Symbol.OpenFile, T("common.openLocation"), (_, _) => MainWindow.OpenContainingFolder_Internal(file.FullPath)));
-        actions.Children.Add(IconButton(Symbol.Add, T("common.addCleanupReview"), async (_, _) =>
+        var openItem = new MenuFlyoutItem
         {
-            await ReviewStorageCandidatesAsync([CreateManualCandidate(file)]);
-        }));
-        Grid.SetColumn(actions, 4);
-        row.Children.Add(actions);
-        return row;
+            Text = T("storage.openInExplorer"),
+            Icon = new SymbolIcon(Symbol.OpenFile)
+        };
+        openItem.Click += (_, _) => OpenDiskItemInExplorer(item);
+        flyout.Items.Add(openItem);
+
+        if (item.IsDirectory)
+        {
+            var analyzeItem = new MenuFlyoutItem
+            {
+                Text = T("storage.analyzeThisFolder"),
+                Icon = new SymbolIcon(Symbol.Find)
+            };
+            analyzeItem.Click += async (_, _) => await AnalyzeDiskItemAsync(item);
+            flyout.Items.Add(analyzeItem);
+        }
+
+        if (item.FullPath != root.FullPath)
+        {
+            var cleanupItem = new MenuFlyoutItem
+            {
+                Text = T("common.addCleanupReview"),
+                Icon = new SymbolIcon(Symbol.Add)
+            };
+            cleanupItem.Click += async (_, _) => await ReviewStorageCandidatesAsync([CreateManualCandidate(item)]);
+            flyout.Items.Add(cleanupItem);
+        }
+
+        var copyPathItem = new MenuFlyoutItem
+        {
+            Text = T("storage.copyPath"),
+            Icon = new SymbolIcon(Symbol.Copy)
+        };
+        copyPathItem.Click += (_, _) => CopyPathToClipboard(item.FullPath);
+        flyout.Items.Add(copyPathItem);
+
+        return flyout;
+    }
+
+    private async Task AnalyzeDiskItemAsync(DiskItem item)
+    {
+        if (item.IsDirectory)
+        {
+            await StartDiskScanAsync(item.FullPath);
+        }
+    }
+
+    private static void OpenDiskItemInExplorer(DiskItem item)
+    {
+        if (item.IsDirectory)
+        {
+            MainWindow.OpenFolder_Internal(item.FullPath);
+        }
+        else
+        {
+            MainWindow.OpenContainingFolder_Internal(item.FullPath);
+        }
+    }
+
+    private static void CopyPathToClipboard(string path)
+    {
+        var package = new DataPackage();
+        package.SetText(path);
+        Clipboard.SetContent(package);
     }
 
     private static Grid StorageFileTypeRow(FileTypeSummary summary)
@@ -362,33 +798,46 @@ public sealed partial class StoragePage : BasePage
         return row;
     }
 
-    private static StackPanel StorageBarRow(DiskItem item, long totalBytes)
+    private static Grid PercentOfParentCell(double percent, int column)
     {
-        var percent = totalBytes > 0 ? Math.Max(2, Math.Min(100, item.Size * 100d / totalBytes)) : 0;
-        var wrapper = new StackPanel { Spacing = 4 };
-        wrapper.Children.Add(new TextBlock
+        var boundedPercent = Math.Max(0, Math.Min(100, percent));
+        var cell = new Grid
         {
-            Text = $"{item.Name}  {Formatters.FormatBytes(item.Size)}  ({percent:N1}%)",
-            TextWrapping = TextWrapping.Wrap
-        });
+            Height = 24,
+            VerticalAlignment = VerticalAlignment.Center,
+            ColumnSpacing = 8
+        };
+        cell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
+        cell.ColumnDefinitions.Add(new ColumnDefinition());
 
-        var bar = new Grid { Height = 18 };
-        bar.Children.Add(new Rectangle
-        {
-            Fill = Brush(Color.FromArgb(28, 128, 128, 128)),
-            RadiusX = 3,
-            RadiusY = 3
-        });
-        bar.Children.Add(new ProgressBar
+        var bar = new ProgressBar
         {
             Minimum = 0,
             Maximum = 100,
-            Value = percent,
-            Height = 18,
+            Value = boundedPercent,
+            Height = 12,
+            VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false
-        });
-        wrapper.Children.Add(bar);
-        return wrapper;
+        };
+        cell.Children.Add(bar);
+
+        var label = new TextBlock
+        {
+            Text = $"{boundedPercent:N1}%",
+            TextWrapping = TextWrapping.NoWrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.86
+        };
+        Grid.SetColumn(label, 1);
+        cell.Children.Add(label);
+
+        Grid.SetColumn(cell, column);
+        return cell;
+    }
+
+    private static double GetPercentOfParent(DiskItem item, DiskItem root)
+    {
+        return item.FullPath == root.FullPath ? 100 : item.PercentOfParent;
     }
 
     private Grid StorageCandidateRow(StorageCleanupCandidate candidate, CheckBox checkBox)
@@ -508,6 +957,23 @@ public sealed partial class StoragePage : BasePage
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(132) });
+        return grid;
+    }
+
+    private static Grid StorageDiskItemGrid()
+    {
+        var grid = new Grid
+        {
+            ColumnSpacing = 10,
+            Padding = new Thickness(8, 7, 8, 7),
+            Background = Brush(Color.FromArgb(10, 128, 128, 128))
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(174) });
         return grid;
     }
 

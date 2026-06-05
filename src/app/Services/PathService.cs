@@ -8,7 +8,7 @@ public sealed class PathService
 
     public PathService()
     {
-        RepositoryRoot = FindRepositoryRoot(AppContext.BaseDirectory);
+        RepositoryRoot = FindRepositoryRoot(AppRuntimePaths.OriginalBaseDirectory);
     }
 
     private static string FindRepositoryRoot(string start)
@@ -26,6 +26,6 @@ public sealed class PathService
             directory = directory.Parent;
         }
 
-        return AppContext.BaseDirectory;
+        return AppRuntimePaths.OriginalBaseDirectory;
     }
 }

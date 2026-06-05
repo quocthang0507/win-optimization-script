@@ -1,6 +1,10 @@
 # NuGet Packages redirected local folder
 packages/
 
+# .NET build output
+bin/
+obj/
+
 # Application execution logs
 logs/
 

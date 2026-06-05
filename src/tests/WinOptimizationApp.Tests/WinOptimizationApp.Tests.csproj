@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\app\Models\AppLanguage.cs" Link="Production\Models\AppLanguage.cs" />
+    <Compile Include="..\..\app\Models\DiskItem.cs" Link="Production\Models\DiskItem.cs" />
+    <Compile Include="..\..\app\Models\DiskScanOptions.cs" Link="Production\Models\DiskScanOptions.cs" />
+    <Compile Include="..\..\app\Models\DiskScanProgress.cs" Link="Production\Models\DiskScanProgress.cs" />
+    <Compile Include="..\..\app\Models\DiskScanResult.cs" Link="Production\Models\DiskScanResult.cs" />
+    <Compile Include="..\..\app\Models\FileTypeSummary.cs" Link="Production\Models\FileTypeSummary.cs" />
+    <Compile Include="..\..\app\Services\DiskAnalysisService.cs" Link="Production\Services\DiskAnalysisService.cs" />
+    <Compile Include="..\..\app\Services\Formatters.cs" Link="Production\Services\Formatters.cs" />
+  </ItemGroup>
+
+</Project>

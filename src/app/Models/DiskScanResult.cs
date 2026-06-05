@@ -10,4 +10,5 @@ public sealed record DiskScanResult(
     int SkippedCount,
     IReadOnlyList<string> Errors,
     IReadOnlyList<DiskItem> LargestFiles,
-    IReadOnlyList<FileTypeSummary> FileTypes);
+    IReadOnlyList<FileTypeSummary> FileTypes,
+    bool IsPartial = false);

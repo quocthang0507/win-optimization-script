@@ -5,4 +5,5 @@ public sealed record DiskScanProgress(
     long TotalBytes,
     int FileCount,
     int FolderCount,
-    int SkippedCount);
+    int SkippedCount,
+    DiskScanResult? PartialResult = null);
