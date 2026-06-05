@@ -11,11 +11,13 @@ Windows System Maintenance Tool là bộ công cụ dọn dẹp, tối ưu và s
 
 - Dashboard hiển thị trạng thái máy: Windows version, quyền admin, uptime, dung lượng ổ hệ thống, pending reboot và WinGet.
 - Cleanup có scan/preview trước khi chạy.
+- Storage Analyzer quét ổ đĩa hoặc thư mục, hiển thị thư mục lớn, file lớn, loại file và cleanup candidates.
 - Badge mức rủi ro: `Safe`, `Medium`, `High`.
 - Chặn hoặc cảnh báo các tác vụ cần Administrator.
 - Report sau khi chạy task, lưu vào `logs/` ở root repo.
 - Startup inventory dạng read-only.
 - WinGet update preview.
+- Hỗ trợ giao diện tiếng Việt và tiếng Anh, có thể đổi trong Settings.
 - Settings có lối mở Storage Sense và chạy lại CLI ở `src/cli/Utilities.ps1`.
 
 ### PowerShell CLI
@@ -58,7 +60,7 @@ logs/
 
 - Windows 10 hoặc Windows 11.
 - PowerShell 5.1 trở lên cho CLI.
-- .NET SDK 8 trở lên để build WinUI app.
+- .NET SDK 10 trở lên để build WinUI app.
 - Một số tác vụ cần chạy app hoặc PowerShell dưới quyền Administrator.
 
 ## Chạy WinUI app
@@ -93,6 +95,7 @@ Hoặc chạy EXE nếu đã build:
 ## An toàn khi sử dụng
 
 - Luôn ưu tiên `Scan` hoặc `Preview` trước khi cleanup.
+- Trong Storage Analyzer, mọi file/thư mục được chọn để dọn đều đi qua `Cleanup Review`.
 - Đóng trình duyệt trước khi dọn browser cache.
 - Với task `High`, nên tạo Restore Point trước khi chạy.
 - Không chạy các tác vụ repair/optimization khi máy đang cập nhật Windows.
@@ -105,8 +108,9 @@ Xem kế hoạch chi tiết tại [docs/implementation_plan.md](docs/implementat
 Các hướng ưu tiên:
 
 - Tách core engine sang `src/core`.
-- Thêm test cho cleanup, path validation, WinGet parser và report JSON.
+- Thêm test cho cleanup, disk scan, path validation, WinGet parser và report JSON.
 - Tách UI WinUI thành `Views/` và `ViewModels/`.
+- Nâng cấp visualization của Storage Analyzer thành treemap/canvas virtualized.
 - Mở rộng Startup Manager có backup trước khi enable/disable.
 - Hoàn thiện packaging/publish cho WinUI app.
 

@@ -1,22 +1,32 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "type": "PowerShell",
-            "request": "launch",
-            "name": "PowerShell: Run Utilities",
-            "script": "${workspaceFolder}/Utilities.ps1",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "PowerShell",
-            "request": "launch",
-            "name": "PowerShell: Compile to EXE",
-            "script": "${workspaceFolder}/Utilities.ps1",
-            "args": [
-                "-Compile"
-            ],
-            "cwd": "${workspaceFolder}"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "coreclr",
+      "request": "launch",
+      "name": "WinUI: Build and Run App",
+      "preLaunchTask": "build WinUI app",
+      "program": "${workspaceFolder}/src/app/bin/Debug/net10.0-windows10.0.19041.0/win-x64/WinOptimizationApp.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/app",
+      "stopAtEntry": false
+    },
+    {
+      "type": "PowerShell",
+      "request": "launch",
+      "name": "PowerShell: Run Utilities",
+      "script": "${workspaceFolder}/src/cli/Utilities.ps1",
+      "cwd": "${workspaceFolder}/src/cli"
+    },
+    {
+      "type": "PowerShell",
+      "request": "launch",
+      "name": "PowerShell: Compile to EXE",
+      "script": "${workspaceFolder}/src/cli/Utilities.ps1",
+      "args": [
+        "-Compile"
+      ],
+      "cwd": "${workspaceFolder}/src/cli"
+    }
+  ]
 }

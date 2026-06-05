@@ -5,6 +5,8 @@ namespace WinOptimizationApp;
 
 public static class Program
 {
+    private static App? _app;
+
     [STAThread]
     public static void Main(string[] args)
     {
@@ -13,7 +15,7 @@ public static class Program
         {
             var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
             SynchronizationContext.SetSynchronizationContext(context);
-            var app = new App();
+            _app = new App();
         });
     }
 }

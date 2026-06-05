@@ -10,6 +10,7 @@ Các nguyên tắc chính:
 - Minh bạch: hiển thị dung lượng dự kiến, trạng thái, lỗi, file bị bỏ qua và báo cáo sau khi chạy.
 - Có khả năng khôi phục: backup/restore point cho tác vụ rủi ro cao.
 - UI rõ ràng: nhóm chức năng theo workflow, có badge mức rủi ro và kết quả dễ quét.
+- Hỗ trợ đa ngôn ngữ tối thiểu tiếng Việt và tiếng Anh.
 - Tôn trọng công cụ hệ thống chính chủ: dùng API/cmdlet hoặc CLI chuẩn khi có thể thay vì xóa thủ công.
 
 ## Phạm vi và cấu trúc hiện tại
@@ -19,6 +20,7 @@ Repo hiện đã được tách thành hai bề mặt sử dụng chính:
 - CLI PowerShell hiện có nằm trong `src/cli/Utilities.ps1`.
 - App WinUI 3 mới nằm trong `src/app`.
 - Report/log runtime được ghi vào `logs/` ở root repo.
+- Localization Việt/Anh hiện nằm trong `src/app/Services/LocalizationService.cs`.
 - Kế hoạch triển khai và tài liệu kỹ thuật nằm trong `docs/`.
 
 Cấu trúc nguồn hiện tại:
@@ -35,24 +37,35 @@ src/
     app.manifest
     README.md
     Models/
+      AppLanguage.cs
       CleanupTargetPreview.cs
       DashboardStatus.cs
+      DiskItem.cs
+      DiskScanOptions.cs
+      DiskScanProgress.cs
+      DiskScanResult.cs
+      FileTypeSummary.cs
       MaintenanceTask.cs
       RiskLevel.cs
       StartupEntry.cs
+      StorageCleanupCandidate.cs
+      StorageCleanupMode.cs
       TaskPreview.cs
       TaskRunResult.cs
       WingetPackage.cs
     Services/
       CleanupService.cs
       CommandRunner.cs
+      DiskAnalysisService.cs
       Formatters.cs
+      LocalizationService.cs
       MaintenanceCatalog.cs
       MaintenanceExecutionService.cs
       PathService.cs
       ReportService.cs
       RestorePointService.cs
       StartupService.cs
+      StorageCleanupService.cs
       SystemStatusService.cs
       WingetService.cs
   cli/
@@ -434,13 +447,28 @@ src/
     Program.cs
     MainWindow.cs
     Views/
+      ShellWindow.cs
+      DashboardView.cs
+      MaintenanceView.cs
+      StorageAnalyzerView.cs
+      CleanupReviewView.cs
     ViewModels/
+      ShellViewModel.cs
+      DashboardViewModel.cs
+      MaintenanceViewModel.cs
+      StorageAnalyzerViewModel.cs
+      CleanupReviewViewModel.cs
   core/
     WinOptimization.Core.csproj
     Models/
+      DiskItem.cs
+      DiskScanOptions.cs
+      DiskScanResult.cs
+      StorageCleanupCandidate.cs
     Services/
       CleanupService.cs
       CommandRunner.cs
+      DiskAnalysisService.cs
       MaintenanceCatalog.cs
       MaintenanceExecutionService.cs
       ReportService.cs
@@ -470,7 +498,7 @@ Tiêu chí nghiệm thu:
 Hướng đã chọn:
 
 - WinUI 3 / Windows App SDK.
-- Target hiện tại: `net8.0-windows10.0.19041.0`.
+- Target hiện tại: `net10.0-windows10.0.19041.0`.
 - App hiện chạy unpackaged với `WindowsPackageType=None`.
 - CLI fallback trỏ đến `src/cli/Utilities.ps1` thông qua `PathService`.
 
@@ -478,6 +506,7 @@ Navigation:
 
 - Dashboard
 - Cleanup
+- Storage Analyzer
 - Startup
 - Updates
 - Repair
@@ -485,6 +514,14 @@ Navigation:
 - Settings
 
 Ghi chú: Privacy hiện được gom vào Cleanup page trong MVP, nhưng vẫn có thể tách thành page riêng khi số tác vụ privacy tăng.
+
+Form chính cần hỗ trợ chuyển đổi nhanh giữa nhóm chức năng ban đầu và chức năng phân tích dung lượng mới:
+
+- Dùng `NavigationView` làm shell chính, trong đó `Dashboard`, `Cleanup`, `Repair`, `Updates`, `Startup`, `History`, `Settings` là các module maintenance hiện tại.
+- Thêm module `Storage Analyzer` ngang cấp với `Cleanup`, không giấu trong Settings.
+- Trên Dashboard có quick action `Analyze Storage` để mở thẳng form phân tích ổ đĩa.
+- Trong `Storage Analyzer`, có breadcrumb hoặc path bar để chuyển thư mục đang phân tích mà không rời form.
+- Khi người dùng chọn file/thư mục để dọn, chuyển sang `Cleanup Review` dạng panel/modal xác nhận, sau đó quay lại kết quả scan để refresh dung lượng.
 
 Nguyên tắc UI:
 
@@ -504,6 +541,227 @@ Tiêu chí nghiệm thu:
 - Task cần admin được chặn hoặc cảnh báo rõ khi app chưa chạy elevated.
 - `History` đọc report từ `logs/`.
 
+### 5.3 Storage Analyzer giống TreeSize
+
+Mục tiêu: bổ sung một form phân tích không gian lưu trữ của ổ đĩa theo phong cách các phần mềm thương mại như TreeSize: quét nhanh, hiển thị cây thư mục theo dung lượng, tìm file lớn và hỗ trợ dọn dẹp an toàn.
+
+Không sao chép giao diện hay thương hiệu của TreeSize. Chỉ học các nguyên tắc UX đã quen thuộc: cây thư mục có cột dung lượng, biểu đồ phân bổ, bộ lọc mạnh, thao tác cleanup có xác nhận và khả năng quay lại kết quả scan.
+
+#### Luồng sử dụng chính
+
+1. Người dùng mở `Storage Analyzer` từ sidebar hoặc quick action trên Dashboard.
+2. Chọn ổ đĩa hoặc thư mục gốc để phân tích.
+3. App quét dung lượng và cập nhật progress theo thư mục đang xử lý.
+4. Kết quả hiển thị theo nhiều chế độ: tree table, treemap, file types, largest files.
+5. Người dùng chọn file/thư mục hoặc cleanup candidates.
+6. App mở `Cleanup Review` để xác nhận trước khi xóa, recycle hoặc mở vị trí file.
+7. Sau khi cleanup, app refresh lại node liên quan và lưu report.
+
+#### Layout đề xuất
+
+```text
+Storage Analyzer
+├─ Top command bar
+│  ├─ Drive selector
+│  ├─ Scan / Stop / Refresh
+│  ├─ Search
+│  ├─ Filter
+│  └─ Cleanup Review
+├─ Summary strip
+│  ├─ Total scanned
+│  ├─ Free space
+│  ├─ Largest folder
+│  ├─ Candidate cleanup size
+│  └─ Scan duration
+├─ Main split view
+│  ├─ Left: folder tree/table
+│  └─ Right: details tabs
+│     ├─ Treemap
+│     ├─ Largest files
+│     ├─ File types
+│     ├─ Age
+│     └─ Cleanup candidates
+└─ Bottom status bar
+   ├─ Current path
+   ├─ Items scanned
+   ├─ Errors/skipped
+   └─ Last report
+```
+
+#### Tree table
+
+Cột nên có:
+
+- Name
+- Size
+- Allocated
+- Percent of parent
+- File count
+- Folder count
+- Last modified
+- Owner nếu lấy được không quá tốn thời gian
+- Attributes/status
+
+Tương tác:
+
+- Sort theo mọi cột.
+- Expand/collapse lazy-loading.
+- Double click để drill down.
+- Right click context menu: open, open in Explorer, copy path, rescan, add to cleanup review.
+- Breadcrumb path bar ở đầu để quay lên nhanh.
+- Keyboard navigation và focus state rõ ràng.
+
+#### Treemap và biểu đồ
+
+Yêu cầu UI:
+
+- Treemap hiển thị tỷ lệ dung lượng theo thư mục/file lớn.
+- Màu theo loại file hoặc theo folder depth, tránh palette một màu.
+- Hover tooltip: name, path, size, percent.
+- Click vào ô treemap đồng bộ selection với tree table.
+- Không dùng biểu đồ trang trí; mọi visualization phải phục vụ quyết định cleanup.
+
+#### Largest files
+
+Tính năng:
+
+- Danh sách top file lớn nhất trong phạm vi scan.
+- Filter theo phần mở rộng, kích thước tối thiểu, ngày sửa đổi.
+- Group theo loại: video, archive, installer, disk image, logs, developer artifacts.
+- Hành động an toàn: open location, copy path, add to cleanup review.
+
+Không tự động xóa file người dùng. Mọi thao tác xóa phải qua `Cleanup Review`.
+
+#### File types
+
+Tính năng:
+
+- Bảng tổng hợp extension: `.zip`, `.iso`, `.mp4`, `.log`, `.tmp`, `.msi`, `.dmp`.
+- Hiển thị total size, count, largest item, last modified range.
+- Cho phép click extension để lọc tree/largest files.
+
+#### Cleanup candidates
+
+Nhóm candidate nên có:
+
+- Recycle Bin.
+- Windows temp.
+- User temp.
+- Browser cache.
+- Windows Update cache.
+- Old logs.
+- Crash dumps.
+- Installer leftovers trong Downloads.
+- Developer caches.
+
+Mỗi candidate cần có:
+
+- Risk level.
+- Estimated size.
+- Source path.
+- Reason.
+- Requires admin.
+- Can move to Recycle Bin.
+- Can permanently delete.
+- Exclusions.
+
+Tiêu chí an toàn:
+
+- Mặc định ưu tiên move to Recycle Bin cho file người dùng.
+- Permanent delete chỉ dùng cho cache/temp rõ nguồn gốc và vẫn cần xác nhận.
+- Không dọn `Downloads`, `Documents`, `Pictures`, project folder hoặc source code folder theo rule tự động.
+- Có dry-run/preview trước khi cleanup.
+- Có report sau cleanup.
+
+#### Scan engine
+
+Yêu cầu kỹ thuật:
+
+- Quét bất đồng bộ, có cancellation.
+- Không block UI thread.
+- Có progress theo số item, dung lượng đã cộng dồn và path hiện tại.
+- Bỏ qua junction/symlink theo mặc định để tránh vòng lặp.
+- Có tùy chọn include hidden/system files.
+- Có danh sách skipped/error paths.
+- Dùng lazy loading cho tree lớn.
+- Cache kết quả scan tạm thời để chuyển tab không phải quét lại.
+
+Model đề xuất:
+
+```text
+DiskScanOptions
+  RootPath
+  IncludeHidden
+  IncludeSystem
+  FollowReparsePoints
+  MinimumFileSize
+  ExcludedPaths
+
+DiskItem
+  Name
+  FullPath
+  IsDirectory
+  Size
+  AllocatedSize
+  PercentOfParent
+  FileCount
+  FolderCount
+  LastModified
+  Extension
+  Children
+  ScanStatus
+
+DiskScanResult
+  Root
+  StartedAt
+  FinishedAt
+  TotalBytes
+  FileCount
+  FolderCount
+  SkippedCount
+  Errors
+
+StorageCleanupCandidate
+  Id
+  Label
+  SourcePath
+  EstimatedBytes
+  RiskLevel
+  CleanupMode
+  Reason
+```
+
+Service đề xuất:
+
+- `DiskAnalysisService`: scan folder/drive, build tree, aggregate size.
+- `DiskItemIndexService`: index extension, largest files, age groups.
+- `StorageCleanupCandidateService`: map scan result sang cleanup candidates.
+- `StorageCleanupService`: move to Recycle Bin/delete sau khi xác nhận.
+- `DiskScanCacheService`: giữ kết quả scan gần nhất.
+
+#### UI/UX chuẩn thương mại
+
+- Màn hình đầu tiên của `Storage Analyzer` là công cụ phân tích thật, không phải landing page.
+- Có trạng thái empty/loading/error rõ ràng.
+- Scan button có trạng thái `Scan`, `Stop`, `Refresh`.
+- Không làm người dùng mất selection khi refresh một node.
+- Các số dung lượng phải format nhất quán: KB/MB/GB/TB.
+- Cảnh báo rõ ràng khi cần Administrator.
+- Hành động nguy hiểm dùng dialog xác nhận có danh sách item và dung lượng.
+- Không dùng text dài để giải thích UI; dùng label ngắn, tooltip và trạng thái inline.
+- Bảng dữ liệu ưu tiên density vừa phải, dễ scan, không dùng card cho từng file.
+- Layout responsive: vẫn dùng được ở width nhỏ bằng cách collapse details panel.
+
+Tiêu chí nghiệm thu:
+
+- Người dùng chọn ổ C: hoặc một thư mục bất kỳ và xem được cây dung lượng.
+- Scan có thể hủy giữa chừng.
+- Tree table, largest files và file types lấy cùng một kết quả scan.
+- Click trong treemap đồng bộ với selection trong tree.
+- Có cleanup review trước khi xóa/move to Recycle Bin.
+- Không có thao tác xóa nào chạy trực tiếp từ tree hoặc treemap.
+- Report cleanup được lưu vào `logs/`.
+
 ## Phase 6: Chất lượng, test và phát hành
 
 ### 6.1 Test tự động
@@ -515,6 +773,9 @@ Test đề xuất:
 - Unit test cho `Format-Bytes`
 - Unit test cho path validation
 - Unit test cho scan không xóa file
+- Unit test cho `DiskAnalysisService`: aggregate size, skipped paths, symlink/junction handling.
+- Unit test cho `DiskItemIndexService`: largest files, extension grouping, age grouping.
+- Unit test cho cleanup review: không xóa nếu chưa confirm.
 - Mock command external cho WinGet/dev cache
 - Test parse report JSON
 
@@ -577,11 +838,16 @@ Tiêu chí nghiệm thu:
 7. Nâng cấp developer cache và browser cache.
 8. Nâng cấp WinGet preview flow.
 9. Tách UI `MainWindow.cs` thành `Views/` và `ViewModels/`.
-10. Thêm presets.
-11. Mở rộng Startup Manager từ read-only sang enable/disable có backup.
-12. Thêm test cho `src/core`.
-13. Cập nhật packaging/publish cho WinUI app.
-14. Thêm release workflow.
+10. Tạo shell navigation mới để chuyển nhanh giữa Maintenance và Storage Analyzer.
+11. Thêm `StorageAnalyzerView` và `StorageAnalyzerViewModel`.
+12. Thêm `DiskAnalysisService` với scan async/cancel/progress.
+13. Thêm tree table, largest files, file types và treemap cho Storage Analyzer.
+14. Thêm `Cleanup Review` cho file/thư mục/candidate từ Storage Analyzer.
+15. Thêm presets.
+16. Mở rộng Startup Manager từ read-only sang enable/disable có backup.
+17. Thêm test cho `src/core`.
+18. Cập nhật packaging/publish cho WinUI app.
+19. Thêm release workflow.
 
 ## Định nghĩa mức rủi ro
 
@@ -600,6 +866,13 @@ Tiêu chí nghiệm thu:
 - [ ] README hiển thị tiếng Việt đúng encoding.
 - [ ] `winget upgrade` có preview trước khi chạy `--all`.
 - [ ] Có summary cuối phiên: dung lượng giải phóng, số task chạy, cảnh báo.
+- [ ] Form chính có navigation rõ ràng giữa Maintenance và Storage Analyzer.
+- [ ] Storage Analyzer quét được ổ đĩa hoặc thư mục bất kỳ.
+- [ ] Storage Analyzer có tree table với size, percent, file count và last modified.
+- [ ] Có largest files và file types dùng chung kết quả scan.
+- [ ] Có treemap hoặc visualization tỷ lệ dung lượng.
+- [ ] Có cleanup review trước khi xóa/move to Recycle Bin từ Storage Analyzer.
+- [ ] Scan storage có cancel/progress và không block UI.
 
 ## Rủi ro kỹ thuật cần lưu ý
 
@@ -609,15 +882,23 @@ Tiêu chí nghiệm thu:
 - `cleanmgr` là công cụ cũ, nên tránh phụ thuộc hoàn toàn vào nó cho chiến lược dài hạn.
 - `winget` output có thể thay đổi theo phiên bản/ngôn ngữ hệ thống, cần parse cẩn thận hoặc ưu tiên output có cấu trúc nếu có.
 - GUI nên dùng core engine trả object, không parse lại text output từ console.
+- Quét toàn ổ đĩa có thể rất lâu; cần cancellation, progress thật và lazy loading.
+- Junction/symlink/reparse point có thể tạo vòng lặp hoặc tính trùng dung lượng; mặc định không follow.
+- Một số thư mục hệ thống bị từ chối truy cập; cần hiển thị skipped count thay vì coi là lỗi toàn bộ scan.
+- Treemap với hàng trăm nghìn file có thể gây chậm UI; cần giới hạn node render và gom nhóm file nhỏ.
+- Cleanup file người dùng có rủi ro cao hơn cleanup cache; mặc định dùng Recycle Bin và luôn qua review.
 
 ## Kết quả mong muốn
 
 Sau khi hoàn thành roadmap, app sẽ có trải nghiệm:
 
 1. Người dùng mở app và thấy dashboard tình trạng máy.
-2. Người dùng bấm scan để xem có thể dọn gì.
-3. App hiển thị dung lượng dự kiến và mức rủi ro.
-4. Người dùng chọn task hoặc preset.
-5. App tạo backup/restore point nếu cần.
-6. App chạy tác vụ, hiển thị tiến trình rõ ràng.
-7. App lưu report và hiển thị kết quả cuối cùng.
+2. Người dùng chuyển nhanh giữa Maintenance và Storage Analyzer từ sidebar hoặc quick action.
+3. Người dùng bấm scan để xem có thể dọn gì.
+4. App hiển thị dung lượng dự kiến và mức rủi ro.
+5. Người dùng chọn task hoặc preset.
+6. Người dùng mở Storage Analyzer để xem cây dung lượng, file lớn, loại file và candidate cleanup.
+7. App đưa mọi thao tác xóa từ Storage Analyzer qua Cleanup Review.
+8. App tạo backup/restore point nếu cần.
+9. App chạy tác vụ, hiển thị tiến trình rõ ràng.
+10. App lưu report và hiển thị kết quả cuối cùng.
