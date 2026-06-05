@@ -1,10 +1,6 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using System;
-using System.IO;
-using System.Threading.Tasks;
 using Windows.UI;
 using WinOptimizationApp.Models;
 
@@ -20,33 +16,33 @@ public sealed partial class SettingsPage : BasePage
     private void RenderSettingsPage()
     {
         AddHeader(T("settings.title"), T("settings.subtitle"));
-        
+
         MainContent.Children.Add(LanguageCard());
         MainContent.Children.Add(ThemeCard());
         MainContent.Children.Add(WinUiStyleCard());
-        
+
         MainContent.Children.Add(Card(
-            T("settings.cliScript"), 
-            MainWindow.Paths.CliScriptPath, 
-            T("common.launch"), 
+            T("settings.cliScript"),
+            MainWindow.Paths.CliScriptPath,
+            T("common.launch"),
             async (_, _) => await MainWindow.RunTaskAsync(MainWindow.Catalog.GetById("cli.launch"))));
-        
+
         MainContent.Children.Add(Card(
-            T("settings.storageSense"), 
-            T("settings.storageSenseDescription"), 
-            T("common.open"), 
+            T("settings.storageSense"),
+            T("settings.storageSenseDescription"),
+            T("common.open"),
             async (_, _) => await MainWindow.RunTaskAsync(MainWindow.Catalog.GetById("settings.storage"))));
-        
+
         MainContent.Children.Add(Card(
-            T("settings.logs"), 
-            MainWindow.Paths.LogsDirectory, 
-            T("common.open"), 
+            T("settings.logs"),
+            MainWindow.Paths.LogsDirectory,
+            T("common.open"),
             (_, _) => MainWindow.OpenFolder_Internal(MainWindow.Paths.LogsDirectory)));
-        
+
         MainContent.Children.Add(Card(
-            T("settings.repository"), 
-            MainWindow.Paths.RepositoryRoot, 
-            T("common.open"), 
+            T("settings.repository"),
+            MainWindow.Paths.RepositoryRoot,
+            T("common.open"),
             (_, _) => MainWindow.OpenFolder_Internal(MainWindow.Paths.RepositoryRoot)));
     }
 

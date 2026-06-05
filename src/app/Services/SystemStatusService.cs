@@ -1,9 +1,6 @@
 using Microsoft.Win32;
-using System;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
-using System.Threading.Tasks;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
@@ -25,11 +22,13 @@ public sealed class SystemStatusService
         public ulong ullTotalVirtual;
         public ulong ullAvailVirtual;
         public ulong ullAvailExtendedVirtual;
-        
+
         public static MEMORYSTATUSEX Create()
         {
-            var result = new MEMORYSTATUSEX();
-            result.dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+            var result = new MEMORYSTATUSEX
+            {
+                dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX))
+            };
             return result;
         }
     }

@@ -1,7 +1,4 @@
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using System;
-using System.Threading.Tasks;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Views;
@@ -16,7 +13,7 @@ public sealed partial class StartupPage : BasePage
     private void RenderStartupPage()
     {
         AddHeader(T("startup.title"), T("startup.subtitle"));
-        
+
         var resultPanel = new StackPanel { Spacing = 8 };
         var scanButton = ActionButton(T("startup.scan"), Symbol.Find, async (_, _) =>
         {

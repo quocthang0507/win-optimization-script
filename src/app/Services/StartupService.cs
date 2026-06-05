@@ -12,7 +12,7 @@ public sealed class StartupService
         if (Client != null)
         {
             var response = await Client.SendRequestAsync("ScanStartup");
-            return System.Text.Json.JsonSerializer.Deserialize<List<StartupEntry>>(response) ?? new List<StartupEntry>();
+            return System.Text.Json.JsonSerializer.Deserialize<List<StartupEntry>>(response) ?? [];
         }
 
         return await Task.Run<IReadOnlyList<StartupEntry>>(() =>

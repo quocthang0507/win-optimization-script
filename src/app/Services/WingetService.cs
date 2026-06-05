@@ -18,7 +18,7 @@ public sealed class WingetService
         if (Client != null)
         {
             var response = await Client.SendRequestAsync("ScanWinget");
-            return System.Text.Json.JsonSerializer.Deserialize<List<WingetPackage>>(response) ?? new List<WingetPackage>();
+            return System.Text.Json.JsonSerializer.Deserialize<List<WingetPackage>>(response) ?? [];
         }
         if (!_commands.Exists("winget"))
         {

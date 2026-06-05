@@ -3,13 +3,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using Windows.Graphics;
 using Windows.UI;
 using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
@@ -20,68 +14,52 @@ namespace WinOptimizationApp;
 
 public sealed class MainWindow : Window
 {
-    private readonly PathService _paths = new();
-    private readonly AppSettingsService _settingsService = new();
-    private readonly CommandRunner _commands = new();
-    private readonly MaintenanceCatalog _catalog = new();
-    private readonly AppSettings _settings;
-    private readonly ReportService _reports;
-    private readonly CleanupService _cleanup;
-    private readonly SystemStatusService _status;
-    private readonly WingetService _winget;
-    private readonly StartupService _startup = new();
-    private readonly LocalizationService _localization;
-    private readonly MaintenanceExecutionService _execution;
-    private readonly DiskAnalysisService _diskAnalysis = new();
-    private readonly StorageCleanupService _storageCleanup;
     private readonly IpcClient _ipcClient = new();
-
-    private readonly NavigationView _navigation;
     private readonly Dictionary<string, NavigationViewItem> _navItems = new(StringComparer.OrdinalIgnoreCase);
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
-    
+
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
     private string _currentPageTag = "dashboard";
 
-    internal PathService Paths => _paths;
-    internal AppSettingsService SettingsService => _settingsService;
-    internal CommandRunner Commands => _commands;
-    internal MaintenanceCatalog Catalog => _catalog;
-    internal AppSettings Settings => _settings;
-    internal ReportService Reports => _reports;
-    internal CleanupService Cleanup => _cleanup;
-    internal SystemStatusService Status => _status;
-    internal WingetService Winget => _winget;
-    internal StartupService Startup => _startup;
-    internal LocalizationService Localization => _localization;
-    internal MaintenanceExecutionService Execution => _execution;
-    internal DiskAnalysisService DiskAnalysis => _diskAnalysis;
-    internal StorageCleanupService StorageCleanup => _storageCleanup;
-    internal NavigationView Navigation_Internal => _navigation;
+    internal PathService Paths { get; } = new();
+    internal AppSettingsService SettingsService { get; } = new();
+    internal CommandRunner Commands { get; } = new();
+    internal MaintenanceCatalog Catalog { get; } = new();
+    internal AppSettings Settings { get; }
+    internal ReportService Reports { get; }
+    internal CleanupService Cleanup { get; }
+    internal SystemStatusService Status { get; }
+    internal WingetService Winget { get; }
+    internal StartupService Startup { get; } = new();
+    internal LocalizationService Localization { get; }
+    internal MaintenanceExecutionService Execution { get; }
+    internal DiskAnalysisService DiskAnalysis { get; } = new();
+    internal StorageCleanupService StorageCleanup { get; }
+    internal NavigationView Navigation_Internal { get; }
 
     public MainWindow()
     {
-        _settings = _settingsService.Load();
-        _localization = new LocalizationService(_settings.Language);
-        _reports = new ReportService(_paths);
-        _cleanup = new CleanupService(_commands);
-        _status = new SystemStatusService(_commands, _reports);
-        _winget = new WingetService(_commands);
-        _execution = new MaintenanceExecutionService(_cleanup, _commands, _paths, _reports, new RestorePointService(_commands));
-        _storageCleanup = new StorageCleanupService(_reports);
+        Settings = SettingsService.Load();
+        Localization = new LocalizationService(Settings.Language);
+        Reports = new ReportService(Paths);
+        Cleanup = new CleanupService(Commands);
+        Status = new SystemStatusService(Commands, Reports);
+        Winget = new WingetService(Commands);
+        Execution = new MaintenanceExecutionService(Cleanup, Commands, Paths, Reports, new RestorePointService(Commands));
+        StorageCleanup = new StorageCleanupService(Reports);
 
         try
         {
             var connected = Task.Run(() => _ipcClient.ConnectAsync(2000)).GetAwaiter().GetResult();
             if (connected)
             {
-                _cleanup.Client = _ipcClient;
-                _status.Client = _ipcClient;
-                _winget.Client = _ipcClient;
-                _execution.Client = _ipcClient;
-                _startup.Client = _ipcClient;
+                Cleanup.Client = _ipcClient;
+                Status.Client = _ipcClient;
+                Winget.Client = _ipcClient;
+                Execution.Client = _ipcClient;
+                Startup.Client = _ipcClient;
             }
         }
         catch
@@ -120,27 +98,27 @@ public sealed class MainWindow : Window
         var initialStatus = T("common.ready");
         if (SystemStatusService.IsAdministrator())
         {
-            initialStatus += _settings.Language == AppLanguage.Vietnamese ? " (Quyền Admin)" : " (Admin)";
+            initialStatus += Settings.Language == AppLanguage.Vietnamese ? " (Quyền Admin)" : " (Admin)";
         }
 
-        _statusText = new TextBlock 
-        { 
-            Text = initialStatus, 
+        _statusText = new TextBlock
+        {
+            Text = initialStatus,
             Foreground = new SolidColorBrush(Colors.MediumSeaGreen),
-            Opacity = 0.9, 
+            Opacity = 0.9,
             Margin = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        _navigation = new NavigationView
+        Navigation_Internal = new NavigationView
         {
             PaneTitle = T("app.paneTitle"),
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
             Content = _scrollViewer
         };
-        ApplyTheme(_settings.Theme ?? AppTheme.System);
-        ApplyWinUiStyle(_settings.WinUiStyle ?? AppWinUiStyle.Default);
+        ApplyTheme(Settings.Theme ?? AppTheme.System);
+        ApplyWinUiStyle(Settings.WinUiStyle ?? AppWinUiStyle.Default);
 
         AddNavItem("dashboard", "nav.dashboard", Symbol.Home);
         AddNavItem("cleanup", "nav.cleanup", Symbol.Delete);
@@ -151,7 +129,7 @@ public sealed class MainWindow : Window
         AddNavItem("history", "nav.history", Symbol.Document);
         AddNavItem("settings", "nav.settings", Symbol.Setting, isFooter: true);
 
-        _navigation.SelectionChanged += async (sender, args) =>
+        Navigation_Internal.SelectionChanged += async (sender, args) =>
         {
             if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
             {
@@ -170,8 +148,8 @@ public sealed class MainWindow : Window
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        Grid.SetRow(_navigation, 0);
-        rootGrid.Children.Add(_navigation);
+        Grid.SetRow(Navigation_Internal, 0);
+        rootGrid.Children.Add(Navigation_Internal);
 
         var statusBar = new Border
         {
@@ -188,14 +166,14 @@ public sealed class MainWindow : Window
         rootGrid.Children.Add(statusBar);
 
         Content = rootGrid;
-        _navigation.SelectedItem = _navigation.MenuItems[0];
+        Navigation_Internal.SelectedItem = Navigation_Internal.MenuItems[0];
     }
 
     internal async Task NavigateToTagAsync(string tag)
     {
         if (_navItems.TryGetValue(tag, out var item))
         {
-            _navigation.SelectedItem = item;
+            Navigation_Internal.SelectedItem = item;
         }
         else
         {
@@ -241,9 +219,9 @@ public sealed class MainWindow : Window
 
     internal async Task ChangeLanguageAsync(AppLanguage language)
     {
-        _localization.CurrentLanguage = language;
-        _settings.Language = language;
-        var saved = _settingsService.Save(_settings);
+        Localization.CurrentLanguage = language;
+        Settings.Language = language;
+        var saved = SettingsService.Save(Settings);
         if (_ipcClient.IsConnected)
         {
             try
@@ -256,22 +234,53 @@ public sealed class MainWindow : Window
         RefreshShellText();
         _pages.Clear();
         await NavigateAsync("settings");
-        SetStatus(saved ? T("settings.saved") : F("settings.saveFailed", _settingsService.SettingsPath));
+        SetStatus(saved ? T("settings.saved") : F("settings.saveFailed", SettingsService.SettingsPath));
     }
 
-    internal string Translate(string key) => T(key);
-    internal string FormatTranslation(string key, params object[] args) => F(key, args);
-    internal string TaskLabel_Internal(MaintenanceTask task) => TaskLabel(task);
-    internal string TaskDescription_Internal(MaintenanceTask task) => TaskDescription(task);
-    internal string TaskImpact_Internal(MaintenanceTask task) => TaskImpact(task);
-    internal async Task ShowDialogAsync_Internal(string title, object content, string closeText) => await ShowDialogAsync(title, content, closeText);
-    internal async Task ShowRunResultAsync_Internal(TaskRunResult result) => await ShowRunResultAsync(result);
-    internal void SetStatusText(string text) => SetStatus(text);
+    internal string Translate(string key)
+    {
+        return T(key);
+    }
+
+    internal string FormatTranslation(string key, params object[] args)
+    {
+        return F(key, args);
+    }
+
+    internal string TaskLabel_Internal(MaintenanceTask task)
+    {
+        return TaskLabel(task);
+    }
+
+    internal string TaskDescription_Internal(MaintenanceTask task)
+    {
+        return TaskDescription(task);
+    }
+
+    internal string TaskImpact_Internal(MaintenanceTask task)
+    {
+        return TaskImpact(task);
+    }
+
+    internal async Task ShowDialogAsync_Internal(string title, object content, string closeText)
+    {
+        await ShowDialogAsync(title, content, closeText);
+    }
+
+    internal async Task ShowRunResultAsync_Internal(TaskRunResult result)
+    {
+        await ShowRunResultAsync(result);
+    }
+
+    internal void SetStatusText(string text)
+    {
+        SetStatus(text);
+    }
 
     internal async Task PreviewTaskAsync(MaintenanceTask task)
     {
         SetStatus(F("status.scanningTask", TaskLabel(task)));
-        var preview = await _cleanup.PreviewAsync(task);
+        var preview = await Cleanup.PreviewAsync(task);
         var panel = new StackPanel { Spacing = 8, MaxWidth = 720 };
         panel.Children.Add(new TextBlock { Text = preview.Summary, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
 
@@ -324,7 +333,7 @@ public sealed class MainWindow : Window
         await ShowDialogAsync(F("preview.title", TaskLabel(task)), panel, T("common.close"));
     }
 
-    public void ElevateApplication()
+    public static void ElevateApplication()
     {
         try
         {
@@ -372,7 +381,7 @@ public sealed class MainWindow : Window
                 PrimaryButtonText = T("admin.elevateButton"),
                 CloseButtonText = T("common.close"),
                 DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = _navigation.XamlRoot
+                XamlRoot = Navigation_Internal.XamlRoot
             };
 
             var dialogResult = await dialog.ShowAsync();
@@ -393,7 +402,7 @@ public sealed class MainWindow : Window
         }
 
         SetStatus(F("status.runningTask", TaskLabel(task)));
-        var result = await _execution.RunAsync(task);
+        var result = await Execution.RunAsync(task);
         SetStatus(T("common.ready"));
         await ShowRunResultAsync(result);
     }
@@ -402,7 +411,7 @@ public sealed class MainWindow : Window
     {
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(new TextBlock { Text = TaskDescription(task), TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = F("confirm.risk", _localization.RiskName(task.RiskLevel)), Foreground = RiskBrush(task.RiskLevel) });
+        panel.Children.Add(new TextBlock { Text = F("confirm.risk", Localization.RiskName(task.RiskLevel)), Foreground = RiskBrush(task.RiskLevel) });
         panel.Children.Add(new TextBlock { Text = TaskImpact(task), TextWrapping = TextWrapping.Wrap, Opacity = 0.75 });
         if (task.CanRollback)
         {
@@ -416,7 +425,7 @@ public sealed class MainWindow : Window
             PrimaryButtonText = T("common.run"),
             CloseButtonText = T("common.cancel"),
             DefaultButton = ContentDialogButton.Close,
-            XamlRoot = _navigation.XamlRoot
+            XamlRoot = Navigation_Internal.XamlRoot
         };
 
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
@@ -463,7 +472,7 @@ public sealed class MainWindow : Window
     {
         SetStatus(T("updates.scanning"));
         resultPanel.Children.Clear();
-        var packages = await _winget.ScanAsync();
+        var packages = await Winget.ScanAsync();
         resultPanel.Children.Add(SectionTitle(F("updates.packageUpdates", packages.Count)));
         foreach (var package in packages)
         {
@@ -521,7 +530,7 @@ public sealed class MainWindow : Window
             Title = title,
             Content = content,
             CloseButtonText = closeText,
-            XamlRoot = _navigation.XamlRoot
+            XamlRoot = Navigation_Internal.XamlRoot
         };
 
         await dialog.ShowAsync();
@@ -535,7 +544,7 @@ public sealed class MainWindow : Window
             var isAdmin = SystemStatusService.IsAdministrator();
             if (isAdmin)
             {
-                var isVi = _localization.CurrentLanguage == AppLanguage.Vietnamese;
+                var isVi = Localization.CurrentLanguage == AppLanguage.Vietnamese;
                 displayText += isVi ? " (Quyền Admin)" : " (Admin)";
             }
         }
@@ -544,9 +553,9 @@ public sealed class MainWindow : Window
         var brush = GetStatusBrush(text);
         _statusText.Foreground = brush;
 
-        var isBusy = !string.IsNullOrEmpty(text) 
-            && text != T("common.ready") 
-            && text != T("settings.saved") 
+        var isBusy = !string.IsNullOrEmpty(text)
+            && text != T("common.ready")
+            && text != T("settings.saved")
             && !text.Contains(T("run.completed"))
             && !text.Contains(T("storage.scanCanceled"))
             && !text.Contains("Canceled")
@@ -592,40 +601,40 @@ public sealed class MainWindow : Window
 
     private string T(string key)
     {
-        return _localization.Get(key);
+        return Localization.Get(key);
     }
 
     private string F(string key, params object[] args)
     {
-        return _localization.Format(key, args);
+        return Localization.Format(key, args);
     }
 
     private string TaskLabel(MaintenanceTask task)
     {
-        return _localization.TaskLabel(task.Id, task.Label);
+        return Localization.TaskLabel(task.Id, task.Label);
     }
 
     private string TaskDescription(MaintenanceTask task)
     {
-        return _localization.TaskDescription(task.Id, task.Description);
+        return Localization.TaskDescription(task.Id, task.Description);
     }
 
     private string TaskImpact(MaintenanceTask task)
     {
-        return _localization.TaskImpact(task.Id, task.EstimatedImpact);
+        return Localization.TaskImpact(task.Id, task.EstimatedImpact);
     }
 
     private string LocalizeTaskLabel(string taskId, string fallback)
     {
         var key = $"task.{taskId}.label";
-        var value = _localization.Get(key);
+        var value = Localization.Get(key);
         return value == key ? fallback : value;
     }
 
     private void RefreshShellText()
     {
         Title = T("app.title");
-        _navigation.PaneTitle = T("app.paneTitle");
+        Navigation_Internal.PaneTitle = T("app.paneTitle");
         SetStatus(T("common.ready"));
 
         foreach (var pair in _navItems)
@@ -634,12 +643,19 @@ public sealed class MainWindow : Window
         }
     }
 
-    internal void ApplyTheme_Internal(AppTheme theme) => ApplyTheme(theme);
-    internal void ApplyWinUiStyle_Internal(AppWinUiStyle style) => ApplyWinUiStyle(style);
+    internal void ApplyTheme_Internal(AppTheme theme)
+    {
+        ApplyTheme(theme);
+    }
+
+    internal void ApplyWinUiStyle_Internal(AppWinUiStyle style)
+    {
+        ApplyWinUiStyle(style);
+    }
 
     private void ApplyTheme(AppTheme theme)
     {
-        _navigation.RequestedTheme = theme switch
+        Navigation_Internal.RequestedTheme = theme switch
         {
             AppTheme.Light => ElementTheme.Light,
             AppTheme.Dark => ElementTheme.Dark,
@@ -685,17 +701,28 @@ public sealed class MainWindow : Window
         _navItems[tag] = item;
         if (isFooter)
         {
-            _navigation.FooterMenuItems.Add(item);
+            Navigation_Internal.FooterMenuItems.Add(item);
         }
         else
         {
-            _navigation.MenuItems.Add(item);
+            Navigation_Internal.MenuItems.Add(item);
         }
     }
 
-    internal static void OpenFolder_Internal(string path) => OpenFolder(path);
-    internal static void OpenFile_Internal(string path) => OpenFile(path);
-    internal static void OpenContainingFolder_Internal(string command) => OpenContainingFolder(command);
+    internal static void OpenFolder_Internal(string path)
+    {
+        OpenFolder(path);
+    }
+
+    internal static void OpenFile_Internal(string path)
+    {
+        OpenFile(path);
+    }
+
+    internal static void OpenContainingFolder_Internal(string command)
+    {
+        OpenContainingFolder(command);
+    }
 
     private static void OpenFolder(string path)
     {

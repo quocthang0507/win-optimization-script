@@ -1,5 +1,3 @@
-using System;
-
 namespace WinOptimizationApp.Services;
 
 public sealed class IpcMessage

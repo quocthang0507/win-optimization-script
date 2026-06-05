@@ -2,8 +2,6 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using System;
-using System.Threading.Tasks;
 using Windows.UI;
 using WinOptimizationApp.Models;
 
@@ -26,8 +24,15 @@ public abstract partial class BasePage : UserControl
         return Task.CompletedTask;
     }
 
-    protected string T(string key) => MainWindow.Translate(key);
-    protected string F(string key, params object[] args) => MainWindow.FormatTranslation(key, args);
+    protected string T(string key)
+    {
+        return MainWindow.Translate(key);
+    }
+
+    protected string F(string key, params object[] args)
+    {
+        return MainWindow.FormatTranslation(key, args);
+    }
 
     protected void AddHeader(string title, string subtitle)
     {
@@ -115,10 +120,10 @@ public abstract partial class BasePage : UserControl
             Background = Brush(Color.FromArgb(38, color.R, color.G, color.B)),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Child = new TextBlock 
-            { 
-                Text = label ?? risk.ToString(), 
-                Foreground = Brush(color), 
+            Child = new TextBlock
+            {
+                Text = label ?? risk.ToString(),
+                Foreground = Brush(color),
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center

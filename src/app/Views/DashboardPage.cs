@@ -2,11 +2,7 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using System;
-using System.IO;
-using System.Threading.Tasks;
 using Windows.UI;
-using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp.Views;
@@ -26,7 +22,7 @@ public sealed partial class DashboardPage : BasePage
         _wingetResultPanel.Children.Clear();
 
         AddHeader(T("dashboard.title"), T("dashboard.subtitle"));
-        
+
         var status = await MainWindow.Status.GetAsync();
 
         // System Health Section
@@ -67,12 +63,12 @@ public sealed partial class DashboardPage : BasePage
         };
 
         var hardwareStack = new StackPanel { Spacing = 20 };
-        
+
         // 1. CPU Processor Name
         var cpuGrid = new Grid { ColumnSpacing = 16 };
         cpuGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         cpuGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        
+
         var cpuIcon = new FontIcon
         {
             Glyph = "\uE950", // CPU
@@ -83,22 +79,22 @@ public sealed partial class DashboardPage : BasePage
         };
         Grid.SetColumn(cpuIcon, 0);
         cpuGrid.Children.Add(cpuIcon);
-        
+
         var cpuInfo = new StackPanel { Spacing = 2 };
         cpuInfo.Children.Add(new TextBlock { Text = T("dashboard.cpu"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         cpuInfo.Children.Add(new TextBlock { Text = status.CpuName, Opacity = 0.8, TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(cpuInfo, 1);
         cpuGrid.Children.Add(cpuInfo);
         hardwareStack.Children.Add(cpuGrid);
-        
+
         // 2. RAM Memory capacity progress bar
         var ramUsed = status.TotalRamBytes - status.AvailableRamBytes;
         double ramPercent = status.TotalRamBytes > 0 ? (ramUsed * 100.0 / status.TotalRamBytes) : 0;
-        
+
         var ramGrid = new Grid { ColumnSpacing = 16 };
         ramGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         ramGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        
+
         var ramIcon = new FontIcon
         {
             Glyph = "\uE964", // RAM
@@ -109,23 +105,23 @@ public sealed partial class DashboardPage : BasePage
         };
         Grid.SetColumn(ramIcon, 0);
         ramGrid.Children.Add(ramIcon);
-        
+
         var ramInfo = new StackPanel { Spacing = 6 };
         var ramHeader = new Grid();
         ramHeader.ColumnDefinitions.Add(new ColumnDefinition());
         ramHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        
+
         var ramTitle = new TextBlock { Text = T("dashboard.ram"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-        var ramText = new TextBlock 
-        { 
-            Text = $"{Formatters.FormatBytes((long)ramUsed)} / {Formatters.FormatBytes((long)status.TotalRamBytes)} ({ramPercent:F1}%)", 
-            Opacity = 0.8 
+        var ramText = new TextBlock
+        {
+            Text = $"{Formatters.FormatBytes((long)ramUsed)} / {Formatters.FormatBytes((long)status.TotalRamBytes)} ({ramPercent:F1}%)",
+            Opacity = 0.8
         };
         Grid.SetColumn(ramTitle, 0);
         Grid.SetColumn(ramText, 1);
         ramHeader.Children.Add(ramTitle);
         ramHeader.Children.Add(ramText);
-        
+
         var ramProgress = new ProgressBar
         {
             Minimum = 0,
@@ -135,23 +131,23 @@ public sealed partial class DashboardPage : BasePage
             CornerRadius = new CornerRadius(5),
             Foreground = Brush(ramPercent > 85 ? Colors.OrangeRed : ramPercent > 70 ? Colors.Goldenrod : Colors.DarkCyan)
         };
-        
+
         ramInfo.Children.Add(ramHeader);
         ramInfo.Children.Add(ramProgress);
         Grid.SetColumn(ramInfo, 1);
         ramGrid.Children.Add(ramInfo);
         hardwareStack.Children.Add(ramGrid);
-        
+
         // 3. Disk Space capacity progress bar
         var diskTotal = status.SystemDriveTotalBytes;
         var diskFree = status.SystemDriveFreeBytes;
         var diskUsed = diskTotal - diskFree;
         double diskPercent = diskTotal > 0 ? (diskUsed * 100.0 / diskTotal) : 0;
-        
+
         var diskGrid = new Grid { ColumnSpacing = 16 };
         diskGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         diskGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        
+
         var diskIcon = new FontIcon
         {
             Glyph = "\uE7F1", // Disk Storage
@@ -162,23 +158,23 @@ public sealed partial class DashboardPage : BasePage
         };
         Grid.SetColumn(diskIcon, 0);
         diskGrid.Children.Add(diskIcon);
-        
+
         var diskInfo = new StackPanel { Spacing = 6 };
         var diskHeader = new Grid();
         diskHeader.ColumnDefinitions.Add(new ColumnDefinition());
         diskHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        
+
         var diskTitle = new TextBlock { Text = $"{T("dashboard.storage")} ({status.SystemDrive})", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-        var diskText = new TextBlock 
-        { 
-            Text = $"{Formatters.FormatBytes(diskUsed)} / {Formatters.FormatBytes(diskTotal)} ({diskPercent:F1}%)", 
-            Opacity = 0.8 
+        var diskText = new TextBlock
+        {
+            Text = $"{Formatters.FormatBytes(diskUsed)} / {Formatters.FormatBytes(diskTotal)} ({diskPercent:F1}%)",
+            Opacity = 0.8
         };
         Grid.SetColumn(diskTitle, 0);
         Grid.SetColumn(diskText, 1);
         diskHeader.Children.Add(diskTitle);
         diskHeader.Children.Add(diskText);
-        
+
         var diskProgress = new ProgressBar
         {
             Minimum = 0,
@@ -188,13 +184,13 @@ public sealed partial class DashboardPage : BasePage
             CornerRadius = new CornerRadius(5),
             Foreground = Brush(diskPercent > 85 ? Colors.OrangeRed : diskPercent > 70 ? Colors.Goldenrod : Colors.SteelBlue)
         };
-        
+
         diskInfo.Children.Add(diskHeader);
         diskInfo.Children.Add(diskProgress);
         Grid.SetColumn(diskInfo, 1);
         diskGrid.Children.Add(diskInfo);
         hardwareStack.Children.Add(diskGrid);
-        
+
         hardwareCard.Child = hardwareStack;
         MainContent.Children.Add(hardwareCard);
 
@@ -280,10 +276,10 @@ public sealed partial class DashboardPage : BasePage
     }
 
     private static Border CreateMetricCardWithIcon(
-        string title, 
-        string value, 
-        string detail, 
-        Color color, 
+        string title,
+        string value,
+        string detail,
+        Color color,
         string glyph)
     {
         var card = new Border

@@ -1,10 +1,6 @@
-using System;
-using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace WinOptimizationApp.Services;
 
@@ -14,10 +10,10 @@ public sealed class IpcClient
     private StreamWriter? _writer;
     private Task? _readTask;
     private readonly CancellationTokenSource _cts = new();
-    
+
     private TaskCompletionSource<string>? _activeResponseTcs;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
-    
+
     public event Action<string>? OnProgressReceived;
     public event Action? OnDisconnected;
 
@@ -30,7 +26,7 @@ public sealed class IpcClient
             _pipeClient = new NamedPipeClientStream(".", "WinOptimizationApp_Runner", PipeDirection.InOut, PipeOptions.Asynchronous);
             await _pipeClient.ConnectAsync(timeoutMs, _cts.Token);
             _writer = new StreamWriter(_pipeClient, Encoding.UTF8) { AutoFlush = true };
-            
+
             _readTask = Task.Run(ReadLoopAsync);
             return true;
         }
@@ -57,7 +53,7 @@ public sealed class IpcClient
 
             var message = new IpcMessage(type, payload);
             var json = JsonSerializer.Serialize(message);
-            
+
             await _writer.WriteLineAsync(json);
 
             return await tcs.Task;
@@ -77,7 +73,10 @@ public sealed class IpcClient
 
     private async Task ReadLoopAsync()
     {
-        if (_pipeClient == null) return;
+        if (_pipeClient == null)
+        {
+            return;
+        }
 
         using var reader = new StreamReader(_pipeClient, Encoding.UTF8);
 

@@ -1,8 +1,6 @@
-using System;
-using System.Diagnostics;
-using System.IO;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using System.Diagnostics;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp;

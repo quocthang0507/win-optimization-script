@@ -3,16 +3,11 @@ using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
 
-public sealed class StorageCleanupService
+public sealed class StorageCleanupService(ReportService reports)
 {
-    private readonly ReportService _reports;
+    private readonly ReportService _reports = reports;
 
-    public StorageCleanupService(ReportService reports)
-    {
-        _reports = reports;
-    }
-
-    public IReadOnlyList<StorageCleanupCandidate> CreateCandidates(DiskScanResult result)
+    public static IReadOnlyList<StorageCleanupCandidate> CreateCandidates(DiskScanResult result)
     {
         var candidates = new List<StorageCleanupCandidate>();
 

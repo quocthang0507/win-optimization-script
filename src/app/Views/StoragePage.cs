@@ -1,13 +1,6 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Windows.Storage.Pickers;
 using Windows.UI;
 using WinOptimizationApp.Models;
@@ -239,7 +232,7 @@ public sealed partial class StoragePage : BasePage
         resultPanel.Children.Add(summary);
 
         var candidatePanel = new StackPanel { Spacing = 8 };
-        var candidates = MainWindow.StorageCleanup.CreateCandidates(result);
+        var candidates = StorageCleanupService.CreateCandidates(result);
         if (candidates.Count > 0)
         {
             var selected = new List<(CheckBox Box, StorageCleanupCandidate Candidate)>();

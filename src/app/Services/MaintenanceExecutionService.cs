@@ -52,8 +52,8 @@ public sealed class MaintenanceExecutionService(
 
         var merged = result with
         {
-            Messages = [..preMessages, ..result.Messages],
-            Errors = [..preErrors, ..result.Errors]
+            Messages = [.. preMessages, .. result.Messages],
+            Errors = [.. preErrors, .. result.Errors]
         };
 
         await _reports.SaveAsync(merged, cancellationToken);
