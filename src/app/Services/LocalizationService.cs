@@ -136,7 +136,18 @@ public sealed class LocalizationService
         ["settings.title"] = "Settings",
         ["settings.subtitle"] = "Paths and Windows entry points.",
         ["settings.language"] = "Language",
-        ["settings.languageDescription"] = "Choose the display language for this session.",
+        ["settings.languageDescription"] = "Choose the display language. This setting is saved beside the app executable.",
+        ["settings.saved"] = "Settings saved.",
+        ["settings.saveFailed"] = "Could not save settings to {0}.",
+        ["settings.theme"] = "Theme",
+        ["settings.themeDescription"] = "Choose the app appearance. System follows the current Windows theme.",
+        ["settings.themeSystem"] = "System",
+        ["settings.themeLight"] = "Light",
+        ["settings.themeDark"] = "Dark",
+        ["settings.winUiStyle"] = "WinUI style",
+        ["settings.winUiStyleDescription"] = "Choose the Windows material used behind the app content.",
+        ["settings.winUiStyleDefault"] = "Default",
+        ["settings.winUiStyleSolid"] = "Solid",
         ["settings.cliScript"] = "CLI script",
         ["settings.storageSense"] = "Storage Sense",
         ["settings.storageSenseDescription"] = "Open Windows Storage Sense settings.",
@@ -345,7 +356,18 @@ public sealed class LocalizationService
         ["settings.title"] = "Cài đặt",
         ["settings.subtitle"] = "Đường dẫn và điểm mở của Windows.",
         ["settings.language"] = "Ngôn ngữ",
-        ["settings.languageDescription"] = "Chọn ngôn ngữ hiển thị cho phiên chạy này.",
+        ["settings.languageDescription"] = "Chọn ngôn ngữ hiển thị. Cài đặt này được lưu cạnh file exe.",
+        ["settings.saved"] = "Đã lưu cài đặt.",
+        ["settings.saveFailed"] = "Không thể lưu cài đặt vào {0}.",
+        ["settings.theme"] = "Giao diện",
+        ["settings.themeDescription"] = "Chọn giao diện app. Hệ thống sẽ dùng theo theme hiện tại của Windows.",
+        ["settings.themeSystem"] = "Hệ thống",
+        ["settings.themeLight"] = "Sáng",
+        ["settings.themeDark"] = "Tối",
+        ["settings.winUiStyle"] = "Phong cách WinUI",
+        ["settings.winUiStyleDescription"] = "Chọn chất liệu nền Windows dùng phía sau nội dung app.",
+        ["settings.winUiStyleDefault"] = "Mặc định",
+        ["settings.winUiStyleSolid"] = "Nền đặc",
         ["settings.cliScript"] = "Script CLI",
         ["settings.storageSense"] = "Storage Sense",
         ["settings.storageSenseDescription"] = "Mở cài đặt Storage Sense của Windows.",
@@ -423,11 +445,11 @@ public sealed class LocalizationService
         ["task.storage.cleanup.label"] = "Dọn dẹp từ Phân tích lưu trữ"
     };
 
-    public LocalizationService()
+    public LocalizationService(AppLanguage? savedLanguage = null)
     {
-        CurrentLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("vi", StringComparison.OrdinalIgnoreCase)
+        CurrentLanguage = savedLanguage ?? (CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("vi", StringComparison.OrdinalIgnoreCase)
             ? AppLanguage.Vietnamese
-            : AppLanguage.English;
+            : AppLanguage.English);
     }
 
     public AppLanguage CurrentLanguage { get; set; }

@@ -17,14 +17,16 @@ namespace WinOptimizationApp;
 public sealed class MainWindow : Window
 {
     private readonly PathService _paths = new();
+    private readonly AppSettingsService _settingsService = new();
     private readonly CommandRunner _commands = new();
     private readonly MaintenanceCatalog _catalog = new();
+    private readonly AppSettings _settings;
     private readonly ReportService _reports;
     private readonly CleanupService _cleanup;
     private readonly SystemStatusService _status;
     private readonly WingetService _winget;
     private readonly StartupService _startup = new();
-    private readonly LocalizationService _localization = new();
+    private readonly LocalizationService _localization;
     private readonly MaintenanceExecutionService _execution;
     private readonly DiskAnalysisService _diskAnalysis = new();
     private readonly StorageCleanupService _storageCleanup;
@@ -40,6 +42,8 @@ public sealed class MainWindow : Window
 
     public MainWindow()
     {
+        _settings = _settingsService.Load();
+        _localization = new LocalizationService(_settings.Language);
         _reports = new ReportService(_paths);
         _cleanup = new CleanupService(_commands);
         _status = new SystemStatusService(_commands, _reports);
@@ -61,6 +65,8 @@ public sealed class MainWindow : Window
             Content = _scrollViewer,
             PaneFooter = _statusText
         };
+        ApplyTheme(_settings.Theme ?? AppTheme.System);
+        ApplyWinUiStyle(_settings.WinUiStyle ?? AppWinUiStyle.Default);
 
         AddNavItem("dashboard", "nav.dashboard", Symbol.Home);
         AddNavItem("cleanup", "nav.cleanup", Symbol.Delete);
@@ -403,6 +409,8 @@ public sealed class MainWindow : Window
     {
         AddHeader(T("settings.title"), T("settings.subtitle"));
         _page.Children.Add(LanguageCard());
+        _page.Children.Add(ThemeCard());
+        _page.Children.Add(WinUiStyleCard());
         _page.Children.Add(Card(T("settings.cliScript"), _paths.CliScriptPath, T("common.launch"), async (_, _) => await RunTaskAsync(_catalog.GetById("cli.launch"))));
         _page.Children.Add(Card(T("settings.storageSense"), T("settings.storageSenseDescription"), T("common.open"), async (_, _) => await RunTaskAsync(_catalog.GetById("settings.storage"))));
         _page.Children.Add(Card(T("settings.logs"), _paths.LogsDirectory, T("common.open"), (_, _) => OpenFolder(_paths.LogsDirectory)));
@@ -990,8 +998,109 @@ public sealed class MainWindow : Window
             if (combo.SelectedItem is ComboBoxItem item && item.Tag is AppLanguage language && language != _localization.CurrentLanguage)
             {
                 _localization.CurrentLanguage = language;
+                _settings.Language = language;
+                var saved = _settingsService.Save(_settings);
                 RefreshShellText();
                 await NavigateAsync(_currentPageTag);
+                SetStatus(saved ? T("settings.saved") : F("settings.saveFailed", _settingsService.SettingsPath));
+            }
+        };
+
+        Grid.SetColumn(combo, 1);
+        grid.Children.Add(combo);
+        border.Child = grid;
+        return border;
+    }
+
+    private FrameworkElement ThemeCard()
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel { Spacing = 4 };
+        text.Children.Add(new TextBlock { Text = T("settings.theme"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        text.Children.Add(new TextBlock { Text = T("settings.themeDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        grid.Children.Add(text);
+
+        var currentTheme = _settings.Theme ?? AppTheme.System;
+        var combo = new ComboBox { MinWidth = 170 };
+        combo.Items.Add(new ComboBoxItem { Content = T("settings.themeSystem"), Tag = AppTheme.System });
+        combo.Items.Add(new ComboBoxItem { Content = T("settings.themeLight"), Tag = AppTheme.Light });
+        combo.Items.Add(new ComboBoxItem { Content = T("settings.themeDark"), Tag = AppTheme.Dark });
+        combo.SelectedIndex = currentTheme switch
+        {
+            AppTheme.Light => 1,
+            AppTheme.Dark => 2,
+            _ => 0
+        };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem item && item.Tag is AppTheme theme && theme != (_settings.Theme ?? AppTheme.System))
+            {
+                _settings.Theme = theme;
+                ApplyTheme(theme);
+                var saved = _settingsService.Save(_settings);
+                SetStatus(saved ? T("settings.saved") : F("settings.saveFailed", _settingsService.SettingsPath));
+            }
+        };
+
+        Grid.SetColumn(combo, 1);
+        grid.Children.Add(combo);
+        border.Child = grid;
+        return border;
+    }
+
+    private FrameworkElement WinUiStyleCard()
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel { Spacing = 4 };
+        text.Children.Add(new TextBlock { Text = T("settings.winUiStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        text.Children.Add(new TextBlock { Text = T("settings.winUiStyleDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        grid.Children.Add(text);
+
+        var currentStyle = _settings.WinUiStyle ?? AppWinUiStyle.Default;
+        var combo = new ComboBox { MinWidth = 170 };
+        combo.Items.Add(new ComboBoxItem { Content = T("settings.winUiStyleDefault"), Tag = AppWinUiStyle.Default });
+        combo.Items.Add(new ComboBoxItem { Content = "Mica", Tag = AppWinUiStyle.Mica });
+        combo.Items.Add(new ComboBoxItem { Content = "Acrylic", Tag = AppWinUiStyle.Acrylic });
+        combo.Items.Add(new ComboBoxItem { Content = T("settings.winUiStyleSolid"), Tag = AppWinUiStyle.Solid });
+        combo.SelectedIndex = currentStyle switch
+        {
+            AppWinUiStyle.Mica => 1,
+            AppWinUiStyle.Acrylic => 2,
+            AppWinUiStyle.Solid => 3,
+            _ => 0
+        };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem item && item.Tag is AppWinUiStyle style && style != (_settings.WinUiStyle ?? AppWinUiStyle.Default))
+            {
+                _settings.WinUiStyle = style;
+                ApplyWinUiStyle(style);
+                var saved = _settingsService.Save(_settings);
+                SetStatus(saved ? T("settings.saved") : F("settings.saveFailed", _settingsService.SettingsPath));
             }
         };
 
@@ -1141,6 +1250,27 @@ public sealed class MainWindow : Window
         {
             pair.Value.Content = T(GetNavKey(pair.Key));
         }
+    }
+
+    private void ApplyTheme(AppTheme theme)
+    {
+        _navigation.RequestedTheme = theme switch
+        {
+            AppTheme.Light => ElementTheme.Light,
+            AppTheme.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default
+        };
+    }
+
+    private void ApplyWinUiStyle(AppWinUiStyle style)
+    {
+        SystemBackdrop = style switch
+        {
+            AppWinUiStyle.Mica => new MicaBackdrop(),
+            AppWinUiStyle.Acrylic => new DesktopAcrylicBackdrop(),
+            AppWinUiStyle.Solid => null,
+            _ => new MicaBackdrop()
+        };
     }
 
     private static string GetNavKey(string tag)
