@@ -1,7 +1,3 @@
-using Microsoft.UI;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Windows.UI;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Views;
@@ -20,6 +16,7 @@ public sealed partial class SettingsPage : BasePage
         MainContent.Children.Add(LanguageCard());
         MainContent.Children.Add(ThemeCard());
         MainContent.Children.Add(WinUiStyleCard());
+        MainContent.Children.Add(WidgetCard());
 
         MainContent.Children.Add(Card(
             T("settings.cliScript"),
@@ -178,6 +175,46 @@ public sealed partial class SettingsPage : BasePage
 
         Grid.SetColumn(combo, 1);
         grid.Children.Add(combo);
+        border.Child = grid;
+        return border;
+    }
+
+    private Border WidgetCard()
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel { Spacing = 4 };
+        text.Children.Add(new TextBlock { Text = T("settings.widget"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        text.Children.Add(new TextBlock { Text = T("settings.widgetDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        grid.Children.Add(text);
+
+        var toggle = new ToggleSwitch
+        {
+            IsOn = MainWindow.Settings.WidgetEnabled,
+            OnContent = T("common.yes"),
+            OffContent = T("common.no")
+        };
+        toggle.Toggled += (s, e) =>
+        {
+            MainWindow.Settings.WidgetEnabled = toggle.IsOn;
+            var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+            MainWindow.SetStatusText(saved ? T("settings.saved") : MainWindow.FormatTranslation("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+            MainWindow.ToggleWidget(toggle.IsOn);
+        };
+
+        Grid.SetColumn(toggle, 1);
+        grid.Children.Add(toggle);
         border.Child = grid;
         return border;
     }

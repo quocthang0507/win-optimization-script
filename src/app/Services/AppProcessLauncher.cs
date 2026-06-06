@@ -108,7 +108,7 @@ internal static class AppProcessLauncher
 
             if (character == '"')
             {
-                quoted.Append('\\', backslashCount * 2 + 1);
+                quoted.Append('\\', (backslashCount * 2) + 1);
                 quoted.Append('"');
             }
             else

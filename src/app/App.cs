@@ -1,5 +1,3 @@
-using Microsoft.UI.Xaml;
-using System.Text;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp;

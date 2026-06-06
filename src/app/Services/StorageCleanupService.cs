@@ -12,7 +12,7 @@ public sealed class StorageCleanupService(ReportService reports)
         var candidates = new List<StorageCleanupCandidate>();
 
         foreach (var file in result.LargestFiles
-                     .Where(file => IsLikelyCleanupCandidate(file))
+                     .Where(IsLikelyCleanupCandidate)
                      .OrderByDescending(file => file.Size)
                      .Take(30))
         {

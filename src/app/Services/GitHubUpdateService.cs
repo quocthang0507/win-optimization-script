@@ -64,12 +64,9 @@ public sealed class GitHubUpdateService
         var informationalVersion = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion;
-        if (TryParseVersion(informationalVersion, out var informational))
-        {
-            return informational;
-        }
-
-        return Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
+        return TryParseVersion(informationalVersion, out var informational)
+            ? informational
+            : Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
     }
 
     public static bool TryParseVersion(string? value, out Version version)

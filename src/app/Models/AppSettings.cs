@@ -7,4 +7,6 @@ public sealed class AppSettings
     public AppTheme? Theme { get; set; }
 
     public AppWinUiStyle? WinUiStyle { get; set; }
+
+    public bool WidgetEnabled { get; set; }
 }

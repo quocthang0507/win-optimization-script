@@ -1,6 +1,3 @@
-using System.IO.Pipes;
-using System.Text;
-using System.Text.Json;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
@@ -14,6 +11,9 @@ public sealed class IpcServer
     private readonly ReportService _reports;
     private readonly StartupService _startup;
     private readonly WingetService _winget;
+    private readonly RegistryCleanerService _registryCleaner;
+    private readonly NetworkOptimizationService _networkOptimizer;
+    private readonly UninstallerService _uninstaller;
     private readonly MaintenanceCatalog _catalog = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _listenTask;
@@ -25,7 +25,10 @@ public sealed class IpcServer
         AppSettingsService settingsService,
         ReportService reports,
         StartupService startup,
-        WingetService winget)
+        WingetService winget,
+        RegistryCleanerService registryCleaner,
+        NetworkOptimizationService networkOptimizer,
+        UninstallerService uninstaller)
     {
         _cleanup = cleanup;
         _execution = execution;
@@ -34,6 +37,9 @@ public sealed class IpcServer
         _reports = reports;
         _startup = startup;
         _winget = winget;
+        _registryCleaner = registryCleaner;
+        _networkOptimizer = networkOptimizer;
+        _uninstaller = uninstaller;
     }
 
     public void Start()
@@ -130,6 +136,28 @@ public sealed class IpcServer
                         return new IpcMessage("Response", json);
                     }
 
+                case "EnableStartup":
+                    {
+                        var entry = JsonSerializer.Deserialize<StartupEntry>(request.Payload ?? "{}");
+                        if (entry == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+                        var ok = await _startup.EnableAsync(entry);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                    }
+
+                case "DisableStartup":
+                    {
+                        var entry = JsonSerializer.Deserialize<StartupEntry>(request.Payload ?? "{}");
+                        if (entry == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+                        var ok = await _startup.DisableAsync(entry);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                    }
+
                 case "ScanWinget":
                     {
                         var packages = await _winget.ScanAsync();
@@ -223,6 +251,78 @@ public sealed class IpcServer
                         {
                             return new IpcMessage("Error", ex.Message);
                         }
+                    }
+
+                case "ScanRegistry":
+                    {
+                        var issues = await _registryCleaner.ScanAsync();
+                        var json = JsonSerializer.Serialize(issues);
+                        return new IpcMessage("Response", json);
+                    }
+
+                case "CleanRegistry":
+                    {
+                        var issues = JsonSerializer.Deserialize<List<RegistryIssue>>(request.Payload ?? "[]");
+                        if (issues == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+                        var ok = await _registryCleaner.CleanAsync(issues);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                    }
+
+                case "RunNetworkRepair":
+                    {
+                        var action = request.Payload;
+                        bool ok = action switch
+                        {
+                            "FlushDns" => await _networkOptimizer.FlushDnsAsync(),
+                            "ResetWinsock" => await _networkOptimizer.ResetWinsockAsync(),
+                            "RenewIp" => await _networkOptimizer.RenewIpAsync(),
+                            _ => false
+                        };
+                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                    }
+
+                case "ScanInstalledApps":
+                    {
+                        var apps = await _uninstaller.ScanInstalledAppsAsync();
+                        var json = JsonSerializer.Serialize(apps);
+                        return new IpcMessage("Response", json);
+                    }
+
+                case "UninstallApp":
+                    {
+                        var app = JsonSerializer.Deserialize<InstalledApp>(request.Payload ?? "{}");
+                        if (app == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+                        var ok = await _uninstaller.UninstallAppAsync(app);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                    }
+
+                case "ScanLeftovers":
+                    {
+                        var app = JsonSerializer.Deserialize<InstalledApp>(request.Payload ?? "{}");
+                        if (app == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+                        var paths = await _uninstaller.ScanLeftoversAsync(app);
+                        var json = JsonSerializer.Serialize(paths);
+                        return new IpcMessage("Response", json);
+                    }
+
+                case "CleanLeftovers":
+                    {
+                        var paths = JsonSerializer.Deserialize<List<string>>(request.Payload ?? "[]");
+                        if (paths == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+                        var ok = await _uninstaller.DeleteLeftoversAsync(paths);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed");
                     }
 
                 case "Shutdown":

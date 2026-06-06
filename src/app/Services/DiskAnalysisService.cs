@@ -258,17 +258,11 @@ public sealed class DiskAnalysisService
 
     public IReadOnlyList<DiskItem> FlattenVisibleTree(DiskItem root, int maxItems)
     {
-        if (maxItems <= 0)
-        {
-            return [];
-        }
-
-        if (!root.IsDirectory)
-        {
-            return [root];
-        }
-
-        return root.Children
+        return maxItems <= 0
+            ? []
+            : !root.IsDirectory
+            ? [root]
+            : root.Children
             .OrderByDescending(child => child.Size)
             .Take(maxItems)
             .ToList();

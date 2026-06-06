@@ -1,14 +1,6 @@
-using Microsoft.UI;
-using Microsoft.UI.Windowing;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using System.Diagnostics;
-using Windows.UI;
 using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
 using WinOptimizationApp.Views;
-using WinRT.Interop;
 
 namespace WinOptimizationApp;
 
@@ -20,6 +12,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
     private bool _updateCheckStarted;
+    private MiniToolbarWindow? _widgetWindow;
 
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
     private string _currentPageTag = "dashboard";
@@ -39,6 +32,10 @@ public sealed class MainWindow : Window
     internal MaintenanceExecutionService Execution { get; }
     internal DiskAnalysisService DiskAnalysis { get; } = new();
     internal StorageCleanupService StorageCleanup { get; }
+    internal PerformanceMonitoringService PerformanceMonitoring { get; } = new();
+    internal RegistryCleanerService RegistryCleaner { get; }
+    internal NetworkOptimizationService NetworkOptimizer { get; }
+    internal UninstallerService Uninstaller { get; }
     internal NavigationView Navigation_Internal { get; }
 
     public MainWindow()
@@ -51,6 +48,9 @@ public sealed class MainWindow : Window
         Winget = new WingetService(Commands);
         Execution = new MaintenanceExecutionService(Cleanup, Commands, Paths, Reports, new RestorePointService(Commands));
         StorageCleanup = new StorageCleanupService(Reports);
+        RegistryCleaner = new RegistryCleanerService();
+        NetworkOptimizer = new NetworkOptimizationService(Commands);
+        Uninstaller = new UninstallerService(Commands);
 
         if (ShouldConnectToRunner())
         {
@@ -64,6 +64,9 @@ public sealed class MainWindow : Window
                     Winget.Client = _ipcClient;
                     Execution.Client = _ipcClient;
                     Startup.Client = _ipcClient;
+                    RegistryCleaner.Client = _ipcClient;
+                    NetworkOptimizer.Client = _ipcClient;
+                    Uninstaller.Client = _ipcClient;
                 }
             }
             catch
@@ -131,6 +134,7 @@ public sealed class MainWindow : Window
         AddNavItem("startup", "nav.startup", Symbol.List);
         AddNavItem("updates", "nav.updates", Symbol.Download);
         AddNavItem("repair", "nav.repair", Symbol.Refresh);
+        AddNavItem("toolbox", "nav.toolbox", Symbol.Repair);
         AddNavItem("history", "nav.history", Symbol.Document);
         AddNavItem("settings", "nav.settings", Symbol.Setting, isFooter: true);
 
@@ -173,6 +177,17 @@ public sealed class MainWindow : Window
         Content = rootGrid;
         Navigation_Internal.SelectedItem = Navigation_Internal.MenuItems[0];
         Activated += async (_, _) => await CheckForUpdatesOnceAsync();
+
+        Closed += (s, e) =>
+        {
+            ToggleWidget(false);
+            _ipcClient.Disconnect();
+        };
+
+        if (Settings.WidgetEnabled)
+        {
+            ToggleWidget(true);
+        }
     }
 
     private async Task CheckForUpdatesOnceAsync()
@@ -277,6 +292,7 @@ public sealed class MainWindow : Window
                 "startup" => new StartupPage(this),
                 "updates" => new UpdatesPage(this),
                 "repair" => new MaintenancePage(this, T("nav.repair"), "Repair", includeOptimization: true),
+                "toolbox" => new ToolboxPage(this),
                 "history" => new HistoryPage(this),
                 "settings" => new SettingsPage(this),
                 _ => null
@@ -752,6 +768,7 @@ public sealed class MainWindow : Window
             "startup" => "nav.startup",
             "updates" => "nav.updates",
             "repair" => "nav.repair",
+            "toolbox" => "nav.toolbox",
             "history" => "nav.history",
             "settings" => "nav.settings",
             _ => tag
@@ -829,6 +846,56 @@ public sealed class MainWindow : Window
             (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
         {
             Process.Start(new ProcessStartInfo { FileName = uri.AbsoluteUri, UseShellExecute = true });
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SW_RESTORE = 9;
+
+    public void BringToForeground()
+    {
+        Activate();
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            ShowWindow(hwnd, SW_RESTORE);
+            SetForegroundWindow(hwnd);
+        }
+        catch
+        {
+            // Best effort
+        }
+    }
+
+    internal void ToggleWidget(bool enable)
+    {
+        if (enable)
+        {
+            if (_widgetWindow == null)
+            {
+                _widgetWindow = new MiniToolbarWindow(this);
+                _widgetWindow.Closed += (s, e) =>
+                {
+                    _widgetWindow = null;
+                    if (Settings.WidgetEnabled)
+                    {
+                        Settings.WidgetEnabled = false;
+                        SettingsService.Save(Settings);
+                    }
+                };
+                _widgetWindow.Activate();
+            }
+        }
+        else
+        {
+            _widgetWindow?.Close();
+            _widgetWindow = null;
         }
     }
 }

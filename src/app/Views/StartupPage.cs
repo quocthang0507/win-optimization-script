@@ -1,13 +1,11 @@
-using Microsoft.UI;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using WinOptimizationApp.Models;
-using Windows.UI;
 
 namespace WinOptimizationApp.Views;
 
 public sealed partial class StartupPage : BasePage
 {
+    private StackPanel? _resultPanel;
+
     public StartupPage(MainWindow mainWindow) : base(mainWindow)
     {
         RenderStartupPage();
@@ -17,24 +15,34 @@ public sealed partial class StartupPage : BasePage
     {
         AddHeader(T("startup.title"), T("startup.subtitle"));
 
-        var resultPanel = new StackPanel { Spacing = 8 };
+        _resultPanel = new StackPanel { Spacing = 8 };
         var scanButton = ActionButton(T("startup.scan"), Symbol.Find, async (_, _) =>
         {
-            MainWindow.SetStatusText(T("startup.scanning"));
-            resultPanel.Children.Clear();
-            var entries = await MainWindow.Startup.ScanAsync();
-            resultPanel.Children.Add(SectionTitle(F("startup.entries", entries.Count)));
-            resultPanel.Children.Add(StartupSummary(entries));
-            foreach (var entry in entries)
-            {
-                resultPanel.Children.Add(StartupRow(entry));
-            }
-            MainWindow.SetStatusText(T("common.ready"));
+            await RefreshListAsync();
         });
 
         MainContent.Children.Add(scanButton);
         MainContent.Children.Add(InfoBlock(T("startup.previewOnly")));
-        MainContent.Children.Add(resultPanel);
+        MainContent.Children.Add(_resultPanel);
+    }
+
+    private async Task RefreshListAsync()
+    {
+        if (_resultPanel == null)
+        {
+            return;
+        }
+
+        MainWindow.SetStatusText(T("startup.scanning"));
+        _resultPanel.Children.Clear();
+        var entries = await MainWindow.Startup.ScanAsync();
+        _resultPanel.Children.Add(SectionTitle(F("startup.entries", entries.Count)));
+        _resultPanel.Children.Add(StartupSummary(entries));
+        foreach (var entry in entries)
+        {
+            _resultPanel.Children.Add(StartupRow(entry));
+        }
+        MainWindow.SetStatusText(T("common.ready"));
     }
 
     private Border StartupRow(StartupEntry entry)
@@ -86,6 +94,71 @@ public sealed partial class StartupPage : BasePage
         Grid.SetColumn(recommendation, 2);
         row.Children.Add(recommendation);
 
+        var actionsPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+
+        // Enable/Disable Button
+        var toggleBtn = new Button
+        {
+            Content = entry.Enabled ? T("startup.disable") : T("startup.enable"),
+            MinWidth = 86,
+            IsEnabled = entry.CanDisable
+        };
+
+        toggleBtn.Click += async (_, _) =>
+        {
+            if (entry.Enabled)
+            {
+                if (entry.Impact == StartupImpactLevel.High)
+                {
+                    var confirmDialog = new ContentDialog
+                    {
+                        Title = T("startup.confirmDisableTitle"),
+                        Content = new TextBlock
+                        {
+                            Text = F("startup.confirmDisableMessage", entry.Name),
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        PrimaryButtonText = T("startup.disable"),
+                        CloseButtonText = T("common.cancel"),
+                        DefaultButton = ContentDialogButton.Close,
+                        XamlRoot = XamlRoot
+                    };
+
+                    var res = await confirmDialog.ShowAsync();
+                    if (res != ContentDialogResult.Primary)
+                    {
+                        return;
+                    }
+                }
+
+                MainWindow.SetStatusText(T("common.loading"));
+                var ok = await MainWindow.Startup.DisableAsync(entry);
+                if (ok)
+                {
+                    await RefreshListAsync();
+                }
+                else
+                {
+                    MainWindow.SetStatusText(T("common.ready"));
+                }
+            }
+            else
+            {
+                MainWindow.SetStatusText(T("common.loading"));
+                var ok = await MainWindow.Startup.EnableAsync(entry);
+                if (ok)
+                {
+                    await RefreshListAsync();
+                }
+                else
+                {
+                    MainWindow.SetStatusText(T("common.ready"));
+                }
+            }
+        };
+        actionsPanel.Children.Add(toggleBtn);
+
+        // Open Location Button
         var open = new Button
         {
             Content = T("common.openLocation"),
@@ -93,8 +166,10 @@ public sealed partial class StartupPage : BasePage
         };
         ToolTipService.SetToolTip(open, T("common.openLocation"));
         open.Click += (_, _) => MainWindow.OpenContainingFolder_Internal(entry.Command);
-        Grid.SetColumn(open, 3);
-        row.Children.Add(open);
+        actionsPanel.Children.Add(open);
+
+        Grid.SetColumn(actionsPanel, 3);
+        row.Children.Add(actionsPanel);
 
         return new Border
         {

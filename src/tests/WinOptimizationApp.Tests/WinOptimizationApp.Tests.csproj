@@ -1,10 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,6 +43,9 @@
     <Compile Include="..\..\app\Models\StorageCleanupCandidate.cs" Link="Production\Models\StorageCleanupCandidate.cs" />
     <Compile Include="..\..\app\Models\StorageCleanupMode.cs" Link="Production\Models\StorageCleanupMode.cs" />
     <Compile Include="..\..\app\Models\TaskRunResult.cs" Link="Production\Models\TaskRunResult.cs" />
+    <Compile Include="..\..\app\Models\RegistryIssue.cs" Link="Production\Models\RegistryIssue.cs" />
+    <Compile Include="..\..\app\Models\InstalledApp.cs" Link="Production\Models\InstalledApp.cs" />
+    <Compile Include="..\..\app\Models\SystemMetrics.cs" Link="Production\Models\SystemMetrics.cs" />
     <Compile Include="..\..\app\Services\AppProcessLauncher.cs" Link="Production\Services\AppProcessLauncher.cs" />
     <Compile Include="..\..\app\Services\AppRuntimePaths.cs" Link="Production\Services\AppRuntimePaths.cs" />
     <Compile Include="..\..\app\Services\CloudStorageDetector.cs" Link="Production\Services\CloudStorageDetector.cs" />
@@ -59,6 +63,14 @@
     <Compile Include="..\..\app\Services\ReportService.cs" Link="Production\Services\ReportService.cs" />
     <Compile Include="..\..\app\Services\StartupImpactClassifier.cs" Link="Production\Services\StartupImpactClassifier.cs" />
     <Compile Include="..\..\app\Services\StorageCleanupService.cs" Link="Production\Services\StorageCleanupService.cs" />
+    <Compile Include="..\..\app\Services\StartupService.cs" Link="Production\Services\StartupService.cs" />
+    <Compile Include="..\..\app\Models\NetworkAdapterInfo.cs" Link="Production\Models\NetworkAdapterInfo.cs" />
+    <Compile Include="..\..\app\Services\PerformanceMonitoringService.cs" Link="Production\Services\PerformanceMonitoringService.cs" />
+    <Compile Include="..\..\app\Services\RegistryCleanerService.cs" Link="Production\Services\RegistryCleanerService.cs" />
+    <Compile Include="..\..\app\Services\NetworkOptimizationService.cs" Link="Production\Services\NetworkOptimizationService.cs" />
+    <Compile Include="..\..\app\Services\UninstallerService.cs" Link="Production\Services\UninstallerService.cs" />
+    <Compile Include="..\..\app\Services\IpcClient.cs" Link="Production\Services\IpcClient.cs" />
+    <Compile Include="..\..\app\Services\IpcMessages.cs" Link="Production\Services\IpcMessages.cs" />
   </ItemGroup>
 
 </Project>

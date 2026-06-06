@@ -1,6 +1,6 @@
+using System.Globalization;
 using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
-using System.Globalization;
 
 namespace WinOptimizationApp.Tests.Unit;
 

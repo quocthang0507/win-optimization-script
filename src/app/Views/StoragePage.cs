@@ -1,14 +1,5 @@
-using Microsoft.UI;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
-using Windows.ApplicationModel.DataTransfer;
-using Windows.Storage.Pickers;
-using Windows.UI;
 using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
-using WinRT.Interop;
 using Rectangle = Microsoft.UI.Xaml.Shapes.Rectangle;
 
 namespace WinOptimizationApp.Views;
@@ -92,15 +83,9 @@ public sealed partial class StoragePage : BasePage
         _storageStopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) =>
         {
             _diskScanCts?.Cancel();
-            if (_storageStopButton is not null)
-            {
-                _storageStopButton.IsEnabled = false;
-            }
+            _storageStopButton?.IsEnabled = false;
 
-            if (_storageProgressText is not null)
-            {
-                _storageProgressText.Text = T("storage.stopping");
-            }
+            _storageProgressText?.Text = T("storage.stopping");
 
             MainWindow.SetStatusText(T("storage.stopping"));
         });
@@ -248,10 +233,7 @@ public sealed partial class StoragePage : BasePage
         ToolTipService.SetToolTip(useButton, T("storage.useSource"));
         useButton.Click += (_, _) =>
         {
-            if (_storageRootBox is not null)
-            {
-                _storageRootBox.Text = location.Path;
-            }
+            _storageRootBox?.Text = location.Path;
         };
         Grid.SetColumn(useButton, 2);
         row.Children.Add(useButton);
@@ -273,10 +255,7 @@ public sealed partial class StoragePage : BasePage
             return;
         }
 
-        if (_storageRootBox is not null)
-        {
-            _storageRootBox.Text = rootPath;
-        }
+        _storageRootBox?.Text = rootPath;
 
         _diskScanCts?.Cancel();
         _diskScanCts = new CancellationTokenSource();
@@ -676,8 +655,8 @@ public sealed partial class StoragePage : BasePage
     {
         var angleRadians = angleDegrees * Math.PI / 180d;
         return new Windows.Foundation.Point(
-            center + radius * Math.Cos(angleRadians),
-            center + radius * Math.Sin(angleRadians));
+            center + (radius * Math.Cos(angleRadians)),
+            center + (radius * Math.Sin(angleRadians)));
     }
 
     private static IReadOnlyList<Color> StorageChartPalette()

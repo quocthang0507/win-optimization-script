@@ -1,0 +1,718 @@
+using WinOptimizationApp.Models;
+using WinOptimizationApp.Services;
+
+namespace WinOptimizationApp.Views;
+
+public sealed partial class ToolboxPage : BasePage
+{
+    private CancellationTokenSource? _scanCts;
+
+    // Registry controls
+    private StackPanel? _registryResultsPanel;
+    private Button? _registryScanBtn;
+    private Button? _registryCleanBtn;
+    private List<RegistryIssue> _registryIssues = [];
+
+    // Network controls
+    private StackPanel? _networkAdaptersPanel;
+    private Button? _flushDnsBtn;
+    private Button? _resetWinsockBtn;
+    private Button? _renewIpBtn;
+    private Button? _refreshAdaptersBtn;
+
+    // Uninstaller controls
+    private StackPanel? _appsPanel;
+    private Button? _appsScanBtn;
+    private TextBox? _searchBox;
+    private List<InstalledApp> _installedApps = [];
+
+    public ToolboxPage(MainWindow mainWindow) : base(mainWindow)
+    {
+        RenderToolboxPage();
+    }
+
+    private void RenderToolboxPage()
+    {
+        AddHeader(T("toolbox.title"), T("toolbox.subtitle"));
+
+        if (!SystemStatusService.IsAdministrator())
+        {
+            MainContent.Children.Add(CreateAdminWarningBanner(
+                T("admin.title"),
+                T("admin.bannerDesc")
+            ));
+        }
+
+        var pivot = new Pivot();
+
+        // 1. Registry Tab
+        var registryTab = new PivotItem
+        {
+            Header = T("toolbox.tab.registry"),
+            Content = CreateRegistryLayout()
+        };
+        pivot.Items.Add(registryTab);
+
+        // 2. Network Tab
+        var networkTab = new PivotItem
+        {
+            Header = T("toolbox.tab.network"),
+            Content = CreateNetworkLayout()
+        };
+        pivot.Items.Add(networkTab);
+
+        // 3. Uninstaller Tab
+        var uninstallerTab = new PivotItem
+        {
+            Header = T("toolbox.tab.uninstaller"),
+            Content = CreateUninstallerLayout()
+        };
+        pivot.Items.Add(uninstallerTab);
+
+        MainContent.Children.Add(pivot);
+    }
+
+    public override async Task OnNavigatedToAsync()
+    {
+        await base.OnNavigatedToAsync();
+        // Load network adapters automatically
+        await RefreshNetworkAdaptersAsync();
+    }
+
+    #region Layout Creation Helpers
+
+    private ScrollViewer CreateRegistryLayout()
+    {
+        var panel = new StackPanel { Spacing = 12, Padding = new Thickness(0, 12, 0, 12) };
+
+        var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        _registryScanBtn = ActionButton(T("registry.scan"), Symbol.Find, async (_, _) => await ScanRegistryAsync());
+        _registryCleanBtn = ActionButton(T("registry.clean"), Symbol.Delete, async (_, _) => await CleanRegistryAsync());
+        _registryCleanBtn.IsEnabled = false;
+
+        actionPanel.Children.Add(_registryScanBtn);
+        actionPanel.Children.Add(_registryCleanBtn);
+        panel.Children.Add(actionPanel);
+
+        _registryResultsPanel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(_registryResultsPanel);
+
+        return new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+    }
+
+    private ScrollViewer CreateNetworkLayout()
+    {
+        var panel = new StackPanel { Spacing = 16, Padding = new Thickness(0, 12, 0, 12) };
+
+        var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        _flushDnsBtn = ActionButton(T("network.flushDns"), Symbol.Sync, async (_, _) => await RunNetworkActionAsync("FlushDns"));
+        _resetWinsockBtn = ActionButton(T("network.resetWinsock"), Symbol.Refresh, async (_, _) => await RunNetworkActionAsync("ResetWinsock"));
+        _renewIpBtn = ActionButton(T("network.renewIp"), Symbol.Target, async (_, _) => await RunNetworkActionAsync("RenewIp"));
+
+        actionPanel.Children.Add(_flushDnsBtn);
+        actionPanel.Children.Add(_resetWinsockBtn);
+        actionPanel.Children.Add(_renewIpBtn);
+        panel.Children.Add(actionPanel);
+
+        var adaptersHeader = new Grid();
+        adaptersHeader.ColumnDefinitions.Add(new ColumnDefinition());
+        adaptersHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var title = SectionTitle(T("network.adaptersTitle"));
+        Grid.SetColumn(title, 0);
+        adaptersHeader.Children.Add(title);
+
+        _refreshAdaptersBtn = IconButton(Symbol.Refresh, T("network.adaptersTitle"), async (_, _) => await RefreshNetworkAdaptersAsync());
+        _refreshAdaptersBtn.VerticalAlignment = VerticalAlignment.Bottom;
+        Grid.SetColumn(_refreshAdaptersBtn, 1);
+        adaptersHeader.Children.Add(_refreshAdaptersBtn);
+
+        panel.Children.Add(adaptersHeader);
+
+        _networkAdaptersPanel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(_networkAdaptersPanel);
+
+        return new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+    }
+
+    private ScrollViewer CreateUninstallerLayout()
+    {
+        var panel = new StackPanel { Spacing = 12, Padding = new Thickness(0, 12, 0, 12) };
+
+        var searchGrid = new Grid { ColumnSpacing = 12 };
+        searchGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        searchGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        _searchBox = new TextBox
+        {
+            PlaceholderText = T("uninstaller.searchPlaceholder"),
+            Height = 36
+        };
+        _searchBox.TextChanged += (s, e) => FilterAppsList();
+        Grid.SetColumn(_searchBox, 0);
+        searchGrid.Children.Add(_searchBox);
+
+        _appsScanBtn = ActionButton(T("uninstaller.scan"), Symbol.Find, async (_, _) => await ScanAppsAsync());
+        Grid.SetColumn(_appsScanBtn, 1);
+        searchGrid.Children.Add(_appsScanBtn);
+
+        panel.Children.Add(searchGrid);
+
+        _appsPanel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(_appsPanel);
+
+        return new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+    }
+
+    #endregion
+
+    #region Registry Operations
+
+    private async Task ScanRegistryAsync()
+    {
+        if (_registryScanBtn == null || _registryResultsPanel == null || _registryCleanBtn == null)
+        {
+            return;
+        }
+
+        ResetCts();
+        MainWindow.SetStatusText(T("registry.scanning"));
+        _registryResultsPanel.Children.Clear();
+        _registryCleanBtn.IsEnabled = false;
+
+        try
+        {
+            _registryIssues = (await MainWindow.RegistryCleaner.ScanAsync()).ToList();
+
+            if (_registryIssues.Count == 0)
+            {
+                _registryResultsPanel.Children.Add(new TextBlock { Text = T("registry.noIssues"), Margin = new Thickness(0, 12, 0, 0) });
+            }
+            else
+            {
+                _registryResultsPanel.Children.Add(SectionTitle(F("registry.issuesFound", _registryIssues.Count)));
+
+                foreach (var issue in _registryIssues)
+                {
+                    _registryResultsPanel.Children.Add(CreateRegistryIssueRow(issue));
+                }
+
+                _registryCleanBtn.IsEnabled = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _registryResultsPanel.Children.Add(new TextBlock { Text = $"Error scanning registry: {ex.Message}", Foreground = Brush(Colors.IndianRed) });
+        }
+        finally
+        {
+            MainWindow.SetStatusText(T("common.ready"));
+        }
+    }
+
+    private Border CreateRegistryIssueRow(RegistryIssue issue)
+    {
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var check = new CheckBox { IsChecked = issue.IsSelected, VerticalAlignment = VerticalAlignment.Center };
+        check.Checked += (s, e) => { issue.IsSelected = true; UpdateRegistryCleanButtonState(); };
+        check.Unchecked += (s, e) => { issue.IsSelected = false; UpdateRegistryCleanButtonState(); };
+        Grid.SetColumn(check, 0);
+        grid.Children.Add(check);
+
+        var infoPanel = new StackPanel { Spacing = 4 };
+        infoPanel.Children.Add(new TextBlock
+        {
+            Text = issue.Category,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        infoPanel.Children.Add(new TextBlock
+        {
+            Text = issue.Description,
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.82
+        });
+        infoPanel.Children.Add(new TextBlock
+        {
+            Text = issue.KeyPath,
+            FontFamily = new FontFamily("Cascadia Mono"),
+            FontSize = 11,
+            Opacity = 0.58,
+            TextWrapping = TextWrapping.Wrap
+        });
+        Grid.SetColumn(infoPanel, 1);
+        grid.Children.Add(infoPanel);
+
+        Grid.SetColumn(grid, 1);
+
+        return new Border
+        {
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            Child = grid,
+            Margin = new Thickness(0, 2, 0, 2)
+        };
+    }
+
+    private void UpdateRegistryCleanButtonState()
+    {
+        _registryCleanBtn?.IsEnabled = _registryIssues.Any(i => i.IsSelected);
+    }
+
+    private async Task CleanRegistryAsync()
+    {
+        var selected = _registryIssues.Where(i => i.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            return;
+        }
+
+        var confirmDialog = new ContentDialog
+        {
+            Title = T("registry.confirmCleanTitle"),
+            Content = new TextBlock
+            {
+                Text = T("registry.confirmCleanMessage"),
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = T("registry.clean"),
+            CloseButtonText = T("common.cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+
+        var dialogResult = await confirmDialog.ShowAsync();
+        if (dialogResult != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        MainWindow.SetStatusText(T("registry.cleaning"));
+        try
+        {
+            var success = await MainWindow.RegistryCleaner.CleanAsync(selected);
+            if (success)
+            {
+                var completeDialog = new ContentDialog
+                {
+                    Title = T("run.completed"),
+                    Content = new TextBlock { Text = T("registry.completed") },
+                    CloseButtonText = T("common.close"),
+                    XamlRoot = XamlRoot
+                };
+                await completeDialog.ShowAsync();
+                await ScanRegistryAsync();
+            }
+            else
+            {
+                MainWindow.SetStatusText(T("network.actionFailed"));
+            }
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText($"Error: {ex.Message}");
+        }
+        finally
+        {
+            MainWindow.SetStatusText(T("common.ready"));
+        }
+    }
+
+    #endregion
+
+    #region Network Operations
+
+    private async Task RunNetworkActionAsync(string actionName)
+    {
+        MainWindow.SetStatusText(T("network.runningAction"));
+        DisableNetworkButtons(false);
+
+        try
+        {
+            bool success = actionName switch
+            {
+                "FlushDns" => await MainWindow.NetworkOptimizer.FlushDnsAsync(),
+                "ResetWinsock" => await MainWindow.NetworkOptimizer.ResetWinsockAsync(),
+                "RenewIp" => await MainWindow.NetworkOptimizer.RenewIpAsync(),
+                _ => false
+            };
+
+            if (success)
+            {
+                var msgKey = actionName switch
+                {
+                    "FlushDns" => "network.flushed",
+                    "ResetWinsock" => "network.winsockReset",
+                    "RenewIp" => "network.ipRenewed",
+                    _ => string.Empty
+                };
+
+                var dialog = new ContentDialog
+                {
+                    Title = T("run.completed"),
+                    Content = new TextBlock { Text = T(msgKey) },
+                    CloseButtonText = T("common.close"),
+                    XamlRoot = XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+            else
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = T("network.actionFailed"),
+                    Content = new TextBlock { Text = T("network.actionFailed") },
+                    CloseButtonText = T("common.close"),
+                    XamlRoot = XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText($"Error: {ex.Message}");
+        }
+        finally
+        {
+            DisableNetworkButtons(true);
+            MainWindow.SetStatusText(T("common.ready"));
+            await RefreshNetworkAdaptersAsync();
+        }
+    }
+
+    private void DisableNetworkButtons(bool enable)
+    {
+        _flushDnsBtn?.IsEnabled = enable;
+        _resetWinsockBtn?.IsEnabled = enable;
+        _renewIpBtn?.IsEnabled = enable;
+        _refreshAdaptersBtn?.IsEnabled = enable;
+    }
+
+    private async Task RefreshNetworkAdaptersAsync()
+    {
+        if (_networkAdaptersPanel == null)
+        {
+            return;
+        }
+
+        _networkAdaptersPanel.Children.Clear();
+        _networkAdaptersPanel.Children.Add(new ProgressRing { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center });
+
+        try
+        {
+            var adapters = await MainWindow.NetworkOptimizer.GetAdaptersAsync();
+            _networkAdaptersPanel.Children.Clear();
+
+            foreach (var adapter in adapters)
+            {
+                _networkAdaptersPanel.Children.Add(CreateNetworkAdapterRow(adapter));
+            }
+        }
+        catch (Exception ex)
+        {
+            _networkAdaptersPanel.Children.Clear();
+            _networkAdaptersPanel.Children.Add(new TextBlock { Text = $"Error loading network cards: {ex.Message}", Foreground = Brush(Colors.IndianRed) });
+        }
+    }
+
+    private Border CreateNetworkAdapterRow(NetworkAdapterInfo adapter)
+    {
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var infoPanel = new StackPanel { Spacing = 4 };
+        infoPanel.Children.Add(new TextBlock { Text = adapter.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        infoPanel.Children.Add(new TextBlock { Text = adapter.Description, Opacity = 0.72, TextWrapping = TextWrapping.Wrap });
+
+        var detailsPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        detailsPanel.Children.Add(new TextBlock { Text = $"{T("network.adapter.speed")}: {adapter.Speed}", FontSize = 12, Opacity = 0.62 });
+        detailsPanel.Children.Add(new TextBlock { Text = $"{T("network.adapter.mac")}: {adapter.MacAddress}", FontSize = 12, Opacity = 0.62 });
+        detailsPanel.Children.Add(new TextBlock { Text = $"{T("network.adapter.ip")}: {adapter.IpAddress}", FontSize = 12, Opacity = 0.62 });
+        infoPanel.Children.Add(detailsPanel);
+        Grid.SetColumn(infoPanel, 0);
+        grid.Children.Add(infoPanel);
+
+        var isUp = adapter.Status.Equals("Up", StringComparison.OrdinalIgnoreCase);
+        var statusColor = isUp ? Colors.SeaGreen : Colors.IndianRed;
+
+        var statusBadge = new Border
+        {
+            Padding = new Thickness(8, 4, 8, 4),
+            CornerRadius = new CornerRadius(4),
+            Background = Brush(Color.FromArgb(30, statusColor.R, statusColor.G, statusColor.B)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = adapter.Status,
+                Foreground = Brush(statusColor),
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                FontSize = 12
+            }
+        };
+        Grid.SetColumn(statusBadge, 1);
+        grid.Children.Add(statusBadge);
+
+        return new Border
+        {
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            Child = grid,
+            Margin = new Thickness(0, 2, 0, 2)
+        };
+    }
+
+    #endregion
+
+    #region Uninstaller Operations
+
+    private async Task ScanAppsAsync()
+    {
+        if (_appsScanBtn == null || _appsPanel == null)
+        {
+            return;
+        }
+
+        ResetCts();
+        MainWindow.SetStatusText(T("uninstaller.scanning"));
+        _appsPanel.Children.Clear();
+        _appsPanel.Children.Add(new ProgressRing { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center });
+
+        try
+        {
+            _installedApps = (await MainWindow.Uninstaller.ScanInstalledAppsAsync(_scanCts!.Token)).ToList();
+            FilterAppsList();
+        }
+        catch (OperationCanceledException)
+        {
+            _appsPanel.Children.Clear();
+            _appsPanel.Children.Add(new TextBlock { Text = T("storage.scanCanceled") });
+        }
+        catch (Exception ex)
+        {
+            _appsPanel.Children.Clear();
+            _appsPanel.Children.Add(new TextBlock { Text = $"Error: {ex.Message}", Foreground = Brush(Colors.IndianRed) });
+        }
+        finally
+        {
+            MainWindow.SetStatusText(T("common.ready"));
+        }
+    }
+
+    private void FilterAppsList()
+    {
+        if (_appsPanel == null)
+        {
+            return;
+        }
+
+        _appsPanel.Children.Clear();
+
+        var query = _searchBox?.Text?.Trim() ?? string.Empty;
+        var filtered = _installedApps.Where(app =>
+            string.IsNullOrEmpty(query) ||
+            app.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            app.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase)
+        ).ToList();
+
+        _appsPanel.Children.Add(SectionTitle(F("uninstaller.appsCount", filtered.Count)));
+
+        foreach (var app in filtered.Take(150)) // Limit display to 150 items for UI performance
+        {
+            _appsPanel.Children.Add(CreateAppRow(app));
+        }
+
+        if (filtered.Count > 150)
+        {
+            _appsPanel.Children.Add(new TextBlock { Text = F("preview.moreTargets", filtered.Count - 150), Opacity = 0.65, Margin = new Thickness(0, 6, 0, 0) });
+        }
+    }
+
+    private Border CreateAppRow(InstalledApp app)
+    {
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var infoPanel = new StackPanel { Spacing = 4 };
+        infoPanel.Children.Add(new TextBlock { Text = app.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+
+        var detailsPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        detailsPanel.Children.Add(new TextBlock { Text = app.Version, FontSize = 12, Opacity = 0.62 });
+        detailsPanel.Children.Add(new TextBlock { Text = app.Publisher, FontSize = 12, Opacity = 0.62 });
+        detailsPanel.Children.Add(new TextBlock { Text = app.Source, FontSize = 12, Opacity = 0.62 });
+        infoPanel.Children.Add(detailsPanel);
+
+        if (!string.IsNullOrEmpty(app.InstallLocation))
+        {
+            infoPanel.Children.Add(new TextBlock { Text = app.InstallLocation, FontSize = 11, Opacity = 0.5, TextTrimming = TextTrimming.CharacterEllipsis });
+        }
+
+        Grid.SetColumn(infoPanel, 0);
+        grid.Children.Add(infoPanel);
+
+        var uninstallBtn = new Button { Content = T("uninstaller.uninstall"), MinWidth = 96 };
+        uninstallBtn.Click += async (_, _) => await TriggerUninstallAsync(app);
+        Grid.SetColumn(uninstallBtn, 1);
+        grid.Children.Add(uninstallBtn);
+
+        return new Border
+        {
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            Child = grid,
+            Margin = new Thickness(0, 2, 0, 2)
+        };
+    }
+
+    private async Task TriggerUninstallAsync(InstalledApp app)
+    {
+        var confirmDialog = new ContentDialog
+        {
+            Title = T("uninstaller.confirmUninstallTitle"),
+            Content = new TextBlock
+            {
+                Text = F("uninstaller.confirmUninstallMessage", app.Name),
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = T("uninstaller.uninstall"),
+            CloseButtonText = T("common.cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+
+        if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        MainWindow.SetStatusText(F("uninstaller.uninstalling", app.Name));
+
+        try
+        {
+            var success = await MainWindow.Uninstaller.UninstallAppAsync(app);
+            if (success)
+            {
+                // Uninstallation successful, now scan leftovers
+                MainWindow.SetStatusText(T("common.loading"));
+                var leftovers = (await MainWindow.Uninstaller.ScanLeftoversAsync(app)).ToList();
+
+                if (leftovers.Count > 0)
+                {
+                    // Prompt leftovers deletion
+                    var leftoversListPanel = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
+                    foreach (var path in leftovers)
+                    {
+                        leftoversListPanel.Children.Add(new TextBlock
+                        {
+                            Text = path,
+                            FontSize = 12,
+                            Opacity = 0.8,
+                            TextWrapping = TextWrapping.Wrap
+                        });
+                    }
+
+                    var scrollViewer = new ScrollViewer
+                    {
+                        Content = leftoversListPanel,
+                        MaxHeight = 240,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                    };
+
+                    var leftoversPanel = new StackPanel { Spacing = 8 };
+                    leftoversPanel.Children.Add(new TextBlock
+                    {
+                        Text = F("uninstaller.leftoversMessage", app.Name),
+                        TextWrapping = TextWrapping.Wrap
+                    });
+                    leftoversPanel.Children.Add(scrollViewer);
+
+                    var leftoversDialog = new ContentDialog
+                    {
+                        Title = T("uninstaller.leftoversTitle"),
+                        Content = leftoversPanel,
+                        PrimaryButtonText = T("uninstaller.deleteLeftovers"),
+                        CloseButtonText = T("uninstaller.keepLeftovers"),
+                        DefaultButton = ContentDialogButton.Primary,
+                        XamlRoot = XamlRoot
+                    };
+
+                    if (await leftoversDialog.ShowAsync() == ContentDialogResult.Primary)
+                    {
+                        MainWindow.SetStatusText(T("storage.cleaning"));
+                        var cleanSuccess = await MainWindow.Uninstaller.DeleteLeftoversAsync(leftovers);
+                        if (cleanSuccess)
+                        {
+                            var completeDialog = new ContentDialog
+                            {
+                                Title = T("run.completed"),
+                                Content = new TextBlock { Text = T("uninstaller.leftoversDeleted") },
+                                CloseButtonText = T("common.close"),
+                                XamlRoot = XamlRoot
+                            };
+                            await completeDialog.ShowAsync();
+                        }
+                    }
+                }
+
+                // Rescan apps
+                await ScanAppsAsync();
+            }
+            else
+            {
+                var failDialog = new ContentDialog
+                {
+                    Title = T("uninstaller.uninstallFailed"),
+                    Content = new TextBlock { Text = T("uninstaller.uninstallFailed") },
+                    CloseButtonText = T("common.close"),
+                    XamlRoot = XamlRoot
+                };
+                await failDialog.ShowAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText($"Error: {ex.Message}");
+        }
+        finally
+        {
+            MainWindow.SetStatusText(T("common.ready"));
+        }
+    }
+
+    #endregion
+
+    private void ResetCts()
+    {
+        _scanCts?.Cancel();
+        _scanCts?.Dispose();
+        _scanCts = new CancellationTokenSource();
+    }
+}

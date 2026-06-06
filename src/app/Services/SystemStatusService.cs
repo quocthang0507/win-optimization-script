@@ -1,6 +1,3 @@
-using Microsoft.Win32;
-using System.Runtime.InteropServices;
-using System.Security.Principal;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;

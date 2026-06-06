@@ -18,16 +18,242 @@ public sealed class StartupService
         return await Task.Run<IReadOnlyList<StartupEntry>>(() =>
         {
             var entries = new List<StartupEntry>();
-            ReadRunKey(entries, Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKCU Run", true);
-            ReadRunKey(entries, Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKLM Run", true);
-            ReadRunKey(entries, Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run", "HKCU StartupApproved", false);
+            ReadRunKey(entries, Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKCU Run");
+            ReadRunKey(entries, Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKLM Run");
             ReadStartupFolder(entries, Environment.GetFolderPath(Environment.SpecialFolder.Startup), "User Startup folder");
             ReadStartupFolder(entries, Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), "Common Startup folder");
             return entries;
         });
     }
 
-    private static void ReadRunKey(List<StartupEntry> entries, RegistryKey hive, string path, string source, bool enabled)
+    public async Task<bool> EnableAsync(StartupEntry entry)
+    {
+        if (Client != null)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(entry);
+            var response = await Client.SendRequestAsync("EnableStartup", payload);
+            return response == "Success";
+        }
+
+        return await Task.Run(() => EnableInternal(entry));
+    }
+
+    public async Task<bool> DisableAsync(StartupEntry entry)
+    {
+        if (Client != null)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(entry);
+            var response = await Client.SendRequestAsync("DisableStartup", payload);
+            return response == "Success";
+        }
+
+        return await Task.Run(() => DisableInternal(entry));
+    }
+
+    private bool EnableInternal(StartupEntry entry)
+    {
+        try
+        {
+            if (entry.Source == "HKCU Run")
+            {
+                return SetStartupApprovedStatus(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run", entry.Name, true);
+            }
+            else if (entry.Source == "HKLM Run")
+            {
+                var ok1 = SetStartupApprovedStatus(Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run", entry.Name, true);
+                var ok2 = SetStartupApprovedStatus(Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32", entry.Name, true);
+                return ok1 || ok2;
+            }
+            else if (entry.Source == "User Startup folder")
+            {
+                var fileName = Path.GetFileName(entry.Command);
+                return SetStartupApprovedStatus(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder", fileName, true);
+            }
+            else if (entry.Source == "Common Startup folder")
+            {
+                var fileName = Path.GetFileName(entry.Command);
+                return SetStartupApprovedStatus(Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder", fileName, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[StartupService] Enable failed: {ex.Message}");
+        }
+        return false;
+    }
+
+    private bool DisableInternal(StartupEntry entry)
+    {
+        try
+        {
+            CreateBackup(entry);
+
+            if (entry.Source == "HKCU Run")
+            {
+                return SetStartupApprovedStatus(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run", entry.Name, false);
+            }
+            else if (entry.Source == "HKLM Run")
+            {
+                var ok1 = SetStartupApprovedStatus(Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run", entry.Name, false);
+                SetStartupApprovedStatus(Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32", entry.Name, false);
+                return ok1;
+            }
+            else if (entry.Source == "User Startup folder")
+            {
+                var fileName = Path.GetFileName(entry.Command);
+                return SetStartupApprovedStatus(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder", fileName, false);
+            }
+            else if (entry.Source == "Common Startup folder")
+            {
+                var fileName = Path.GetFileName(entry.Command);
+                return SetStartupApprovedStatus(Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder", fileName, false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[StartupService] Disable failed: {ex.Message}");
+        }
+        return false;
+    }
+
+    private static bool SetStartupApprovedStatus(RegistryKey hive, string subkeyPath, string valueName, bool enabled)
+    {
+        try
+        {
+            using var key = hive.CreateSubKey(subkeyPath, RegistryKeyPermissionCheck.ReadWriteSubTree);
+            if (key == null)
+            {
+                return false;
+            }
+
+            if (enabled)
+            {
+                key.DeleteValue(valueName, throwOnMissingValue: false);
+            }
+            else
+            {
+                var existing = key.GetValue(valueName);
+                byte[] data;
+                if (existing is byte[] bytes && bytes.Length > 0)
+                {
+                    data = (byte[])bytes.Clone();
+                    data[0] = 3;
+                }
+                else
+                {
+                    data = new byte[] { 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+                }
+                key.SetValue(valueName, data, RegistryValueKind.Binary);
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void CreateBackup(StartupEntry entry)
+    {
+        try
+        {
+            var pathService = new PathService();
+            var logsDir = pathService.LogsDirectory;
+            if (!Directory.Exists(logsDir))
+            {
+                Directory.CreateDirectory(logsDir);
+            }
+
+            var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss");
+            var filename = $"startup-backup-{entry.Name.Replace(" ", "_")}-{timestamp}.json";
+            var backupPath = Path.Combine(logsDir, filename);
+
+            var backupContent = System.Text.Json.JsonSerializer.Serialize(entry, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(backupPath, backupContent, System.Text.Encoding.UTF8);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[StartupService] Failed to create backup: {ex.Message}");
+        }
+    }
+
+    private static bool IsEntryEnabled(string source, string name, string command)
+    {
+        try
+        {
+            if (source == "HKCU Run")
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run");
+                if (key != null)
+                {
+                    var val = key.GetValue(name);
+                    if (val is byte[] bytes)
+                    {
+                        return IsBytesEnabled(bytes);
+                    }
+                }
+            }
+            else if (source == "HKLM Run")
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run");
+                if (key != null)
+                {
+                    var val = key.GetValue(name);
+                    if (val is byte[] bytes)
+                    {
+                        return IsBytesEnabled(bytes);
+                    }
+                }
+                using var key32 = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32");
+                if (key32 != null)
+                {
+                    var val = key32.GetValue(name);
+                    if (val is byte[] bytes)
+                    {
+                        return IsBytesEnabled(bytes);
+                    }
+                }
+            }
+            else if (source == "User Startup folder")
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder");
+                if (key != null)
+                {
+                    var fileName = Path.GetFileName(command);
+                    var val = key.GetValue(fileName);
+                    if (val is byte[] bytes)
+                    {
+                        return IsBytesEnabled(bytes);
+                    }
+                }
+            }
+            else if (source == "Common Startup folder")
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder");
+                if (key != null)
+                {
+                    var fileName = Path.GetFileName(command);
+                    var val = key.GetValue(fileName);
+                    if (val is byte[] bytes)
+                    {
+                        return IsBytesEnabled(bytes);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fallback to true if we cannot read registry
+        }
+        return true;
+    }
+
+    private static bool IsBytesEnabled(byte[] bytes)
+    {
+        return bytes == null || bytes.Length == 0 || (bytes[0] & 1) == 0;
+    }
+
+    private static void ReadRunKey(List<StartupEntry> entries, RegistryKey hive, string path, string source)
     {
         try
         {
@@ -45,6 +271,7 @@ public sealed class StartupService
                     continue;
                 }
 
+                var enabled = IsEntryEnabled(source, name, value);
                 entries.Add(CreateEntry(name, source, value, enabled));
             }
         }
@@ -65,7 +292,9 @@ public sealed class StartupService
 
             foreach (var file in Directory.GetFiles(folder))
             {
-                entries.Add(CreateEntry(Path.GetFileNameWithoutExtension(file), source, file, true));
+                var name = Path.GetFileNameWithoutExtension(file);
+                var enabled = IsEntryEnabled(source, name, file);
+                entries.Add(CreateEntry(name, source, file, enabled));
             }
         }
         catch

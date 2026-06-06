@@ -1,5 +1,3 @@
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp;
@@ -60,8 +58,11 @@ public static class Program
         var winget = new WingetService(commands);
         var startup = new StartupService();
         var execution = new MaintenanceExecutionService(cleanup, commands, paths, reports, new RestorePointService(commands));
+        var registryCleaner = new RegistryCleanerService();
+        var networkOptimizer = new NetworkOptimizationService(commands);
+        var uninstaller = new UninstallerService(commands);
 
-        var server = new IpcServer(cleanup, execution, status, settingsService, reports, startup, winget);
+        var server = new IpcServer(cleanup, execution, status, settingsService, reports, startup, winget, registryCleaner, networkOptimizer, uninstaller);
         server.Start();
 
         try

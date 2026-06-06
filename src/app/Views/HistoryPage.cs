@@ -1,5 +1,3 @@
-using Microsoft.UI.Xaml.Controls;
-
 namespace WinOptimizationApp.Views;
 
 public sealed partial class HistoryPage : BasePage

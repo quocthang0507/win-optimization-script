@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace WinOptimizationApp.Services;
 
 internal sealed class SingleInstanceGuard : IDisposable

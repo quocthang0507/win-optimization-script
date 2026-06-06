@@ -46,62 +46,44 @@ public static class StartupImpactClassifier
 
     public static StartupImpactAnalysis Analyze(string name, string source, string command, bool enabled)
     {
-        if (!enabled)
-        {
-            return new StartupImpactAnalysis(
+        return !enabled
+            ? new StartupImpactAnalysis(
                 StartupImpactLevel.Low,
                 "Already disabled",
                 CanDisable: false,
-                CanRollback: true);
-        }
-
-        if (ContainsAny(command, ProtectedHints) || ContainsAny(name, ProtectedHints))
-        {
-            return new StartupImpactAnalysis(
+                CanRollback: true)
+            : ContainsAny(command, ProtectedHints) || ContainsAny(name, ProtectedHints)
+            ? new StartupImpactAnalysis(
                 StartupImpactLevel.Low,
                 "Keep enabled unless you know this Windows component is unnecessary",
                 CanDisable: false,
-                CanRollback: false);
-        }
-
-        if (ContainsAny(command, ScriptHosts) && ContainsAny(command, UserProfileHints))
-        {
-            return new StartupImpactAnalysis(
+                CanRollback: false)
+            : ContainsAny(command, ScriptHosts) && ContainsAny(command, UserProfileHints)
+            ? new StartupImpactAnalysis(
                 StartupImpactLevel.High,
                 "Review carefully; script-based startup from a user-writable path can slow boot or be unsafe",
                 CanDisable: true,
-                CanRollback: true);
-        }
-
-        if (ContainsAny(command, HeavyAppHints) || ContainsAny(name, HeavyAppHints))
-        {
-            return new StartupImpactAnalysis(
+                CanRollback: true)
+            : ContainsAny(command, HeavyAppHints) || ContainsAny(name, HeavyAppHints)
+            ? new StartupImpactAnalysis(
                 StartupImpactLevel.Medium,
                 "Consider delaying or disabling if you do not need it immediately after sign-in",
                 CanDisable: true,
-                CanRollback: true);
-        }
-
-        if (source.Contains("HKLM", StringComparison.OrdinalIgnoreCase) ||
-            source.Contains("Common Startup", StringComparison.OrdinalIgnoreCase))
-        {
-            return new StartupImpactAnalysis(
+                CanRollback: true)
+            : source.Contains("HKLM", StringComparison.OrdinalIgnoreCase) ||
+            source.Contains("Common Startup", StringComparison.OrdinalIgnoreCase)
+            ? new StartupImpactAnalysis(
                 StartupImpactLevel.Medium,
                 "Review publisher and purpose before changing machine-wide startup",
                 CanDisable: true,
-                CanRollback: true);
-        }
-
-        if (ContainsAny(command, UserProfileHints))
-        {
-            return new StartupImpactAnalysis(
+                CanRollback: true)
+            : ContainsAny(command, UserProfileHints)
+            ? new StartupImpactAnalysis(
                 StartupImpactLevel.Medium,
                 "Review user-profile startup entries before disabling",
                 CanDisable: true,
-                CanRollback: true);
-        }
-
-        return new StartupImpactAnalysis(
+                CanRollback: true)
+            : new StartupImpactAnalysis(
             StartupImpactLevel.Low,
             "Low startup impact; keep enabled unless it is unwanted",
             CanDisable: true,
