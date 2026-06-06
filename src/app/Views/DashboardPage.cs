@@ -57,8 +57,8 @@ public sealed partial class DashboardPage : BasePage
             Padding = new Thickness(20),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128))
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
         };
 
         var hardwareStack = new StackPanel { Spacing = 20 };
@@ -214,8 +214,8 @@ public sealed partial class DashboardPage : BasePage
                 Padding = new Thickness(14),
                 CornerRadius = new CornerRadius(8),
                 BorderThickness = new Thickness(1),
-                BorderBrush = Brush(Colors.LightGray),
-                Background = Brush(Color.FromArgb(18, 128, 128, 128))
+                BorderBrush = ThemeBorderBrush(),
+                Background = ThemeCardBackground()
             };
 
             var cardGrid = new Grid { ColumnSpacing = 12 };
@@ -568,8 +568,8 @@ public sealed partial class DashboardPage : BasePage
             Padding = new Thickness(18),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = stack
         };
     }
@@ -604,7 +604,7 @@ public sealed partial class DashboardPage : BasePage
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
+            BorderBrush = ThemeBorderBrush(),
             Background = Brush(Color.FromArgb(16, color.R, color.G, color.B))
         };
 

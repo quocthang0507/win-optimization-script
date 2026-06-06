@@ -268,8 +268,8 @@ public sealed partial class ToolboxPage : BasePage
             Padding = new Thickness(12),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = grid,
             Margin = new Thickness(0, 2, 0, 2)
         };
@@ -479,8 +479,8 @@ public sealed partial class ToolboxPage : BasePage
             Padding = new Thickness(12),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = grid,
             Margin = new Thickness(0, 2, 0, 2)
         };
@@ -585,8 +585,8 @@ public sealed partial class ToolboxPage : BasePage
             Padding = new Thickness(12),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = grid,
             Margin = new Thickness(0, 2, 0, 2)
         };

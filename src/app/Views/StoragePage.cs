@@ -135,8 +135,8 @@ public sealed partial class StoragePage : BasePage
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Visibility = Visibility.Collapsed
         };
 
@@ -178,8 +178,8 @@ public sealed partial class StoragePage : BasePage
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = stack
         };
     }
@@ -577,7 +577,7 @@ public sealed partial class StoragePage : BasePage
         {
             Data = geometry,
             Fill = Brush(color),
-            Stroke = Brush(Colors.White),
+            Stroke = ThemeChartStrokeBrush(),
             StrokeThickness = 2,
             Opacity = 0,
             RenderTransform = transform
@@ -1098,7 +1098,7 @@ public sealed partial class StoragePage : BasePage
         {
             ColumnSpacing = 10,
             Padding = new Thickness(8, 7, 8, 7),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128))
+            Background = ThemeCardBackground()
         };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
@@ -1114,7 +1114,7 @@ public sealed partial class StoragePage : BasePage
         {
             ColumnSpacing = 10,
             Padding = new Thickness(8, 7, 8, 7),
-            Background = Brush(Color.FromArgb(10, 128, 128, 128))
+            Background = ThemeCardBackground()
         };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });

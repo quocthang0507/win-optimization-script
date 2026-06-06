@@ -176,8 +176,8 @@ public sealed partial class StartupPage : BasePage
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(14, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = row
         };
     }
@@ -224,8 +224,8 @@ public sealed partial class StartupPage : BasePage
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(12, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = grid
         };
     }

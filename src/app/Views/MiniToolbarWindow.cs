@@ -53,7 +53,8 @@ public sealed class MiniToolbarWindow : Window
         var rootGrid = new Grid
         {
             Padding = new Thickness(12),
-            ColumnSpacing = 12
+            ColumnSpacing = 12,
+            RequestedTheme = MainWindow.CurrentElementTheme
         };
         rootGrid.ColumnDefinitions.Add(new ColumnDefinition());
         rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

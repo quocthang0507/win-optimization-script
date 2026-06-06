@@ -52,7 +52,7 @@ public abstract partial class BasePage : UserControl
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
+            BorderBrush = ThemeBorderBrush(),
             Background = Brush(Color.FromArgb(22, color.R, color.G, color.B))
         };
 
@@ -74,8 +74,8 @@ public abstract partial class BasePage : UserControl
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
         };
 
         var grid = new Grid { ColumnSpacing = 12 };
@@ -164,6 +164,53 @@ public abstract partial class BasePage : UserControl
     protected static SolidColorBrush Brush(Color color)
     {
         return new SolidColorBrush(color);
+    }
+
+    /// <summary>
+    /// Returns a border brush that adapts to the current theme.
+    /// Light theme: semi-transparent dark border; Dark theme: semi-transparent light border.
+    /// </summary>
+    protected static SolidColorBrush ThemeBorderBrush()
+    {
+        var theme = ResolveEffectiveTheme();
+        return theme == ElementTheme.Light
+            ? Brush(Color.FromArgb(60, 0, 0, 0))
+            : Brush(Color.FromArgb(45, 255, 255, 255));
+    }
+
+    /// <summary>
+    /// Returns a stroke brush suitable for chart separators that adapts to the current theme.
+    /// </summary>
+    protected static SolidColorBrush ThemeChartStrokeBrush()
+    {
+        var theme = ResolveEffectiveTheme();
+        return theme == ElementTheme.Light
+            ? Brush(Color.FromArgb(220, 245, 245, 245))
+            : Brush(Colors.White);
+    }
+
+    /// <summary>
+    /// Returns a card background brush that adapts to the current theme.
+    /// Light theme: opaque white surface; Dark theme: subtle white overlay.
+    /// </summary>
+    protected static SolidColorBrush ThemeCardBackground()
+    {
+        var theme = ResolveEffectiveTheme();
+        return theme == ElementTheme.Light
+            ? Brush(Colors.White)
+            : Brush(Color.FromArgb(12, 255, 255, 255));
+    }
+
+    private static ElementTheme ResolveEffectiveTheme()
+    {
+        var theme = MainWindow.CurrentElementTheme;
+        if (theme == ElementTheme.Default)
+        {
+            theme = Application.Current.RequestedTheme == ApplicationTheme.Dark
+                ? ElementTheme.Dark
+                : ElementTheme.Light;
+        }
+        return theme;
     }
 
     protected static SolidColorBrush RiskBrush(RiskLevel risk)

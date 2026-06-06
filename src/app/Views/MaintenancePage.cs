@@ -56,8 +56,8 @@ public sealed partial class MaintenancePage : BasePage
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Microsoft.UI.Colors.LightGray),
-            Background = Brush(Windows.UI.Color.FromArgb(24, 128, 128, 128))
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
         };
 
         var grid = new Grid { ColumnSpacing = 12 };
@@ -105,8 +105,8 @@ public sealed partial class MaintenancePage : BasePage
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Microsoft.UI.Colors.LightGray),
-            Background = Brush(Windows.UI.Color.FromArgb(12, 128, 128, 128)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = stack
         };
     }

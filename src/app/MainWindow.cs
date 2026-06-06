@@ -37,6 +37,7 @@ public sealed class MainWindow : Window
     internal NetworkOptimizationService NetworkOptimizer { get; }
     internal UninstallerService Uninstaller { get; }
     internal NavigationView Navigation_Internal { get; }
+    internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
 
     public MainWindow()
     {
@@ -727,9 +728,11 @@ public sealed class MainWindow : Window
         }
     }
 
-    internal void ApplyTheme_Internal(AppTheme theme)
+    internal async Task ApplyThemeAsync_Internal(AppTheme theme)
     {
         ApplyTheme(theme);
+        _pages.Clear();
+        await NavigateAsync(_currentPageTag ?? "settings");
     }
 
     internal void ApplyWinUiStyle_Internal(AppWinUiStyle style)
@@ -739,12 +742,22 @@ public sealed class MainWindow : Window
 
     private void ApplyTheme(AppTheme theme)
     {
-        Navigation_Internal.RequestedTheme = theme switch
+        var elementTheme = theme switch
         {
             AppTheme.Light => ElementTheme.Light,
             AppTheme.Dark => ElementTheme.Dark,
             _ => ElementTheme.Default
         };
+        CurrentElementTheme = elementTheme;
+        Navigation_Internal.RequestedTheme = elementTheme;
+        if (Content is FrameworkElement fe)
+        {
+            fe.RequestedTheme = elementTheme;
+        }
+        if (_widgetWindow != null && _widgetWindow.Content is FrameworkElement widgetFe)
+        {
+            widgetFe.RequestedTheme = elementTheme;
+        }
     }
 
     private void ApplyWinUiStyle(AppWinUiStyle style)

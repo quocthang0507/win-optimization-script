@@ -50,8 +50,8 @@ public sealed partial class SettingsPage : BasePage
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
         };
 
         var grid = new Grid { ColumnSpacing = 12 };
@@ -88,8 +88,8 @@ public sealed partial class SettingsPage : BasePage
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
         };
 
         var grid = new Grid { ColumnSpacing = 12 };
@@ -112,13 +112,13 @@ public sealed partial class SettingsPage : BasePage
             AppTheme.Dark => 2,
             _ => 0
         };
-        combo.SelectionChanged += (_, _) =>
+        combo.SelectionChanged += async (_, _) =>
         {
             if (combo.SelectedItem is ComboBoxItem item && item.Tag is AppTheme theme && theme != (MainWindow.Settings.Theme ?? AppTheme.System))
             {
                 MainWindow.Settings.Theme = theme;
-                MainWindow.ApplyTheme_Internal(theme);
                 var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+                await MainWindow.ApplyThemeAsync_Internal(theme);
                 MainWindow.SetStatusText(saved ? T("settings.saved") : MainWindow.FormatTranslation("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
             }
         };
@@ -136,8 +136,8 @@ public sealed partial class SettingsPage : BasePage
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
         };
 
         var grid = new Grid { ColumnSpacing = 12 };
@@ -186,8 +186,8 @@ public sealed partial class SettingsPage : BasePage
             Padding = new Thickness(14),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.LightGray),
-            Background = Brush(Color.FromArgb(18, 128, 128, 128))
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
         };
 
         var grid = new Grid { ColumnSpacing = 12 };
