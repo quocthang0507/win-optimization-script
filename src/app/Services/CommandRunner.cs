@@ -21,7 +21,8 @@ public sealed class CommandRunner
             if (OperatingSystem.IsWindows() && resolvedPath != null)
             {
                 var ext = Path.GetExtension(resolvedPath).ToUpperInvariant();
-                if (ext == ".CMD" || ext == ".BAT")
+
+                if (ext is ".CMD" or ".BAT")
                 {
                     finalFile = "cmd.exe";
                     finalArgs = $"/c {fileName} {arguments}";
