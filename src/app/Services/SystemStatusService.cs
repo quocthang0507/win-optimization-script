@@ -61,11 +61,17 @@ public sealed class SystemStatusService
             // Fetch RAM memory
             ulong totalRam = 0;
             ulong availRam = 0;
+            ulong totalPageFile = 0;
+            ulong availPageFile = 0;
+            uint memoryLoad = 0;
             var memStatus = MEMORYSTATUSEX.Create();
             if (GlobalMemoryStatusEx(ref memStatus))
             {
                 totalRam = memStatus.ullTotalPhys;
                 availRam = memStatus.ullAvailPhys;
+                totalPageFile = memStatus.ullTotalPageFile;
+                availPageFile = memStatus.ullAvailPageFile;
+                memoryLoad = memStatus.dwMemoryLoad;
             }
 
             // Fetch CPU Processor Name
@@ -85,6 +91,8 @@ public sealed class SystemStatusService
 
             return new DashboardStatus(
                 $"{Environment.OSVersion.VersionString} ({RuntimeInformationHelper.ProcessArchitecture})",
+                Environment.MachineName,
+                Environment.UserName,
                 IsAdministrator(),
                 uptime,
                 systemDrive.Name,
@@ -94,8 +102,16 @@ public sealed class SystemStatusService
                 _commands.Exists("winget"),
                 _reports.GetLastReportPath(),
                 cpuName,
+                Environment.ProcessorCount,
+                RuntimeInformation.FrameworkDescription,
+                RuntimeInformation.ProcessArchitecture.ToString(),
+                RuntimeInformation.OSArchitecture.ToString(),
+                memoryLoad,
                 totalRam,
-                availRam);
+                availRam,
+                totalPageFile,
+                availPageFile,
+                GetDriveStatuses());
         });
     }
 
@@ -140,6 +156,21 @@ public sealed class SystemStatusService
         }
 
         return false;
+    }
+
+    private static IReadOnlyList<DashboardDriveStatus> GetDriveStatuses()
+    {
+        return DriveInfo.GetDrives()
+            .Where(drive => drive.IsReady)
+            .Select(drive => new DashboardDriveStatus(
+                drive.Name,
+                drive.DriveType.ToString(),
+                drive.DriveFormat,
+                drive.VolumeLabel,
+                drive.TotalSize,
+                drive.AvailableFreeSpace))
+            .OrderBy(drive => drive.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static class RuntimeInformationHelper

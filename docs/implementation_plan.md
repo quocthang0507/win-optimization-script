@@ -894,6 +894,234 @@ Tiêu chí nghiệm thu:
 - Không có thao tác xóa nào chạy trực tiếp từ tree hoặc treemap.
 - Report cleanup được lưu vào `logs/`.
 
+## Feature roadmap bổ sung theo nhóm sản phẩm
+
+Mục tiêu: đưa app từ công cụ maintenance theo tab thành bộ tối ưu Windows có trải nghiệm gần với Microsoft PC Manager/CCleaner nhưng vẫn giữ nguyên tắc an toàn: luôn scan trước, preview rõ, không xóa trực tiếp, có rollback/report khi thay đổi hệ thống.
+
+### **Health Check 1-click**
+
+Mục tiêu: một nút quét nhanh tình trạng máy khi người dùng mở Dashboard, đưa ra điểm sức khỏe và recommendation dễ hiểu.
+
+Phạm vi MVP:
+
+- Quét CPU load, RAM load, system drive free space, uptime, pending reboot, WinGet availability, startup impact summary và cleanup opportunity.
+- Trả về `HealthCheckResult` gồm `Score`, `Status`, `Findings`, `Recommendations`, `CanFixAutomatically`.
+- Recommendation phải là hành động cụ thể: `Run cleanup scan`, `Review high-impact startup apps`, `Restart to finish updates`, `Free at least X GB on C:`.
+- Không tự chạy fix khi người dùng bấm Health Check; chỉ đưa sang màn hình review/action tương ứng.
+
+Giao diện:
+
+- Dashboard có health score dạng gauge/summary strip, màu theo trạng thái `Good / Attention / Critical`.
+- Danh sách recommendation dạng row có icon, impact, risk và nút hành động.
+- Có trạng thái loading/error rõ; quét không block UI.
+
+Tiêu chí nghiệm thu:
+
+- Bấm `Health Check` chỉ quét và gợi ý, không thay đổi hệ thống.
+- Recommendation có source rõ ràng để người dùng biết vì sao app đề xuất.
+- Kết quả có thể export vào dashboard report.
+
+Test cases:
+
+- `HealthCheckService.ScanAsync` tạo recommendation disk khi free space dưới ngưỡng.
+- Pending reboot tạo recommendation restart nhưng không tự restart.
+- Startup impact high tạo recommendation mở Startup Manager.
+- Không có WinGet thì tạo finding warning, không fail toàn bộ scan.
+- Cancellation trả trạng thái canceled và không ghi report sai.
+
+### **Storage & Cloud Cleaner**
+
+Mục tiêu: mở rộng cleanup từ ổ local sang các thư mục đồng bộ cloud phổ biến, có preview trước khi xóa giống mô hình cleanup thương mại.
+
+Phạm vi MVP:
+
+- Phát hiện thư mục OneDrive qua environment/registry known folders; Google Drive/Dropbox qua thư mục cấu hình/local app data khi có.
+- Quét file rác, duplicate candidate, large files, old files trong phạm vi người dùng chọn.
+- Mọi thao tác xóa/move đều đi qua `Cleanup Review`; mặc định move to Recycle Bin cho file người dùng.
+- Không đụng file cloud-only/placeholder nếu không xác định được trạng thái local an toàn.
+
+Giao diện:
+
+- Nguồn scan gồm `Local`, `OneDrive`, `Google Drive`, `Dropbox` với badge trạng thái detected/not found.
+- Preview theo nhóm: junk, duplicates, large files, old files, cloud cache.
+- Duplicate view hiển thị group, hash/size/path, item được giữ lại và item đề xuất move.
+
+Tiêu chí nghiệm thu:
+
+- Người dùng thấy preview trước khi cleanup cloud folder.
+- App không tự xóa tài liệu, ảnh, source code hoặc project folder theo rule tự động.
+- File cloud không available local được skip và ghi rõ lý do.
+
+Test cases:
+
+- Cloud detector nhận diện path từ fake config/known folder.
+- Duplicate detector chỉ group file cùng size và hash.
+- Large/old files chỉ tạo suggestion, không tạo delete action trực tiếp.
+- Cloud placeholder hoặc file offline bị skipped.
+- Cleanup Review cancel không xóa/move bất kỳ item nào.
+
+### **Startup/Service Manager**
+
+Mục tiêu: giảm thời gian khởi động bằng cách phân loại impact và cho phép disable/delay có rollback.
+
+Phạm vi MVP:
+
+- Thu thập startup registry keys, Startup folder, scheduled task phổ biến và service third-party automatic.
+- Tính `ImpactLevel` theo startup type, publisher, path, command, last run hoặc heuristic nhẹ.
+- Hỗ trợ `Disable`, `Enable`, `Delay startup` nếu loại entry hỗ trợ.
+- Tạo backup trước khi thay đổi: registry export, service config snapshot, scheduled task state.
+
+Giao diện:
+
+- Bảng có cột name, publisher, source, status, impact, recommendation, action.
+- Filter `High`, `Medium`, `Low`, `Enabled`, `Third-party`.
+- Panel rollback hiển thị thay đổi gần đây và nút restore.
+
+Tiêu chí nghiệm thu:
+
+- Không xóa entry startup; chỉ disable/enable/delay.
+- Service/system publisher nhạy cảm mặc định bị khóa action hoặc yêu cầu confirmation mạnh.
+- Mỗi thay đổi tạo rollback record và report.
+
+Test cases:
+
+- Startup classifier phân loại high/medium/low đúng theo fixture.
+- Disable registry startup tạo backup trước khi sửa.
+- Disable service system-critical bị chặn.
+- Rollback restore lại trạng thái entry.
+- Export startup list tạo file có đủ source/status/impact.
+
+### **Live Performance Mode**
+
+Mục tiêu: profile tạm thời để giảm tải background app khi Gaming/Work/Battery, không thay đổi vĩnh viễn nếu người dùng chưa xác nhận.
+
+Phạm vi MVP:
+
+- Profile `Gaming`, `Work`, `Battery` với rule riêng: app background có thể suspend/stop, service không thiết yếu, startup-delayed hints.
+- Chỉ áp dụng action reversible trong phiên: lower priority, pause background task nếu API/command an toàn, stop process chỉ với app user chọn.
+- Có allowlist mặc định cho app quan trọng và user allowlist.
+
+Giao diện:
+
+- Toggle profile trên Dashboard hoặc mini toolbar.
+- Hiển thị CPU/RAM freed estimate, app đang sleep, nút restore all.
+- Warning rõ khi action có thể đóng app hoặc mất session.
+
+Tiêu chí nghiệm thu:
+
+- Tắt profile phải restore trạng thái đã thay đổi trong phiên.
+- Không kill process tự động nếu chưa có explicit confirmation.
+- Profile config lưu được nhưng action runtime phải có session state để rollback.
+
+Test cases:
+
+- Profile planner tạo action list theo process fixture.
+- Allowlisted process không bị đưa vào sleep/stop.
+- Restore all gọi đúng action inverse từ session state.
+- Failure một action không làm mất khả năng restore các action đã chạy.
+- Battery profile không chọn action tăng tiêu thụ điện.
+
+### **Privacy Cleaner**
+
+Mục tiêu: dọn dữ liệu riêng tư có kiểm soát, cảnh báo rõ trước khi xóa dữ liệu nhạy cảm.
+
+Phạm vi MVP:
+
+- Clipboard, recent files, run history, jump lists, browser cache/history tùy profile.
+- Browser history/cookies/passwords là nhóm nhạy cảm, mặc định không chọn.
+- Preview nêu rõ loại dữ liệu, app/profile liên quan và hậu quả.
+
+Giao diện:
+
+- Risk grouped checklist: `Safe traces`, `Browsing data`, `Sensitive sessions`.
+- Dialog confirmation hiển thị item nhạy cảm bằng ngôn ngữ ngắn, rõ.
+- Sau cleanup có timeline removed/skipped/error.
+
+Tiêu chí nghiệm thu:
+
+- Clipboard/recent files có thể cleanup nhanh.
+- Browser history/cookies không bị chọn mặc định.
+- Browser đang chạy thì cảnh báo và cho skip/retry.
+
+Test cases:
+
+- Sensitive items mặc định unselected.
+- Clipboard cleanup gọi abstraction testable, không phụ thuộc clipboard thật trong unit test.
+- Browser running chặn cleanup profile nếu chưa confirm.
+- Recent files cleanup chỉ tác động known recent locations.
+- Report ghi rõ nhóm dữ liệu privacy đã xóa.
+
+### **Toolbox chuyên sâu**
+
+Mục tiêu: gom các công cụ nâng cao vào một khu vực riêng, có cảnh báo và guardrail mạnh hơn phần cleanup phổ thông.
+
+Module đề xuất:
+
+- Disk analyzer: tree table, treemap/heatmap, largest files, file type summary, cleanup candidates.
+- Registry cleaner: chỉ scan orphaned safe keys trước; luôn backup registry; không auto-fix mặc định.
+- Network optimizer: DNS flush, Winsock reset, proxy/DNS diagnostics, adapter status.
+- Uninstaller sạch: dùng winget/app registry uninstall, sau đó scan leftover có preview.
+
+Giao diện:
+
+- Toolbox dùng tab hoặc navigation list riêng, không trộn action rủi ro cao vào Dashboard.
+- Mỗi tool có badge risk, yêu cầu admin, last run và export report.
+- Registry cleaner phải dùng copy cảnh báo riêng và action mặc định là backup/scan.
+
+Tiêu chí nghiệm thu:
+
+- Tool rủi ro cao không chạy từ quick action một click.
+- Mỗi tool có dry-run/preview khi có thể.
+- Report/export dùng chung `ReportService` hoặc format dashboard report mở rộng.
+
+Test cases:
+
+- Registry cleaner scan không sửa registry.
+- Registry fix bị chặn nếu chưa có backup confirmation.
+- Network optimizer command runner được mock và log stdout/stderr/exit code.
+- Uninstaller parser không chạy uninstall khi chỉ scan.
+- Leftover cleanup đi qua Cleanup Review.
+
+### **Mini toolbar / Widget**
+
+Mục tiêu: tăng tính tiện dụng bằng một toolbar nhỏ hiển thị CPU/RAM/Temp và quick actions.
+
+Phạm vi MVP:
+
+- Mini window always-on-top optional, compact mode, hiển thị CPU, RAM, disk free và quick actions.
+- Temp chỉ hiển thị khi có nguồn đáng tin cậy; nếu không có thì ẩn hoặc hiển thị `N/A`, không dùng WMI.
+- Quick actions: Health Check, Open Cleanup, Open Storage Analyzer, Toggle Performance Mode.
+
+Giao diện:
+
+- Compact layout không dùng card lồng card; icon button có tooltip localized.
+- Có menu mở rộng để pin/unpin, đổi opacity, chọn metric hiển thị.
+- Không che nội dung chính; có drag và vị trí được lưu trong settings.
+
+Tiêu chí nghiệm thu:
+
+- Widget có thể bật/tắt từ Settings.
+- Metrics cập nhật theo interval cấu hình, không gây CPU overhead đáng kể.
+- Quick actions mở đúng trang trong app chính.
+
+Test cases:
+
+- Settings save/load trạng thái widget.
+- Metric polling service có cancellation và dispose đúng.
+- Missing temperature provider không làm crash widget.
+- Quick action route tạo navigation request đúng.
+- Tooltip localized cho mọi icon-only button.
+
+### Thứ tự ưu tiên đề xuất cho nhóm tính năng mới
+
+1. **Health Check 1-click**: tận dụng dashboard/status service hiện có, tạo giá trị người dùng nhanh nhất.
+2. **Startup/Service Manager**: impact trực tiếp đến tốc độ khởi động, cần rollback nên làm sớm để chuẩn hóa safety model.
+3. **Storage & Cloud Cleaner**: mở rộng từ Storage Analyzer/Cleanup Review hiện có, nhưng cần nhiều guardrail.
+4. **Privacy Cleaner**: có ích nhưng nhạy cảm, nên triển khai sau khi confirmation/report ổn định.
+5. **Live Performance Mode**: cần session state và rollback runtime, triển khai sau startup/process model.
+6. **Toolbox chuyên sâu**: tách thành module nâng cao để không làm MVP quá rủi ro.
+7. **Mini toolbar / Widget**: làm sau khi metrics và quick actions đã ổn định.
+
 ## Phase 6: Chất lượng, test và phát hành
 
 ### 6.1 Test tự động

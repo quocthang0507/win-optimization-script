@@ -167,6 +167,7 @@ public sealed partial class StoragePage : BasePage
         _storageProgressCard.Child = progressStack;
 
         MainContent.Children.Add(commandGrid);
+        MainContent.Children.Add(CloudSourcesPanel(CloudStorageDetector.Detect()));
         MainContent.Children.Add(_storageProgressCard);
         MainContent.Children.Add(_storageResultPanel);
 
@@ -174,6 +175,88 @@ public sealed partial class StoragePage : BasePage
         {
             RenderStorageResults(_storageResultPanel, _lastDiskScan);
         }
+    }
+
+    private Border CloudSourcesPanel(IReadOnlyList<CloudStorageLocation> locations)
+    {
+        var stack = new StackPanel { Spacing = 10 };
+        stack.Children.Add(SectionTitle(T("storage.cloudSources")));
+        stack.Children.Add(InfoBlock(T("storage.cloudSourcesDesc")));
+
+        foreach (var location in locations)
+        {
+            stack.Children.Add(CloudSourceRow(location));
+        }
+
+        return new Border
+        {
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            Child = stack
+        };
+    }
+
+    private Grid CloudSourceRow(CloudStorageLocation location)
+    {
+        var row = new Grid { ColumnSpacing = 12, MinHeight = 38 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var badgeColor = location.IsDetected ? Colors.SeaGreen : Colors.Gray;
+        var badge = new Border
+        {
+            Padding = new Thickness(0, 5, 0, 5),
+            CornerRadius = new CornerRadius(6),
+            Background = Brush(Color.FromArgb(38, badgeColor.R, badgeColor.G, badgeColor.B)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = location.IsDetected ? T("storage.detected") : T("storage.notFound"),
+                Foreground = Brush(badgeColor),
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center
+            }
+        };
+        row.Children.Add(badge);
+
+        var text = new StackPanel { Spacing = 2 };
+        text.Children.Add(new TextBlock
+        {
+            Text = location.DisplayName,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = location.IsDetected ? location.Path : T("storage.cloudNotFoundDetail"),
+            Opacity = 0.72,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        ToolTipService.SetToolTip(text, location.IsDetected ? location.Path : T("storage.cloudNotFoundDetail"));
+        Grid.SetColumn(text, 1);
+        row.Children.Add(text);
+
+        var useButton = new Button
+        {
+            Content = T("storage.useSource"),
+            MinWidth = 96,
+            IsEnabled = location.IsDetected
+        };
+        ToolTipService.SetToolTip(useButton, T("storage.useSource"));
+        useButton.Click += (_, _) =>
+        {
+            if (_storageRootBox is not null)
+            {
+                _storageRootBox.Text = location.Path;
+            }
+        };
+        Grid.SetColumn(useButton, 2);
+        row.Children.Add(useButton);
+
+        return row;
     }
 
     private async Task StartDiskScanAsync(string rootPath)

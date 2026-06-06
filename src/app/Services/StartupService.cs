@@ -45,7 +45,7 @@ public sealed class StartupService
                     continue;
                 }
 
-                entries.Add(new StartupEntry(name, source, value, enabled, GetRiskHint(value)));
+                entries.Add(CreateEntry(name, source, value, enabled));
             }
         }
         catch
@@ -65,7 +65,7 @@ public sealed class StartupService
 
             foreach (var file in Directory.GetFiles(folder))
             {
-                entries.Add(new StartupEntry(Path.GetFileNameWithoutExtension(file), source, file, true, GetRiskHint(file)));
+                entries.Add(CreateEntry(Path.GetFileNameWithoutExtension(file), source, file, true));
             }
         }
         catch
@@ -79,5 +79,20 @@ public sealed class StartupService
         return command.Contains(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase)
             ? "Temp path"
             : command.Contains("AppData", StringComparison.OrdinalIgnoreCase) ? "User profile" : "Standard";
+    }
+
+    private static StartupEntry CreateEntry(string name, string source, string command, bool enabled)
+    {
+        var analysis = StartupImpactClassifier.Analyze(name, source, command, enabled);
+        return new StartupEntry(
+            name,
+            source,
+            command,
+            enabled,
+            GetRiskHint(command),
+            analysis.Impact,
+            analysis.Recommendation,
+            analysis.CanDisable,
+            analysis.CanRollback);
     }
 }

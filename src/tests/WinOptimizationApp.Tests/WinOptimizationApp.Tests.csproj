@@ -21,26 +21,43 @@
   <ItemGroup>
     <Compile Include="..\..\app\Models\AppLanguage.cs" Link="Production\Models\AppLanguage.cs" />
     <Compile Include="..\..\app\Models\AppUpdateInfo.cs" Link="Production\Models\AppUpdateInfo.cs" />
+    <Compile Include="..\..\app\Models\CloudStorageLocation.cs" Link="Production\Models\CloudStorageLocation.cs" />
+    <Compile Include="..\..\app\Models\CloudStorageProvider.cs" Link="Production\Models\CloudStorageProvider.cs" />
     <Compile Include="..\..\app\Models\DiskItem.cs" Link="Production\Models\DiskItem.cs" />
+    <Compile Include="..\..\app\Models\DashboardDriveStatus.cs" Link="Production\Models\DashboardDriveStatus.cs" />
+    <Compile Include="..\..\app\Models\DashboardStatus.cs" Link="Production\Models\DashboardStatus.cs" />
+    <Compile Include="..\..\app\Models\HealthCheckFinding.cs" Link="Production\Models\HealthCheckFinding.cs" />
+    <Compile Include="..\..\app\Models\HealthCheckRecommendation.cs" Link="Production\Models\HealthCheckRecommendation.cs" />
+    <Compile Include="..\..\app\Models\HealthCheckResult.cs" Link="Production\Models\HealthCheckResult.cs" />
     <Compile Include="..\..\app\Models\DiskScanOptions.cs" Link="Production\Models\DiskScanOptions.cs" />
     <Compile Include="..\..\app\Models\DiskScanProgress.cs" Link="Production\Models\DiskScanProgress.cs" />
     <Compile Include="..\..\app\Models\DiskScanResult.cs" Link="Production\Models\DiskScanResult.cs" />
     <Compile Include="..\..\app\Models\FileTypeSummary.cs" Link="Production\Models\FileTypeSummary.cs" />
     <Compile Include="..\..\app\Models\MaintenanceTask.cs" Link="Production\Models\MaintenanceTask.cs" />
+    <Compile Include="..\..\app\Models\PrivacyCleanupItem.cs" Link="Production\Models\PrivacyCleanupItem.cs" />
     <Compile Include="..\..\app\Models\RiskLevel.cs" Link="Production\Models\RiskLevel.cs" />
+    <Compile Include="..\..\app\Models\StartupEntry.cs" Link="Production\Models\StartupEntry.cs" />
+    <Compile Include="..\..\app\Models\StartupImpactAnalysis.cs" Link="Production\Models\StartupImpactAnalysis.cs" />
+    <Compile Include="..\..\app\Models\StartupImpactLevel.cs" Link="Production\Models\StartupImpactLevel.cs" />
     <Compile Include="..\..\app\Models\StorageCleanupCandidate.cs" Link="Production\Models\StorageCleanupCandidate.cs" />
     <Compile Include="..\..\app\Models\StorageCleanupMode.cs" Link="Production\Models\StorageCleanupMode.cs" />
     <Compile Include="..\..\app\Models\TaskRunResult.cs" Link="Production\Models\TaskRunResult.cs" />
     <Compile Include="..\..\app\Services\AppProcessLauncher.cs" Link="Production\Services\AppProcessLauncher.cs" />
     <Compile Include="..\..\app\Services\AppRuntimePaths.cs" Link="Production\Services\AppRuntimePaths.cs" />
+    <Compile Include="..\..\app\Services\CloudStorageDetector.cs" Link="Production\Services\CloudStorageDetector.cs" />
     <Compile Include="..\..\app\Services\CommandRunner.cs" Link="Production\Services\CommandRunner.cs" />
+    <Compile Include="..\..\app\Services\DashboardExportService.cs" Link="Production\Services\DashboardExportService.cs" />
+    <Compile Include="..\..\app\Services\DashboardHealthCheckService.cs" Link="Production\Services\DashboardHealthCheckService.cs" />
     <Compile Include="..\..\app\Services\DiskAnalysisService.cs" Link="Production\Services\DiskAnalysisService.cs" />
     <Compile Include="..\..\app\Services\Formatters.cs" Link="Production\Services\Formatters.cs" />
     <Compile Include="..\..\app\Services\GitHubUpdateService.cs" Link="Production\Services\GitHubUpdateService.cs" />
+    <Compile Include="..\..\app\Services\LocalizationService.cs" Link="Production\Services\LocalizationService.cs" />
     <Compile Include="..\..\app\Services\MaintenanceCatalog.cs" Link="Production\Services\MaintenanceCatalog.cs" />
     <Compile Include="..\..\app\Services\PathService.cs" Link="Production\Services\PathService.cs" />
     <Compile Include="..\..\app\Services\PathSafetyService.cs" Link="Production\Services\PathSafetyService.cs" />
+    <Compile Include="..\..\app\Services\PrivacyCleanerCatalog.cs" Link="Production\Services\PrivacyCleanerCatalog.cs" />
     <Compile Include="..\..\app\Services\ReportService.cs" Link="Production\Services\ReportService.cs" />
+    <Compile Include="..\..\app\Services\StartupImpactClassifier.cs" Link="Production\Services\StartupImpactClassifier.cs" />
     <Compile Include="..\..\app\Services\StorageCleanupService.cs" Link="Production\Services\StorageCleanupService.cs" />
   </ItemGroup>
 

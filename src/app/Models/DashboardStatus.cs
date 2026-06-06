@@ -2,6 +2,8 @@ namespace WinOptimizationApp.Models;
 
 public sealed record DashboardStatus(
     string WindowsVersion,
+    string MachineName,
+    string UserName,
     bool IsAdministrator,
     TimeSpan Uptime,
     string SystemDrive,
@@ -11,5 +13,13 @@ public sealed record DashboardStatus(
     bool WingetAvailable,
     string? LastReportPath,
     string CpuName,
+    int ProcessorCount,
+    string DotNetRuntime,
+    string ProcessArchitecture,
+    string OSArchitecture,
+    uint MemoryLoadPercent,
     ulong TotalRamBytes,
-    ulong AvailableRamBytes);
+    ulong AvailableRamBytes,
+    ulong TotalPageFileBytes,
+    ulong AvailablePageFileBytes,
+    IReadOnlyList<DashboardDriveStatus> Drives);

@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
+using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp.Views;
@@ -24,6 +25,9 @@ public sealed partial class DashboardPage : BasePage
         AddHeader(T("dashboard.title"), T("dashboard.subtitle"));
 
         var status = await MainWindow.Status.GetAsync();
+        var health = DashboardHealthCheckService.Analyze(status);
+
+        MainContent.Children.Add(HealthCheckPanel(health));
 
         // System Health Section
         var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12 };
@@ -193,13 +197,17 @@ public sealed partial class DashboardPage : BasePage
 
         hardwareCard.Child = hardwareStack;
         MainContent.Children.Add(hardwareCard);
+        MainContent.Children.Add(SystemDetailsPanel(status));
+        MainContent.Children.Add(DriveOverviewPanel(status));
 
         // Quick Actions
         var quick = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        quick.Children.Add(ActionButton(T("dashboard.healthCheck"), Symbol.Refresh, async (_, _) => await MainWindow.NavigateAsync("dashboard")));
         quick.Children.Add(ActionButton(T("dashboard.scanCleanup"), Symbol.Find, async (_, _) => await MainWindow.NavigateToTagAsync("cleanup")));
         quick.Children.Add(ActionButton(T("dashboard.analyzeStorage"), Symbol.View, async (_, _) => await MainWindow.NavigateToTagAsync("storage")));
         quick.Children.Add(ActionButton(T("dashboard.scanUpdates"), Symbol.Download, async (_, _) => await MainWindow.ScanWingetAsync(_wingetResultPanel)));
         quick.Children.Add(ActionButton(T("dashboard.openLogs"), Symbol.OpenFile, (_, _) => MainWindow.OpenFolder_Internal(MainWindow.Paths.LogsDirectory)));
+        quick.Children.Add(ActionButton(T("dashboard.export"), Symbol.Save, async (_, _) => await ExportDashboardAsync(status)));
         MainContent.Children.Add(quick);
 
         MainContent.Children.Add(_wingetResultPanel);
@@ -273,6 +281,320 @@ public sealed partial class DashboardPage : BasePage
             border.Child = cardGrid;
             MainContent.Children.Add(border);
         }
+    }
+
+    private Border HealthCheckPanel(HealthCheckResult health)
+    {
+        var color = health.Status switch
+        {
+            "Good" => Colors.SeaGreen,
+            "Attention" => Colors.DarkOrange,
+            "Critical" => Colors.OrangeRed,
+            _ => Colors.Gray
+        };
+
+        var root = new Grid { ColumnSpacing = 20 };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+        root.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var scoreStack = new StackPanel { Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        scoreStack.Children.Add(new TextBlock
+        {
+            Text = T("dashboard.healthCheck"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontSize = 18
+        });
+        scoreStack.Children.Add(new TextBlock
+        {
+            Text = $"{health.Score:N0}",
+            FontSize = 42,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = Brush(color)
+        });
+        scoreStack.Children.Add(new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = health.Score,
+            Height = 10,
+            CornerRadius = new CornerRadius(5),
+            Foreground = Brush(color)
+        });
+        scoreStack.Children.Add(new TextBlock
+        {
+            Text = LocalizedHealthStatus(health.Status),
+            Foreground = Brush(color),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        Grid.SetColumn(scoreStack, 0);
+        root.Children.Add(scoreStack);
+
+        var details = new StackPanel { Spacing = 10 };
+        details.Children.Add(new TextBlock
+        {
+            Text = T("dashboard.healthRecommendations"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+
+        if (health.Recommendations.Count == 0)
+        {
+            details.Children.Add(InfoBlock(T("dashboard.healthNoRecommendations")));
+        }
+        else
+        {
+            foreach (var recommendation in health.Recommendations.Take(4))
+            {
+                details.Children.Add(HealthRecommendationRow(recommendation));
+            }
+        }
+
+        if (health.Findings.Count > 0)
+        {
+            details.Children.Add(new TextBlock
+            {
+                Text = F("dashboard.healthFindingCount", health.Findings.Count),
+                Opacity = 0.72,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        Grid.SetColumn(details, 1);
+        root.Children.Add(details);
+
+        return new Border
+        {
+            Padding = new Thickness(18),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(color),
+            Background = Brush(Color.FromArgb(18, color.R, color.G, color.B)),
+            Child = root
+        };
+    }
+
+    private Grid HealthRecommendationRow(HealthCheckRecommendation recommendation)
+    {
+        var row = new Grid { ColumnSpacing = 12, MinHeight = 42 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        row.Children.Add(RiskBadge(recommendation.Risk, MainWindow.Localization.RiskName(recommendation.Risk)));
+
+        var text = new StackPanel { Spacing = 2 };
+        text.Children.Add(new TextBlock
+        {
+            Text = LocalizedHealthRecommendationTitle(recommendation),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = LocalizedHealthRecommendationDetail(recommendation),
+            Opacity = 0.72,
+            TextWrapping = TextWrapping.Wrap
+        });
+        Grid.SetColumn(text, 1);
+        row.Children.Add(text);
+
+        var action = new Button
+        {
+            Content = HealthActionLabel(recommendation.ActionTag, recommendation.ActionLabel),
+            MinWidth = 112
+        };
+        ToolTipService.SetToolTip(action, HealthActionLabel(recommendation.ActionTag, recommendation.ActionLabel));
+        action.Click += async (_, _) => await HandleHealthActionAsync(recommendation.ActionTag);
+        Grid.SetColumn(action, 2);
+        row.Children.Add(action);
+
+        return row;
+    }
+
+    private string LocalizedHealthRecommendationTitle(HealthCheckRecommendation recommendation)
+    {
+        return LocalizedOrFallback($"health.recommendation.{recommendation.Id}.title", recommendation.Title);
+    }
+
+    private string LocalizedHealthRecommendationDetail(HealthCheckRecommendation recommendation)
+    {
+        return LocalizedOrFallback($"health.recommendation.{recommendation.Id}.detail", recommendation.Detail);
+    }
+
+    private string LocalizedOrFallback(string key, string fallback)
+    {
+        var value = T(key);
+        return value == key ? fallback : value;
+    }
+
+    private async Task HandleHealthActionAsync(string actionTag)
+    {
+        switch (actionTag)
+        {
+            case "cleanup":
+            case "storage":
+            case "startup":
+            case "updates":
+                await MainWindow.NavigateToTagAsync(actionTag);
+                break;
+            default:
+                await MainWindow.ShowDialogAsync_Internal(T("dashboard.healthCheck"), InfoBlock(T("dashboard.healthManualAction")), T("common.close"));
+                break;
+        }
+    }
+
+    private string HealthActionLabel(string actionTag, string fallback)
+    {
+        return actionTag switch
+        {
+            "cleanup" => T("dashboard.scanCleanup"),
+            "storage" => T("dashboard.analyzeStorage"),
+            "startup" => T("startup.scan"),
+            "updates" => T("dashboard.scanUpdates"),
+            _ => fallback
+        };
+    }
+
+    private string LocalizedHealthStatus(string status)
+    {
+        return status switch
+        {
+            "Good" => T("dashboard.healthGood"),
+            "Attention" => T("dashboard.healthAttention"),
+            "Critical" => T("dashboard.healthCritical"),
+            _ => status
+        };
+    }
+
+    private async Task ExportDashboardAsync(WinOptimizationApp.Models.DashboardStatus status)
+    {
+        try
+        {
+            var path = await DashboardExportService.SaveMarkdownAsync(status, MainWindow.Paths.LogsDirectory, MainWindow.Localization.CurrentLanguage);
+            MainWindow.SetStatusText(F("dashboard.exported", path));
+            await MainWindow.ShowDialogAsync_Internal(T("dashboard.exportedTitle"), InfoBlock(path), T("common.close"));
+        }
+        catch (Exception ex)
+        {
+            await MainWindow.ShowDialogAsync_Internal(T("dashboard.exportFailed"), InfoBlock(ex.Message), T("common.close"));
+        }
+    }
+
+    private Border SystemDetailsPanel(WinOptimizationApp.Models.DashboardStatus status)
+    {
+        var grid = new Grid { ColumnSpacing = 20, RowSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+
+        AddInfoPair(grid, 0, 0, T("dashboard.machine"), status.MachineName);
+        AddInfoPair(grid, 0, 1, T("dashboard.user"), status.UserName);
+        AddInfoPair(grid, 1, 0, T("dashboard.runtime"), status.DotNetRuntime);
+        AddInfoPair(grid, 1, 1, T("dashboard.architecture"), $"{status.ProcessArchitecture} / {status.OSArchitecture}");
+        AddInfoPair(grid, 2, 0, T("dashboard.processors"), status.ProcessorCount.ToString("N0"));
+        AddInfoPair(grid, 2, 1, T("dashboard.memoryLoad"), $"{status.MemoryLoadPercent:N0}%");
+        AddInfoPair(grid, 3, 0, T("dashboard.pageFile"), $"{Formatters.FormatBytes((long)(status.TotalPageFileBytes - status.AvailablePageFileBytes))} / {Formatters.FormatBytes((long)status.TotalPageFileBytes)}");
+        AddInfoPair(grid, 3, 1, T("dashboard.lastReport"), status.LastReportPath ?? T("common.none"));
+
+        return SectionPanel(T("dashboard.systemDetails"), grid);
+    }
+
+    private Border DriveOverviewPanel(WinOptimizationApp.Models.DashboardStatus status)
+    {
+        var panel = new StackPanel { Spacing = 8 };
+        foreach (var drive in status.Drives)
+        {
+            panel.Children.Add(DriveRow(drive));
+        }
+
+        if (status.Drives.Count == 0)
+        {
+            panel.Children.Add(InfoBlock(T("common.none")));
+        }
+
+        return SectionPanel(T("dashboard.drives"), panel);
+    }
+
+    private static Grid DriveRow(WinOptimizationApp.Models.DashboardDriveStatus drive)
+    {
+        var used = Math.Max(0, drive.TotalBytes - drive.FreeBytes);
+        var percent = drive.TotalBytes > 0 ? used * 100d / drive.TotalBytes : 0;
+        var row = new Grid { ColumnSpacing = 12, MinHeight = 42 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+
+        var name = new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(drive.Label) ? drive.Name : $"{drive.Name} {drive.Label}",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        ToolTipService.SetToolTip(name, $"{drive.Name} / {drive.DriveType} / {drive.Format}");
+        row.Children.Add(name);
+
+        var progress = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = percent,
+            Height = 10,
+            CornerRadius = new CornerRadius(5),
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brush(percent > 85 ? Colors.OrangeRed : percent > 70 ? Colors.Goldenrod : Colors.SteelBlue)
+        };
+        Grid.SetColumn(progress, 1);
+        row.Children.Add(progress);
+
+        var size = new TextBlock
+        {
+            Text = $"{Formatters.FormatBytes(used)} / {Formatters.FormatBytes(drive.TotalBytes)}",
+            Opacity = 0.82,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(size, 2);
+        row.Children.Add(size);
+
+        return row;
+    }
+
+    private static Border SectionPanel(string title, UIElement content)
+    {
+        var stack = new StackPanel { Spacing = 12 };
+        stack.Children.Add(SectionTitle(title));
+        stack.Children.Add(content);
+
+        return new Border
+        {
+            Padding = new Thickness(18),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.LightGray),
+            Background = Brush(Color.FromArgb(10, 128, 128, 128)),
+            Child = stack
+        };
+    }
+
+    private static void AddInfoPair(Grid grid, int row, int column, string label, string value)
+    {
+        var stack = new StackPanel { Spacing = 2 };
+        stack.Children.Add(new TextBlock { Text = label, Opacity = 0.66, FontSize = 12 });
+        stack.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(value) ? "-" : value,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Opacity = 0.9
+        });
+
+        ToolTipService.SetToolTip(stack, value);
+        Grid.SetRow(stack, row);
+        Grid.SetColumn(stack, column);
+        grid.Children.Add(stack);
     }
 
     private static Border CreateMetricCardWithIcon(
