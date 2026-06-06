@@ -152,14 +152,16 @@ public sealed class StorageCleanupService(ReportService reports)
 
     private static RiskLevel GetRisk(DiskItem item)
     {
-        return IsInDownloads(item.FullPath) ? RiskLevel.Medium : item.Extension is ".tmp" or ".log" ? RiskLevel.Safe : RiskLevel.Medium;
+        var extension = item.Extension.ToLowerInvariant();
+        return IsInDownloads(item.FullPath) ? RiskLevel.Medium : extension is ".tmp" or ".log" ? RiskLevel.Safe : RiskLevel.Medium;
     }
 
     private static string GetReason(DiskItem item)
     {
+        var extension = item.Extension.ToLowerInvariant();
         return IsInDownloads(item.FullPath)
             ? "Large installer/archive in Downloads."
-            : item.Extension switch
+            : extension switch
             {
                 ".tmp" => "Temporary file.",
                 ".log" => "Log file.",
@@ -172,6 +174,6 @@ public sealed class StorageCleanupService(ReportService reports)
     private static bool IsInDownloads(string path)
     {
         var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-        return path.StartsWith(downloads, StringComparison.OrdinalIgnoreCase);
+        return PathSafetyService.IsPathWithinOrEqual(path, downloads);
     }
 }

@@ -13,6 +13,8 @@ public sealed class ReportService
         _paths = paths;
     }
 
+    public string LogsDirectory => _paths.LogsDirectory;
+
     public string? GetLastReportPath()
     {
         return !Directory.Exists(_paths.LogsDirectory)
@@ -51,5 +53,32 @@ public sealed class ReportService
 
         await File.WriteAllLinesAsync(textPath, lines, cancellationToken);
         return jsonPath;
+    }
+
+    public static bool TryResolveReportDeleteTargets(
+        string logsDirectory,
+        string reportPath,
+        out IReadOnlyList<string> targets)
+    {
+        targets = [];
+        if (string.IsNullOrWhiteSpace(logsDirectory) || string.IsNullOrWhiteSpace(reportPath))
+        {
+            return false;
+        }
+
+        var fullReportPath = Path.GetFullPath(reportPath);
+        if (!PathSafetyService.IsPathWithinOrEqual(fullReportPath, logsDirectory) ||
+            !Path.GetFileName(fullReportPath).StartsWith("maintenance-", StringComparison.OrdinalIgnoreCase) ||
+            !Path.GetExtension(fullReportPath).Equals(".json", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        targets =
+        [
+            fullReportPath,
+            Path.ChangeExtension(fullReportPath, ".log")
+        ];
+        return true;
     }
 }

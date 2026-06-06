@@ -11,6 +11,7 @@ public sealed class CommandRunner
     public async Task<CommandResult> RunCaptureAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
     {
         ExecutionCount++;
+        Process? process = null;
         try
         {
             var resolvedPath = FindCommandPath(fileName);
@@ -37,7 +38,7 @@ public sealed class CommandRunner
                 RedirectStandardError = true
             };
 
-            using var process = Process.Start(startInfo);
+            process = Process.Start(startInfo);
             if (process is null)
             {
                 return new CommandResult(-1, string.Empty, $"Failed to start {fileName}.");
@@ -49,9 +50,18 @@ public sealed class CommandRunner
 
             return new CommandResult(process.ExitCode, await outputTask, await errorTask);
         }
+        catch (OperationCanceledException)
+        {
+            TryKillProcess(process);
+            throw;
+        }
         catch (Exception ex)
         {
             return new CommandResult(-1, string.Empty, $"Error starting process {fileName}: {ex.Message}");
+        }
+        finally
+        {
+            process?.Dispose();
         }
     }
 
@@ -110,5 +120,22 @@ public sealed class CommandRunner
         }
 
         return null;
+    }
+
+    private static void TryKillProcess(Process? process)
+    {
+        if (process is null || process.HasExited)
+        {
+            return;
+        }
+
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // Cancellation should still propagate if the process exits first.
+        }
     }
 }

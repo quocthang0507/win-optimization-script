@@ -372,9 +372,8 @@ public sealed class CleanupService(CommandRunner commands)
 
     private static bool IsSafeFile(string path)
     {
-        var fullPath = Path.GetFullPath(path);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return fullPath.StartsWith(appData, StringComparison.OrdinalIgnoreCase);
+        return PathSafetyService.IsPathWithinOrEqual(path, appData);
     }
 
     private static bool IsSafeCleanupPath(string path)
@@ -406,10 +405,7 @@ public sealed class CleanupService(CommandRunner commands)
             Path.Combine(systemDrive, "Windows.old")
         ];
 
-        return allowedRoots
-            .Select(root => Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
-            .Any(root => fullPath.Equals(root, StringComparison.OrdinalIgnoreCase) ||
-                         fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        return allowedRoots.Any(root => PathSafetyService.IsPathWithinOrEqual(fullPath, root));
     }
 
     private static (string FileName, string Arguments) SplitCommand(string command)

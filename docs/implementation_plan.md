@@ -289,6 +289,121 @@ Tiêu chí nghiệm thu:
 - Có mục `Storage Sense` trong nhóm Cleanup hoặc Optimization.
 - App phân biệt rõ giữa mở Settings và thay đổi cấu hình.
 
+### 2.5 Đề xuất tính năng dọn dẹp trực quan, sinh động
+
+Mục tiêu: biến Cleanup từ danh sách task tĩnh thành trải nghiệm ra quyết định trực quan: người dùng thấy rõ nguồn chiếm dung lượng, mức an toàn, lợi ích dự kiến và trạng thái trước/sau khi dọn.
+
+Nguyên tắc theo `.agent/skills/SKILL.md`:
+
+- UI builder trong WinUI trả về kiểu cụ thể như `Grid`, `Border`, `StackPanel`, `Button`, không trả về `FrameworkElement` chung chung.
+- Icon-only button luôn có tooltip qua `ToolTipService.SetToolTip` và text lấy từ localization.
+- Tác vụ scan/cleanup nặng chạy async, có `CancellationToken`, nút Stop/Cancel và status cập nhật theo thời gian thực.
+- Business logic nằm trong service/model, UI chỉ layout, validate input cơ bản và wire event.
+- Không dùng WMI cho thông tin hệ thống; ưu tiên registry, Win32 API hoặc service hiện có.
+
+#### A. Cleanup Command Center
+
+Giao diện:
+
+- Summary strip trên đầu: tổng dung lượng có thể dọn, số nhóm an toàn, số nhóm cần review, lần scan gần nhất.
+- Các nhóm cleanup dạng hàng dữ liệu có icon, badge risk, dung lượng preview, số file, trạng thái `Ready / Needs admin / Browser running / Not found`.
+- Thanh filter theo `Safe`, `Medium`, `High`, `Needs admin`, `Can preview`.
+- Nút `Scan All`, `Review Selected`, `Stop`, `Open Logs`.
+
+Tính năng:
+
+- Scan tất cả nhóm cleanup trước, không xóa trong bước scan.
+- Cho chọn từng nhóm trước khi đưa vào `Cleanup Review`.
+- Hiển thị mini progress bar theo từng nhóm thay vì chỉ status toàn cục.
+- Lưu snapshot preview để khi đổi tab không mất kết quả.
+
+Tiêu chí nghiệm thu:
+
+- Không có thao tác xóa trực tiếp từ danh sách chính.
+- Group row không dùng card lồng card; dùng layout bảng/row để dễ scan.
+- Mỗi action icon-only có tooltip localized.
+- Scan có thể hủy giữa chừng và không làm mất preview trước đó.
+
+#### B. Before/After Cleanup Timeline
+
+Giao diện:
+
+- Timeline theo phiên cleanup: `Scanned`, `Reviewed`, `Moved to Recycle Bin`, `Deleted`, `Skipped`, `Error`.
+- Mỗi bước có icon trạng thái, dung lượng, số file và thời gian.
+- Click một bước để xem danh sách item liên quan và log rút gọn.
+
+Tính năng:
+
+- So sánh trước/sau cho từng nhóm cleanup.
+- Mở report JSON/log từ timeline.
+- Cho phép export summary ngắn.
+
+Tiêu chí nghiệm thu:
+
+- Timeline đọc từ `TaskRunResult`/report, không parse text UI.
+- Nếu cleanup thất bại một phần, timeline vẫn hiển thị removed/skipped/errors tách biệt.
+
+#### C. Smart Cleanup Suggestions
+
+Giao diện:
+
+- Bảng đề xuất gồm `Reason`, `Estimated size`, `Risk`, `Source`, `Action`.
+- Chip lý do ngắn: `Temporary`, `Crash dump`, `Old log`, `Installer in Downloads`, `Cache folder`.
+- Inline warning cho candidate trong thư mục người dùng như Downloads/Documents.
+
+Tính năng:
+
+- Gợi ý file `.tmp`, `.log`, `.dmp`, `.bak`, folder chứa `cache/temp`.
+- Installer/archive trong Downloads chỉ ở mức Medium và vẫn qua review.
+- Không tự động gợi ý file tài liệu, ảnh, source code hoặc project folder.
+- Có allowlist/denylist path ở service để mở rộng an toàn.
+
+Tiêu chí nghiệm thu:
+
+- `StorageCleanupService.CreateCandidates` có unit test cho nhận diện candidate và loại trừ file thường.
+- Candidate file người dùng mặc định dùng `MoveToRecycleBin`.
+- Permanent delete chỉ xuất hiện cho cache/temp rõ nguồn gốc và vẫn cần xác nhận.
+
+#### D. Space Heatmap cho Cleanup
+
+Giao diện:
+
+- Heatmap/treemap nhỏ trong Cleanup page, lấy từ scan gần nhất của Storage Analyzer.
+- Màu theo risk/source, không dùng một palette đơn sắc.
+- Hover tooltip: tên, path, dung lượng, percent, reason.
+- Click vào ô chỉ chọn item và mở details, không xóa trực tiếp.
+
+Tính năng:
+
+- Đồng bộ selection với `Cleanup Review`.
+- Gom nhóm item nhỏ thành `Other`.
+- Có trạng thái empty/loading/error rõ ràng.
+
+Tiêu chí nghiệm thu:
+
+- Visualization phục vụ quyết định cleanup, không chỉ trang trí.
+- Render giới hạn số node để không block UI.
+- Dữ liệu đến từ service/index đã scan, không quét lại khi chỉ đổi tab.
+
+#### E. App-Aware Cleanup
+
+Giao diện:
+
+- Badge `App running` khi Edge/Chrome/Firefox/npm/dotnet hoặc process liên quan đang mở.
+- Nút `Open app`, `Skip`, `Retry scan`; không tự động kill process.
+
+Tính năng:
+
+- Browser cache cảnh báo khi browser đang chạy.
+- Developer cache ưu tiên command chính chủ (`dotnet nuget locals`, `pip cache purge`, `npm cache clean`, `yarn cache clean`).
+- Windows Update cache hiển thị yêu cầu admin và service impact trước khi chạy.
+
+Tiêu chí nghiệm thu:
+
+- Không dọn browser profile khi browser đang chạy nếu người dùng chưa xác nhận.
+- External command được mock trong test, có log command/result.
+- Task cần admin bị chặn hoặc cảnh báo rõ khi app chưa elevated.
+
 ## Phase 3: Cải thiện Software, Startup và Repair
 
 ### 3.1 Nâng cấp WinGet update flow
@@ -796,6 +911,59 @@ Test đề xuất:
 - Mock command external cho WinGet/dev cache
 - Test parse report JSON
 
+Test cases chi tiết cần có trước khi mở rộng tính năng dọn dẹp trực quan:
+
+#### Cleanup preview và safety
+
+- `CleanupService.PreviewAsync` cho temp/browser/dev cache trả đúng `CleanupTargetPreview` gồm path, file count, byte count và trạng thái.
+- Preview không xóa, không move, không sửa attribute file.
+- Path rỗng, path không tồn tại, path ngoài allowlist hoặc path hệ thống nhạy cảm bị đánh dấu không an toàn.
+- Task High risk yêu cầu confirmation và restore point flow nếu có hỗ trợ.
+- Khi thiếu quyền admin, task admin-only trả trạng thái rõ ràng thay vì fail im lặng.
+
+#### Storage cleanup candidates
+
+- `StorageCleanupService.CreateCandidates` gợi ý `.tmp`, `.log`, `.dmp`, `.bak` với reason/risk đúng.
+- Extension được xử lý không phân biệt hoa/thường.
+- Folder chứa `cache` hoặc `temp` được gợi ý ở risk Medium.
+- `.exe`, `.msi`, `.zip`, `.7z`, `.rar`, `.iso` chỉ được gợi ý khi nằm trong Downloads hoặc rule người dùng đã cho phép.
+- File thường như `.txt`, `.docx`, `.jpg`, source code và project folder không được tự động gợi ý.
+- Candidate list được sort theo dung lượng giảm dần và giới hạn số lượng để UI không quá tải.
+
+#### Cleanup Review
+
+- Không có item nào bị xóa nếu người dùng đóng/cancel dialog.
+- `MoveToRecycleBin` là mặc định cho file người dùng.
+- Permanent delete chỉ dùng cho cache/temp rõ nguồn gốc và vẫn cần confirmation.
+- Missing file được tính là skipped, không làm fail toàn bộ batch.
+- Partial failure vẫn tạo `TaskRunResult` có removed/skipped/errors đúng.
+- Sau cleanup, report JSON và log text được ghi vào `logs/`.
+
+#### Storage Analyzer và visualization
+
+- Scan aggregate size, file count, folder count và percent-of-parent đúng.
+- Hidden/system/reparse point được bỏ qua theo option mặc định và được include khi bật tùy chọn tương ứng.
+- Cancellation trả partial result và không block UI.
+- Largest files, file types, donut/treemap/heatmap dùng chung một `DiskScanResult`.
+- Visualization gom nhóm `Other`, không tạo quá nhiều node/slice khi dữ liệu lớn.
+- Tooltip dữ liệu chart/heatmap có name, path, size, percent.
+
+#### App-aware cleanup và external command
+
+- Browser running detection hiển thị warning và không dọn profile nếu chưa xác nhận.
+- Developer cache command dùng command chính chủ khi có tool tương ứng.
+- Khi command không tồn tại, fallback thủ công chỉ chạy nếu user confirm.
+- External command stdout/stderr/exit code được log.
+- Command runner được mock để test không gọi thật `winget`, `npm`, `pip`, `dotnet`.
+
+#### UI contract
+
+- Mỗi icon-only button có tooltip localized.
+- UI component builder trả kiểu cụ thể (`Grid`, `Border`, `StackPanel`, `Button`) theo `.agent/skills/SKILL.md`.
+- Các long-running action có nút Stop/Cancel và cập nhật status text.
+- Empty/loading/error state hiển thị rõ, không để panel trống.
+- Không dùng card lồng card cho danh sách cleanup; dùng row/table hoặc panel phẳng.
+
 Framework:
 
 - xUnit, MSTest hoặc NUnit cho `src/core` C# sau khi tách core.
@@ -804,6 +972,7 @@ Framework:
 Tiêu chí nghiệm thu:
 
 - Có test cho cleanup engine trước khi mở rộng chức năng.
+- Có test cho candidate detection và cleanup review trước khi cho phép xóa từ UI visualization.
 - Test có thể chạy không cần admin cho phần logic thuần.
 - Test không cần khởi động WinUI app.
 
@@ -837,12 +1006,17 @@ Mục tiêu: phát hành dễ dùng hơn.
 - Release artifact trên GitHub.
 - Hash SHA256 cho file tải về.
 - Version trong app và report.
+- App tự kiểm tra GitHub Releases khi mở và báo nếu có bản mới.
+- GitHub Actions tự build, test, đóng gói ZIP Windows x64 và tạo release khi push tag `vX.Y.Z`.
+- VS Code launch config chạy script release để tăng version, commit, tag và push tag.
 
 Tiêu chí nghiệm thu:
 
 - Người dùng biết version đang chạy.
 - Release có checksum.
 - Build process có thể lặp lại.
+- Update checker dùng GitHub Releases API, không block UI startup và không tự ghi đè executable đang chạy.
+- Release workflow chạy test trước khi tạo artifact.
 
 ## Thứ tự triển khai khuyến nghị
 
@@ -850,21 +1024,25 @@ Tiêu chí nghiệm thu:
 2. Hoàn thiện metadata/risk catalog trong `src/app/Services/MaintenanceCatalog.cs`.
 3. Hoàn thiện logging/report JSON trong `src/app/Services/ReportService.cs`.
 4. Mở rộng scan/preview cleanup trong `src/app/Services/CleanupService.cs`.
-5. Chuẩn hóa confirmation theo risk level trong WinUI.
-6. Tách `src/app/Models` và `src/app/Services` sang `src/core`.
-7. Nâng cấp developer cache và browser cache.
-8. Nâng cấp WinGet preview flow.
-9. Tách UI `MainWindow.cs` thành `Views/` và `ViewModels/`.
-10. Tạo shell navigation mới để chuyển nhanh giữa Maintenance và Storage Analyzer.
-11. Thêm `StorageAnalyzerView` và `StorageAnalyzerViewModel`.
-12. Thêm `DiskAnalysisService` với scan async/cancel/progress.
-13. Thêm tree table, largest files, file types và treemap cho Storage Analyzer.
-14. Thêm `Cleanup Review` cho file/thư mục/candidate từ Storage Analyzer.
-15. Thêm presets.
-16. Mở rộng Startup Manager từ read-only sang enable/disable có backup.
-17. Thêm test cho `src/core`.
-18. Cập nhật packaging/publish cho WinUI app.
-19. Thêm release workflow.
+5. Thêm `Cleanup Command Center` với summary strip, filter risk và progress theo nhóm.
+6. Thêm `Smart Cleanup Suggestions` dựa trên service candidate an toàn.
+7. Chuẩn hóa confirmation theo risk level trong WinUI.
+8. Thêm `Before/After Cleanup Timeline` đọc từ report.
+9. Tách `src/app/Models` và `src/app/Services` sang `src/core`.
+10. Nâng cấp developer cache và browser cache theo hướng app-aware cleanup.
+11. Nâng cấp WinGet preview flow.
+12. Tách UI `MainWindow.cs` thành `Views/` và `ViewModels/`.
+13. Tạo shell navigation mới để chuyển nhanh giữa Maintenance và Storage Analyzer.
+14. Thêm `StorageAnalyzerView` và `StorageAnalyzerViewModel`.
+15. Thêm `DiskAnalysisService` với scan async/cancel/progress.
+16. Thêm tree table, largest files, file types và treemap cho Storage Analyzer.
+17. Thêm Space Heatmap đồng bộ với Cleanup Review.
+18. Thêm `Cleanup Review` cho file/thư mục/candidate từ Storage Analyzer.
+19. Thêm presets.
+20. Mở rộng Startup Manager từ read-only sang enable/disable có backup.
+21. Thêm test cho `src/core` và các service cleanup/visualization.
+22. Cập nhật packaging/publish cho WinUI app.
+23. Thêm release workflow.
 
 ## Định nghĩa mức rủi ro
 

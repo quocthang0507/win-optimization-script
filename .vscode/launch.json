@@ -27,6 +27,26 @@
         "-Compile"
       ],
       "cwd": "${workspaceFolder}/src/cli"
+    },
+    {
+      "type": "PowerShell",
+      "request": "launch",
+      "name": "Release: Bump Version and Push Tag",
+      "script": "${workspaceFolder}/scripts/Release.ps1",
+      "args": [
+        "-Version",
+        "${input:releaseVersion}",
+        "-Push"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "releaseVersion",
+      "type": "promptString",
+      "description": "Release version, semantic format X.Y.Z",
+      "default": "0.2.1"
     }
   ]
 }

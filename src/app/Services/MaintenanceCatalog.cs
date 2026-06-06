@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
@@ -28,6 +29,12 @@ public sealed class MaintenanceCatalog
     public MaintenanceTask GetById(string id)
     {
         return All.First(task => task.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public bool TryGetById(string id, [NotNullWhen(true)] out MaintenanceTask? task)
+    {
+        task = All.FirstOrDefault(task => task.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+        return task is not null;
     }
 
     public IReadOnlyList<MaintenanceTask> ByGroup(string group)

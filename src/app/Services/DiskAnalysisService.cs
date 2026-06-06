@@ -329,8 +329,11 @@ public sealed class DiskAnalysisService
 
     private static bool ShouldSkip(FileSystemInfo info, DiskScanOptions options)
     {
-        return (!options.IncludeHidden && info.Attributes.HasFlag(FileAttributes.Hidden)) || (!options.IncludeSystem && info.Attributes.HasFlag(FileAttributes.System)) || (!options.FollowReparsePoints && info.Attributes.HasFlag(FileAttributes.ReparsePoint)) || (options.ExcludedPaths is not null && options.ExcludedPaths.Any(excluded =>
-            info.FullName.StartsWith(Path.GetFullPath(excluded), StringComparison.OrdinalIgnoreCase)));
+        return (!options.IncludeHidden && info.Attributes.HasFlag(FileAttributes.Hidden)) ||
+               (!options.IncludeSystem && info.Attributes.HasFlag(FileAttributes.System)) ||
+               (!options.FollowReparsePoints && info.Attributes.HasFlag(FileAttributes.ReparsePoint)) ||
+               (options.ExcludedPaths is not null && options.ExcludedPaths.Any(excluded =>
+                   PathSafetyService.IsPathWithinOrEqual(info.FullName, excluded)));
     }
 
     private static long SafeLength(FileInfo file)

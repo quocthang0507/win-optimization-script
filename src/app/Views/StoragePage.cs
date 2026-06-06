@@ -328,16 +328,16 @@ public sealed partial class StoragePage : BasePage
         }
 
         var chartGrid = new Grid { ColumnSpacing = 24, RowSpacing = 12 };
-        chartGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
-        chartGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        chartGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        chartGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var chartView = new Viewbox
         {
             Stretch = Stretch.Uniform,
-            MaxWidth = 360,
-            Height = 320,
+            Width = 340,
+            Height = 340,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Child = StoragePieChart(slices)
+            Child = StorageDonutChart(slices, result.TotalBytes, T("storage.total"))
         };
         chartGrid.Children.Add(chartView);
 
@@ -351,8 +351,16 @@ public sealed partial class StoragePage : BasePage
             legend.Children.Add(StorageChartLegendRow(slice));
         }
 
-        Grid.SetColumn(legend, 1);
-        chartGrid.Children.Add(legend);
+        var legendScroll = new ScrollViewer
+        {
+            Content = legend,
+            MaxHeight = 340,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+
+        Grid.SetColumn(legendScroll, 1);
+        chartGrid.Children.Add(legendScroll);
         panel.Children.Add(chartGrid);
         return panel;
     }
@@ -360,7 +368,7 @@ public sealed partial class StoragePage : BasePage
     private List<StorageChartSlice> BuildChartSlices(DiskScanResult result)
     {
         var palette = StorageChartPalette();
-        var visibleItems = MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 12)
+        var visibleItems = MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 24)
             .Where(item => item.Size > 0)
             .OrderByDescending(item => item.Size)
             .ToList();
@@ -369,8 +377,9 @@ public sealed partial class StoragePage : BasePage
             return [];
         }
 
+        var maxPrimarySlices = Math.Min(10, Math.Max(1, palette.Count - 1));
         var slices = visibleItems
-            .Take(8)
+            .Take(maxPrimarySlices)
             .Select((item, index) => new StorageChartSlice(
                 item.Name,
                 item.FullPath,
@@ -394,49 +403,103 @@ public sealed partial class StoragePage : BasePage
         return slices;
     }
 
-    private static Canvas StoragePieChart(IReadOnlyList<StorageChartSlice> slices)
+    private static Canvas StorageDonutChart(IReadOnlyList<StorageChartSlice> slices, long totalBytes, string totalLabel)
     {
-        const double size = 300;
+        const double size = 320;
         const double center = size / 2;
-        const double radius = 132;
+        const double outerRadius = 142;
+        const double innerRadius = 86;
         var canvas = new Canvas
         {
             Width = size,
             Height = size
         };
 
+        var track = new Microsoft.UI.Xaml.Shapes.Ellipse
+        {
+            Width = outerRadius * 2,
+            Height = outerRadius * 2,
+            Stroke = Brush(Color.FromArgb(24, 128, 128, 128)),
+            StrokeThickness = outerRadius - innerRadius,
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(track, center - outerRadius);
+        Canvas.SetTop(track, center - outerRadius);
+        canvas.Children.Add(track);
+
         var startAngle = -90d;
+        var consumedAngle = 0d;
+        var sliceTotal = Math.Max(1d, slices.Sum(slice => slice.Size));
         for (var index = 0; index < slices.Count; index++)
         {
             var slice = slices[index];
-            var sweepAngle = Math.Max(0.1, Math.Min(359.99, slice.Percent * 3.6));
-            var path = StoragePieSlice(center, radius, startAngle, sweepAngle, slice.Color, index);
+            var sweepAngle = index == slices.Count - 1
+                ? Math.Max(0.1, 360d - consumedAngle)
+                : Math.Max(0.4, Math.Min(359.99, slice.Size * 360d / sliceTotal));
+            sweepAngle = Math.Min(sweepAngle, 359.99);
+            var path = StorageDonutSlice(center, outerRadius, innerRadius, startAngle, sweepAngle, slice.Color, index);
             ToolTipService.SetToolTip(path, $"{slice.Name}\n{Formatters.FormatBytes(slice.Size)} ({slice.Percent:N1}%)");
             canvas.Children.Add(path);
             startAngle += sweepAngle;
+            consumedAngle += sweepAngle;
         }
+
+        var total = new TextBlock
+        {
+            Text = Formatters.FormatBytes(totalBytes),
+            Width = 150,
+            FontSize = 24,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Canvas.SetLeft(total, center - 75);
+        Canvas.SetTop(total, center - 20);
+        canvas.Children.Add(total);
+
+        var label = new TextBlock
+        {
+            Text = totalLabel,
+            Width = 150,
+            Opacity = 0.68,
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Canvas.SetLeft(label, center - 75);
+        Canvas.SetTop(label, center + 12);
+        canvas.Children.Add(label);
 
         return canvas;
     }
 
-    private static Microsoft.UI.Xaml.Shapes.Path StoragePieSlice(double center, double radius, double startAngle, double sweepAngle, Color color, int index)
+    private static Microsoft.UI.Xaml.Shapes.Path StorageDonutSlice(double center, double outerRadius, double innerRadius, double startAngle, double sweepAngle, Color color, int index)
     {
-        var start = PointOnCircle(center, radius, startAngle);
-        var end = PointOnCircle(center, radius, startAngle + sweepAngle);
+        var outerStart = PointOnCircle(center, outerRadius, startAngle);
+        var outerEnd = PointOnCircle(center, outerRadius, startAngle + sweepAngle);
+        var innerEnd = PointOnCircle(center, innerRadius, startAngle + sweepAngle);
+        var innerStart = PointOnCircle(center, innerRadius, startAngle);
         var figure = new PathFigure
         {
-            StartPoint = new Windows.Foundation.Point(center, center),
+            StartPoint = outerStart,
             IsClosed = true
         };
-        figure.Segments.Add(new LineSegment { Point = start });
         figure.Segments.Add(new ArcSegment
         {
-            Point = end,
-            Size = new Windows.Foundation.Size(radius, radius),
+            Point = outerEnd,
+            Size = new Windows.Foundation.Size(outerRadius, outerRadius),
             IsLargeArc = sweepAngle > 180,
             SweepDirection = SweepDirection.Clockwise
         });
-        figure.Segments.Add(new LineSegment { Point = new Windows.Foundation.Point(center, center) });
+        figure.Segments.Add(new LineSegment { Point = innerEnd });
+        figure.Segments.Add(new ArcSegment
+        {
+            Point = innerStart,
+            Size = new Windows.Foundation.Size(innerRadius, innerRadius),
+            IsLargeArc = sweepAngle > 180,
+            SweepDirection = SweepDirection.Counterclockwise
+        });
 
         var geometry = new PathGeometry();
         geometry.Figures.Add(figure);
@@ -453,7 +516,7 @@ public sealed partial class StoragePage : BasePage
             Data = geometry,
             Fill = Brush(color),
             Stroke = Brush(Colors.White),
-            StrokeThickness = 1,
+            StrokeThickness = 2,
             Opacity = 0,
             RenderTransform = transform
         };
@@ -469,11 +532,12 @@ public sealed partial class StoragePage : BasePage
 
     private static Grid StorageChartLegendRow(StorageChartSlice slice)
     {
-        var row = new Grid { ColumnSpacing = 10, MinHeight = 34 };
+        var row = new Grid { ColumnSpacing = 10, MinHeight = 44 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
+        ToolTipService.SetToolTip(row, slice.FullPath);
 
         var swatch = new Rectangle
         {
@@ -486,7 +550,25 @@ public sealed partial class StoragePage : BasePage
         };
         row.Children.Add(swatch);
 
-        row.Children.Add(CellText(slice.Name, 1, slice.FullPath));
+        var labelStack = new StackPanel { Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
+        labelStack.Children.Add(new TextBlock
+        {
+            Text = slice.Name,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        labelStack.Children.Add(new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = Math.Max(0, Math.Min(100, slice.Percent)),
+            Height = 6,
+            IsHitTestVisible = false,
+            Foreground = Brush(slice.Color)
+        });
+        Grid.SetColumn(labelStack, 1);
+        row.Children.Add(labelStack);
         row.Children.Add(CellText(Formatters.FormatBytes(slice.Size), 2));
         row.Children.Add(CellText($"{slice.Percent:N1}%", 3));
         return row;
@@ -526,7 +608,11 @@ public sealed partial class StoragePage : BasePage
             Colors.DarkCyan,
             Colors.Goldenrod,
             Colors.MediumOrchid,
-            Colors.CornflowerBlue
+            Colors.CornflowerBlue,
+            Colors.Teal,
+            Colors.Peru,
+            Colors.SlateBlue,
+            Colors.RosyBrown
         ];
     }
 

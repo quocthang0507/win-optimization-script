@@ -18,8 +18,8 @@
     <FileVersion>0.2.0.0</FileVersion>
     <InformationalVersion>0.2.0+winui-storage-localization</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <PackageProjectUrl>https://github.com/quoct/win-optimization-script</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/quoct/win-optimization-script</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/quocthang0507/win-optimization-script</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/quocthang0507/win-optimization-script</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <NeutralLanguage>en-US</NeutralLanguage>
     <UseWinUI>true</UseWinUI>

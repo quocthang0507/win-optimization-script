@@ -140,6 +140,116 @@ Hoặc chạy file EXE trực tiếp nếu đã build:
 - **Điểm khôi phục (Restore Point)**: Đối với các tác vụ có mức rủi ro `High` (như xóa Event Logs hoặc Windows.old), hệ thống sẽ tạo một điểm khôi phục (System Restore Point) trước khi chạy.
 - **Báo cáo**: Lịch sử dọn dẹp được ghi lại đầy đủ tại thư mục `logs/` giúp bạn có thể theo dõi và đối chiếu khi cần thiết.
 
+## Release and update workflow
+
+- The WinUI app checks GitHub Releases on startup through `https://api.github.com/repos/quocthang0507/win-optimization-script/releases/latest`.
+- A newer release opens an in-app dialog with the Windows ZIP asset or the GitHub release page.
+- Push a tag named `vX.Y.Z` to trigger `.github/workflows/release-windows.yml`.
+- The release workflow runs tests, publishes a self-contained `win-x64` build, creates a ZIP, writes a SHA256 checksum, and creates or updates the GitHub release.
+- VS Code launch configuration `Release: Bump Version and Push Tag` runs `scripts/Release.ps1`, which updates project version metadata, runs tests, publishes locally, commits, tags, and pushes the tag.
+- The local release script requires a clean working tree before changing version metadata.
+
+### Full publish steps
+
+1. Review the working tree.
+
+```powershell
+git status --short
+```
+
+Commit or stash unrelated changes first. The release script intentionally stops when the working tree is dirty.
+
+2. Run tests and build before preparing a release.
+
+```powershell
+dotnet test .\src\tests\WinOptimizationApp.Tests\WinOptimizationApp.Tests.csproj
+dotnet build .\src\app\WinOptimizationApp.csproj
+```
+
+3. Choose the next semantic version.
+
+Use `X.Y.Z` without the `v` prefix for the script. Examples:
+
+- Patch: `0.2.1`
+- Minor: `0.3.0`
+- Major: `1.0.0`
+
+4. Create the release commit and tag locally.
+
+```powershell
+.\scripts\Release.ps1 -Version 0.2.1
+```
+
+This updates `src/app/WinOptimizationApp.csproj`, runs tests, publishes locally, creates commit `Release v0.2.1`, and creates tag `v0.2.1`.
+
+5. Push the release commit and tag.
+
+```powershell
+git push origin HEAD
+git push origin v0.2.1
+```
+
+Or do steps 4 and 5 together:
+
+```powershell
+.\scripts\Release.ps1 -Version 0.2.1 -Push
+```
+
+6. Wait for GitHub Actions.
+
+Open:
+
+```text
+https://github.com/quocthang0507/win-optimization-script/actions
+```
+
+Workflow `Release Windows App` should complete successfully.
+
+7. Verify the GitHub Release.
+
+Open:
+
+```text
+https://github.com/quocthang0507/win-optimization-script/releases
+```
+
+Confirm the release contains:
+
+- `WinOptimizationApp-vX.Y.Z-win-x64.zip`
+- `WinOptimizationApp-vX.Y.Z-win-x64.zip.sha256`
+
+8. Verify checksum locally after downloading the ZIP.
+
+```powershell
+Get-FileHash .\WinOptimizationApp-v0.2.1-win-x64.zip -Algorithm SHA256
+Get-Content .\WinOptimizationApp-v0.2.1-win-x64.zip.sha256
+```
+
+The hash values must match.
+
+9. Verify app update detection.
+
+Run an older app version. On startup, the app checks the latest GitHub Release and shows an update dialog when the release tag is newer than the current `InformationalVersion`.
+
+10. Publish manually only when needed.
+
+Manual publish without creating a GitHub Release:
+
+```powershell
+dotnet publish .\src\app\WinOptimizationApp.csproj --configuration Release --runtime win-x64 --self-contained true
+```
+
+The output is written under:
+
+```text
+src/app/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish/
+```
+
+### VS Code publish shortcuts
+
+- `Run and Debug` -> `Release: Bump Version and Push Tag`: prompts for `X.Y.Z`, then runs the full release script with `-Push`.
+- `Tasks: Run Task` -> `publish WinUI app release`: publishes a local Release build without tagging or pushing.
+
 ## Roadmap & Kế hoạch
 
 Chi tiết kế hoạch triển khai và tiến trình hiện tại có thể xem tại [docs/implementation_plan.md](docs/implementation_plan.md).

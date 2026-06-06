@@ -14,6 +14,7 @@ public sealed class IpcServer
     private readonly ReportService _reports;
     private readonly StartupService _startup;
     private readonly WingetService _winget;
+    private readonly MaintenanceCatalog _catalog = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _listenTask;
 
@@ -143,18 +144,12 @@ public sealed class IpcServer
                         {
                             return new IpcMessage("Error", "Invalid payload");
                         }
-                        var dummyTask = new MaintenanceTask(
-                            payload.TaskId,
-                            "Cleanup",
-                            "",
-                            "",
-                            RiskLevel.Safe,
-                            false,
-                            false,
-                            true,
-                            false,
-                            "");
-                        var preview = await _cleanup.PreviewAsync(dummyTask);
+                        if (!_catalog.TryGetById(payload.TaskId, out var task))
+                        {
+                            return new IpcMessage("Error", $"Unknown task: {payload.TaskId}");
+                        }
+
+                        var preview = await _cleanup.PreviewAsync(task);
                         var json = JsonSerializer.Serialize(preview);
                         return new IpcMessage("Response", json);
                     }
@@ -166,17 +161,10 @@ public sealed class IpcServer
                         {
                             return new IpcMessage("Error", "Invalid payload");
                         }
-                        var taskObj = new MaintenanceTask(
-                            payload.TaskId,
-                            payload.TaskGroup,
-                            payload.TaskLabel,
-                            "",
-                            RiskLevel.Safe,
-                            false,
-                            false,
-                            false,
-                            payload.CanRollback,
-                            "");
+                        if (!_catalog.TryGetById(payload.TaskId, out var taskObj))
+                        {
+                            return new IpcMessage("Error", $"Unknown task: {payload.TaskId}");
+                        }
 
                         var result = await _execution.RunAsync(taskObj);
                         var json = JsonSerializer.Serialize(result);
@@ -216,15 +204,19 @@ public sealed class IpcServer
                         }
                         try
                         {
-                            var logFile = Path.ChangeExtension(payload.ReportPath, ".log");
-                            if (File.Exists(payload.ReportPath))
+                            if (!ReportService.TryResolveReportDeleteTargets(_reports.LogsDirectory, payload.ReportPath, out var targets))
                             {
-                                File.Delete(payload.ReportPath);
+                                return new IpcMessage("Error", "Report path is outside the logs directory or is not a maintenance report.");
                             }
-                            if (File.Exists(logFile))
+
+                            foreach (var target in targets)
                             {
-                                File.Delete(logFile);
+                                if (File.Exists(target))
+                                {
+                                    File.Delete(target);
+                                }
                             }
+
                             return new IpcMessage("Response", "Success");
                         }
                         catch (Exception ex)

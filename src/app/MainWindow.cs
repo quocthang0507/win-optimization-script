@@ -19,6 +19,7 @@ public sealed class MainWindow : Window
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
+    private bool _updateCheckStarted;
 
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
     private string _currentPageTag = "dashboard";
@@ -32,6 +33,7 @@ public sealed class MainWindow : Window
     internal CleanupService Cleanup { get; }
     internal SystemStatusService Status { get; }
     internal WingetService Winget { get; }
+    internal GitHubUpdateService Updates { get; } = new();
     internal StartupService Startup { get; } = new();
     internal LocalizationService Localization { get; }
     internal MaintenanceExecutionService Execution { get; }
@@ -170,6 +172,81 @@ public sealed class MainWindow : Window
 
         Content = rootGrid;
         Navigation_Internal.SelectedItem = Navigation_Internal.MenuItems[0];
+        Activated += async (_, _) => await CheckForUpdatesOnceAsync();
+    }
+
+    private async Task CheckForUpdatesOnceAsync()
+    {
+        if (_updateCheckStarted)
+        {
+            return;
+        }
+
+        _updateCheckStarted = true;
+        try
+        {
+            SetStatus(T("update.checking"));
+            var update = await Updates.CheckLatestReleaseAsync();
+            if (update is null)
+            {
+                SetStatus(T("common.ready"));
+                return;
+            }
+
+            if (!update.IsUpdateAvailable)
+            {
+                SetStatus(T("update.latest"));
+                return;
+            }
+
+            SetStatus(F("update.availableStatus", update.TagName));
+            await ShowUpdateDialogAsync(update);
+            SetStatus(T("common.ready"));
+        }
+        catch
+        {
+            SetStatus(T("common.ready"));
+        }
+    }
+
+    private async Task ShowUpdateDialogAsync(AppUpdateInfo update)
+    {
+        var panel = new StackPanel { Spacing = 8, MaxWidth = 680 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = F("update.availableBody", update.LatestVersion, update.CurrentVersion),
+            TextWrapping = TextWrapping.Wrap
+        });
+        if (!string.IsNullOrWhiteSpace(update.AssetName))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = update.AssetName,
+                Opacity = 0.72,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = F("update.availableTitle", update.TagName),
+            Content = panel,
+            PrimaryButtonText = string.IsNullOrWhiteSpace(update.AssetUrl) ? T("update.openRelease") : T("update.download"),
+            SecondaryButtonText = string.IsNullOrWhiteSpace(update.AssetUrl) ? string.Empty : T("update.openRelease"),
+            CloseButtonText = T("common.close"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Navigation_Internal.XamlRoot
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            OpenUrl(string.IsNullOrWhiteSpace(update.AssetUrl) ? update.ReleaseUrl : update.AssetUrl);
+        }
+        else if (result == ContentDialogResult.Secondary)
+        {
+            OpenUrl(update.ReleaseUrl);
+        }
     }
 
     internal async Task NavigateToTagAsync(string tag)
@@ -546,6 +623,7 @@ public sealed class MainWindow : Window
         var isBusy = !string.IsNullOrEmpty(text)
             && text != T("common.ready")
             && text != T("settings.saved")
+            && text != T("update.latest")
             && !text.Contains(T("run.completed"))
             && !text.Contains(T("storage.scanCanceled"))
             && !text.Contains("Canceled")
@@ -563,7 +641,7 @@ public sealed class MainWindow : Window
         }
 
         // Ready, Saved, Completed (e.g. Sẵn sàng, Đã lưu cài đặt, Đã hoàn tất)
-        if (text == T("common.ready") || text == T("settings.saved") || text.Contains(T("run.completed")))
+        if (text == T("common.ready") || text == T("settings.saved") || text == T("update.latest") || text.Contains(T("run.completed")))
         {
             return new SolidColorBrush(Colors.MediumSeaGreen);
         }
@@ -743,5 +821,14 @@ public sealed class MainWindow : Window
         }
 
         Process.Start(new ProcessStartInfo { FileName = dirPath, UseShellExecute = true });
+    }
+
+    private static void OpenUrl(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+        {
+            Process.Start(new ProcessStartInfo { FileName = uri.AbsoluteUri, UseShellExecute = true });
+        }
     }
 }

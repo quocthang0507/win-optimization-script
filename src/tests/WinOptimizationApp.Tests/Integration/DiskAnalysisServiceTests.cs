@@ -90,6 +90,24 @@ public sealed class DiskAnalysisServiceTests
     }
 
     [Fact]
+    public async Task ScanAsync_DoesNotExcludeSiblingPathWhenExcludedPathSharesPrefix()
+    {
+        using var fixture = TempDirectory.Create();
+        var excluded = Directory.CreateDirectory(Path.Combine(fixture.Path, "cache"));
+        var sibling = Directory.CreateDirectory(Path.Combine(fixture.Path, "cache-backup"));
+        await File.WriteAllBytesAsync(Path.Combine(excluded.FullName, "excluded.bin"), new byte[100]);
+        await File.WriteAllBytesAsync(Path.Combine(sibling.FullName, "included.bin"), new byte[200]);
+
+        var result = await new DiskAnalysisService().ScanAsync(new DiskScanOptions(
+            fixture.Path,
+            ExcludedPaths: [excluded.FullName]));
+
+        Assert.Equal(200, result.TotalBytes);
+        Assert.Contains(result.Root.Children, item => item.Name == "cache-backup" && item.Size == 200);
+        Assert.Contains(result.Root.Children, item => item.Name == "cache" && item.ScanStatus == "Skipped");
+    }
+
+    [Fact]
     public async Task ScanAsync_WhenCanceled_ReturnsPartialResultAndReportsSnapshots()
     {
         using var fixture = TempDirectory.Create();

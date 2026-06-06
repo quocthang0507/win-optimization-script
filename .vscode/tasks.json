@@ -26,6 +26,22 @@
       ],
       "problemMatcher": "$msCompile",
       "dependsOn": "build WinUI app"
+    },
+    {
+      "label": "publish WinUI app release",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "${workspaceFolder}/src/app/WinOptimizationApp.csproj",
+        "--configuration",
+        "Release",
+        "--runtime",
+        "win-x64",
+        "--self-contained",
+        "true"
+      ],
+      "problemMatcher": "$msCompile"
     }
   ]
 }
