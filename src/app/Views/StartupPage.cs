@@ -5,6 +5,13 @@ namespace WinOptimizationApp.Views;
 public sealed partial class StartupPage : BasePage
 {
     private StackPanel? _resultPanel;
+    private TextBox? _searchBox;
+    private ComboBox? _statusFilterBox;
+    private ComboBox? _impactFilterBox;
+    private ComboBox? _sourceFilterBox;
+    private ComboBox? _sortBox;
+    private CheckBox? _actionableOnlyBox;
+    private List<StartupEntry> _startupEntries = [];
 
     public StartupPage(MainWindow mainWindow) : base(mainWindow)
     {
@@ -22,8 +29,131 @@ public sealed partial class StartupPage : BasePage
         });
 
         MainContent.Children.Add(scanButton);
+        MainContent.Children.Add(StartupOptionsPanel());
         MainContent.Children.Add(InfoBlock(T("startup.previewOnly")));
         MainContent.Children.Add(_resultPanel);
+    }
+
+    private StackPanel StartupOptionsPanel()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+
+        var searchRow = new Grid { ColumnSpacing = 10 };
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition());
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        _searchBox = new TextBox
+        {
+            PlaceholderText = T("startup.searchPlaceholder"),
+            Height = 36
+        };
+        _searchBox.TextChanged += (_, _) => RenderStartupEntries();
+        searchRow.Children.Add(_searchBox);
+
+        var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetStartupFilters());
+        Grid.SetColumn(resetButton, 1);
+        searchRow.Children.Add(resetButton);
+        panel.Children.Add(searchRow);
+
+        var filterRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+
+        _statusFilterBox = FilterBox(T("startup.statusFilter"), 148,
+        [
+            T("startup.allStatuses"),
+            T("startup.enabled"),
+            T("startup.disabled")
+        ]);
+        _impactFilterBox = FilterBox(T("startup.impactFilter"), 150,
+        [
+            T("startup.allImpacts"),
+            T("startup.highImpact"),
+            T("startup.mediumImpact"),
+            T("startup.lowImpact")
+        ]);
+        _sourceFilterBox = FilterBox(T("startup.sourceFilter"), 180,
+        [
+            T("startup.allSources"),
+            T("startup.userSource"),
+            T("startup.machineSource"),
+            T("startup.startupFolderSource")
+        ]);
+        _sortBox = FilterBox(T("startup.sort"), 180,
+        [
+            T("startup.sortImpact"),
+            T("startup.sortName"),
+            T("startup.sortSource"),
+            T("startup.sortStatus")
+        ]);
+
+        _actionableOnlyBox = new CheckBox
+        {
+            Content = T("startup.actionableOnly"),
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        _actionableOnlyBox.Checked += (_, _) => RenderStartupEntries();
+        _actionableOnlyBox.Unchecked += (_, _) => RenderStartupEntries();
+
+        filterRow.Children.Add(_statusFilterBox);
+        filterRow.Children.Add(_impactFilterBox);
+        filterRow.Children.Add(_sourceFilterBox);
+        filterRow.Children.Add(_sortBox);
+        filterRow.Children.Add(_actionableOnlyBox);
+        panel.Children.Add(filterRow);
+
+        return panel;
+    }
+
+    private ComboBox FilterBox(string header, double minWidth, IReadOnlyList<string> items)
+    {
+        var box = new ComboBox
+        {
+            Header = header,
+            MinWidth = minWidth
+        };
+
+        foreach (var item in items)
+        {
+            box.Items.Add(item);
+        }
+
+        box.SelectedIndex = 0;
+        box.SelectionChanged += (_, _) => RenderStartupEntries();
+        return box;
+    }
+
+    private void ResetStartupFilters()
+    {
+        if (_searchBox is not null)
+        {
+            _searchBox.Text = string.Empty;
+        }
+
+        if (_statusFilterBox is not null)
+        {
+            _statusFilterBox.SelectedIndex = 0;
+        }
+
+        if (_impactFilterBox is not null)
+        {
+            _impactFilterBox.SelectedIndex = 0;
+        }
+
+        if (_sourceFilterBox is not null)
+        {
+            _sourceFilterBox.SelectedIndex = 0;
+        }
+
+        if (_sortBox is not null)
+        {
+            _sortBox.SelectedIndex = 0;
+        }
+
+        if (_actionableOnlyBox is not null)
+        {
+            _actionableOnlyBox.IsChecked = false;
+        }
+
+        RenderStartupEntries();
     }
 
     private async Task RefreshListAsync()
@@ -36,13 +166,142 @@ public sealed partial class StartupPage : BasePage
         MainWindow.SetStatusText(T("startup.scanning"));
         _resultPanel.Children.Clear();
         var entries = await MainWindow.Startup.ScanAsync();
-        _resultPanel.Children.Add(SectionTitle(F("startup.entries", entries.Count)));
+        _startupEntries = entries.ToList();
+        RenderStartupEntries();
+        MainWindow.SetStatusText(T("common.ready"));
+    }
+
+    private void RenderStartupEntries()
+    {
+        if (_resultPanel == null)
+        {
+            return;
+        }
+
+        _resultPanel.Children.Clear();
+        var entries = SortStartupEntries(FilterStartupEntries(_startupEntries)).ToList();
+        _resultPanel.Children.Add(SectionTitle(F("startup.entriesFiltered", entries.Count, _startupEntries.Count)));
         _resultPanel.Children.Add(StartupSummary(entries));
+
+        if (entries.Count == 0)
+        {
+            _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
+            return;
+        }
+
         foreach (var entry in entries)
         {
             _resultPanel.Children.Add(StartupRow(entry));
         }
-        MainWindow.SetStatusText(T("common.ready"));
+    }
+
+    private IEnumerable<StartupEntry> FilterStartupEntries(IEnumerable<StartupEntry> entries)
+    {
+        var query = _searchBox?.Text?.Trim() ?? string.Empty;
+        var statusIndex = _statusFilterBox?.SelectedIndex ?? 0;
+        var impactIndex = _impactFilterBox?.SelectedIndex ?? 0;
+        var sourceIndex = _sourceFilterBox?.SelectedIndex ?? 0;
+        var actionableOnly = _actionableOnlyBox?.IsChecked == true;
+
+        foreach (var entry in entries)
+        {
+            if (!MatchesStartupQuery(entry, query))
+            {
+                continue;
+            }
+
+            if (statusIndex == 1 && !entry.Enabled)
+            {
+                continue;
+            }
+
+            if (statusIndex == 2 && entry.Enabled)
+            {
+                continue;
+            }
+
+            if (impactIndex == 1 && entry.Impact != StartupImpactLevel.High)
+            {
+                continue;
+            }
+
+            if (impactIndex == 2 && entry.Impact != StartupImpactLevel.Medium)
+            {
+                continue;
+            }
+
+            if (impactIndex == 3 && entry.Impact != StartupImpactLevel.Low)
+            {
+                continue;
+            }
+
+            if (sourceIndex == 1 && !IsUserStartupSource(entry.Source))
+            {
+                continue;
+            }
+
+            if (sourceIndex == 2 && !IsMachineStartupSource(entry.Source))
+            {
+                continue;
+            }
+
+            if (sourceIndex == 3 && !entry.Source.Contains("Startup folder", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (actionableOnly && !CanToggleStartupEntry(entry))
+            {
+                continue;
+            }
+
+            yield return entry;
+        }
+    }
+
+    private IEnumerable<StartupEntry> SortStartupEntries(IEnumerable<StartupEntry> entries)
+    {
+        return (_sortBox?.SelectedIndex ?? 0) switch
+        {
+            1 => entries.OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase),
+            2 => entries
+                .OrderBy(entry => entry.Source, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase),
+            3 => entries
+                .OrderByDescending(entry => entry.Enabled)
+                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase),
+            _ => entries
+                .OrderByDescending(entry => entry.Impact)
+                .ThenByDescending(entry => entry.Enabled)
+                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
+        };
+    }
+
+    private static bool MatchesStartupQuery(StartupEntry entry, string query)
+    {
+        return string.IsNullOrWhiteSpace(query)
+            || entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || entry.Source.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || entry.Command.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || entry.RiskHint.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || entry.Recommendation.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUserStartupSource(string source)
+    {
+        return source.Contains("HKCU", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("User Startup", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsMachineStartupSource(string source)
+    {
+        return source.Contains("HKLM", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("Common Startup", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanToggleStartupEntry(StartupEntry entry)
+    {
+        return entry.Enabled ? entry.CanDisable : entry.CanRollback;
     }
 
     private Border StartupRow(StartupEntry entry)
@@ -101,7 +360,7 @@ public sealed partial class StartupPage : BasePage
         {
             Content = entry.Enabled ? T("startup.disable") : T("startup.enable"),
             MinWidth = 86,
-            IsEnabled = entry.CanDisable
+            IsEnabled = CanToggleStartupEntry(entry)
         };
 
         toggleBtn.Click += async (_, _) =>

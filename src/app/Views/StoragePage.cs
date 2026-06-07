@@ -18,6 +18,9 @@ public sealed partial class StoragePage : BasePage
     private Button? _storageScanButton;
     private Button? _storageStopButton;
     private Border? _storageProgressCard;
+    private TextBox? _diskItemSearchBox;
+    private ComboBox? _diskItemTypeFilterBox;
+    private ComboBox? _diskItemSizeFilterBox;
     private DiskItemSortColumn _diskItemSortColumn = DiskItemSortColumn.Size;
     private bool _diskItemSortAscending;
     private DateTimeOffset _lastPartialRenderAt = DateTimeOffset.MinValue;
@@ -153,10 +156,95 @@ public sealed partial class StoragePage : BasePage
 
         MainContent.Children.Add(commandGrid);
         MainContent.Children.Add(CloudSourcesPanel(CloudStorageDetector.Detect()));
+        MainContent.Children.Add(StorageResultFilterPanel());
         MainContent.Children.Add(_storageProgressCard);
         MainContent.Children.Add(_storageResultPanel);
 
         if (_lastDiskScan is not null)
+        {
+            RenderStorageResults(_storageResultPanel, _lastDiskScan);
+        }
+    }
+
+    private StackPanel StorageResultFilterPanel()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(SectionTitle(T("storage.resultFilters")));
+
+        var grid = new Grid { ColumnSpacing = 10 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        _diskItemSearchBox = new TextBox
+        {
+            PlaceholderText = T("storage.searchPlaceholder"),
+            Height = 36,
+            MinWidth = 300
+        };
+        _diskItemSearchBox.TextChanged += (_, _) => RenderLastStorageResults();
+        Grid.SetColumn(_diskItemSearchBox, 0);
+        grid.Children.Add(_diskItemSearchBox);
+
+        _diskItemTypeFilterBox = new ComboBox
+        {
+            Header = T("storage.itemType"),
+            MinWidth = 150
+        };
+        _diskItemTypeFilterBox.Items.Add(T("storage.allItems"));
+        _diskItemTypeFilterBox.Items.Add(T("storage.foldersOnly"));
+        _diskItemTypeFilterBox.Items.Add(T("storage.filesOnly"));
+        _diskItemTypeFilterBox.SelectedIndex = 0;
+        _diskItemTypeFilterBox.SelectionChanged += (_, _) => RenderLastStorageResults();
+        Grid.SetColumn(_diskItemTypeFilterBox, 1);
+        grid.Children.Add(_diskItemTypeFilterBox);
+
+        _diskItemSizeFilterBox = new ComboBox
+        {
+            Header = T("storage.minSize"),
+            MinWidth = 150
+        };
+        _diskItemSizeFilterBox.Items.Add(T("storage.minSizeAll"));
+        _diskItemSizeFilterBox.Items.Add(T("storage.minSize1Mb"));
+        _diskItemSizeFilterBox.Items.Add(T("storage.minSize100Mb"));
+        _diskItemSizeFilterBox.Items.Add(T("storage.minSize1Gb"));
+        _diskItemSizeFilterBox.SelectedIndex = 0;
+        _diskItemSizeFilterBox.SelectionChanged += (_, _) => RenderLastStorageResults();
+        Grid.SetColumn(_diskItemSizeFilterBox, 2);
+        grid.Children.Add(_diskItemSizeFilterBox);
+
+        var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetStorageResultFilters());
+        Grid.SetColumn(resetButton, 3);
+        grid.Children.Add(resetButton);
+
+        panel.Children.Add(grid);
+        return panel;
+    }
+
+    private void ResetStorageResultFilters()
+    {
+        if (_diskItemSearchBox is not null)
+        {
+            _diskItemSearchBox.Text = string.Empty;
+        }
+
+        if (_diskItemTypeFilterBox is not null)
+        {
+            _diskItemTypeFilterBox.SelectedIndex = 0;
+        }
+
+        if (_diskItemSizeFilterBox is not null)
+        {
+            _diskItemSizeFilterBox.SelectedIndex = 0;
+        }
+
+        RenderLastStorageResults();
+    }
+
+    private void RenderLastStorageResults()
+    {
+        if (_lastDiskScan is not null && _storageResultPanel is not null)
         {
             RenderStorageResults(_storageResultPanel, _lastDiskScan);
         }
@@ -706,11 +794,22 @@ public sealed partial class StoragePage : BasePage
             panel.Children.Add(candidatePanel);
         }
 
-        panel.Children.Add(SectionTitle(T("storage.folderTree")));
+        var diskItems = MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 400);
+        var filteredDiskItems = FilterDiskItems(diskItems).ToList();
+        panel.Children.Add(SectionTitle(F("storage.folderTreeCount", filteredDiskItems.Count, diskItems.Count)));
         panel.Children.Add(StorageDiskItemHeaderRow());
-        foreach (var item in SortDiskItems(MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 160), result.Root))
+        foreach (var item in SortDiskItems(filteredDiskItems, result.Root).Take(160))
         {
             panel.Children.Add(StorageDiskItemRow(item, result.Root));
+        }
+
+        if (filteredDiskItems.Count == 0)
+        {
+            panel.Children.Add(InfoBlock(T("common.noMatches")));
+        }
+        else if (filteredDiskItems.Count > 160)
+        {
+            panel.Children.Add(new TextBlock { Text = F("preview.moreTargets", filteredDiskItems.Count - 160), Opacity = 0.65, Margin = new Thickness(0, 6, 0, 0) });
         }
 
         panel.Children.Add(SectionTitle(T("storage.fileTypes")));
@@ -788,6 +887,43 @@ public sealed partial class StoragePage : BasePage
 
         Grid.SetColumn(button, gridColumn);
         return button;
+    }
+
+    private IEnumerable<DiskItem> FilterDiskItems(IEnumerable<DiskItem> items)
+    {
+        var query = _diskItemSearchBox?.Text?.Trim() ?? string.Empty;
+        var typeIndex = _diskItemTypeFilterBox?.SelectedIndex ?? 0;
+        var minimumSize = (_diskItemSizeFilterBox?.SelectedIndex ?? 0) switch
+        {
+            1 => 1024L * 1024L,
+            2 => 100L * 1024L * 1024L,
+            3 => 1024L * 1024L * 1024L,
+            _ => 0L
+        };
+
+        return items.Where(item =>
+            MatchesDiskItemQuery(item, query)
+            && MatchesDiskItemType(item, typeIndex)
+            && item.Size >= minimumSize);
+    }
+
+    private static bool MatchesDiskItemQuery(DiskItem item, string query)
+    {
+        return string.IsNullOrWhiteSpace(query)
+            || item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.FullPath.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.Extension.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.ScanStatus.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesDiskItemType(DiskItem item, int typeIndex)
+    {
+        return typeIndex switch
+        {
+            1 => item.IsDirectory,
+            2 => !item.IsDirectory,
+            _ => true
+        };
     }
 
     private IEnumerable<DiskItem> SortDiskItems(IReadOnlyList<DiskItem> items, DiskItem root)

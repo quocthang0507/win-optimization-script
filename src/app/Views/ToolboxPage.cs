@@ -24,6 +24,9 @@ public sealed partial class ToolboxPage : BasePage
     private StackPanel? _appsPanel;
     private Button? _appsScanBtn;
     private TextBox? _searchBox;
+    private ComboBox? _appsSourceFilterBox;
+    private ComboBox? _appsSortBox;
+    private CheckBox? _appsWithLocationOnlyBox;
     private List<InstalledApp> _installedApps = [];
 
     public ToolboxPage(MainWindow mainWindow) : base(mainWindow)
@@ -148,9 +151,11 @@ public sealed partial class ToolboxPage : BasePage
     private ScrollViewer CreateUninstallerLayout()
     {
         var panel = new StackPanel { Spacing = 12, Padding = new Thickness(0, 12, 0, 12) };
+        var controls = new StackPanel { Spacing = 10 };
 
         var searchGrid = new Grid { ColumnSpacing = 12 };
         searchGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        searchGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         searchGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         _searchBox = new TextBox
@@ -162,11 +167,54 @@ public sealed partial class ToolboxPage : BasePage
         Grid.SetColumn(_searchBox, 0);
         searchGrid.Children.Add(_searchBox);
 
+        var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetAppFilters());
+        Grid.SetColumn(resetButton, 1);
+        searchGrid.Children.Add(resetButton);
+
         _appsScanBtn = ActionButton(T("uninstaller.scan"), Symbol.Find, async (_, _) => await ScanAppsAsync());
-        Grid.SetColumn(_appsScanBtn, 1);
+        Grid.SetColumn(_appsScanBtn, 2);
         searchGrid.Children.Add(_appsScanBtn);
 
-        panel.Children.Add(searchGrid);
+        controls.Children.Add(searchGrid);
+
+        var filterRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+
+        _appsSourceFilterBox = new ComboBox
+        {
+            Header = T("uninstaller.sourceFilter"),
+            MinWidth = 160
+        };
+        _appsSourceFilterBox.Items.Add(T("uninstaller.allSources"));
+        _appsSourceFilterBox.Items.Add(T("uninstaller.registrySource"));
+        _appsSourceFilterBox.Items.Add(T("uninstaller.wingetSource"));
+        _appsSourceFilterBox.SelectedIndex = 0;
+        _appsSourceFilterBox.SelectionChanged += (_, _) => FilterAppsList();
+        filterRow.Children.Add(_appsSourceFilterBox);
+
+        _appsSortBox = new ComboBox
+        {
+            Header = T("uninstaller.sort"),
+            MinWidth = 180
+        };
+        _appsSortBox.Items.Add(T("uninstaller.sortName"));
+        _appsSortBox.Items.Add(T("uninstaller.sortPublisher"));
+        _appsSortBox.Items.Add(T("uninstaller.sortSource"));
+        _appsSortBox.Items.Add(T("uninstaller.sortLocation"));
+        _appsSortBox.SelectedIndex = 0;
+        _appsSortBox.SelectionChanged += (_, _) => FilterAppsList();
+        filterRow.Children.Add(_appsSortBox);
+
+        _appsWithLocationOnlyBox = new CheckBox
+        {
+            Content = T("uninstaller.withLocationOnly"),
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        _appsWithLocationOnlyBox.Checked += (_, _) => FilterAppsList();
+        _appsWithLocationOnlyBox.Unchecked += (_, _) => FilterAppsList();
+        filterRow.Children.Add(_appsWithLocationOnlyBox);
+
+        controls.Children.Add(filterRow);
+        panel.Children.Add(controls);
 
         _appsPanel = new StackPanel { Spacing = 8 };
         panel.Children.Add(_appsPanel);
@@ -177,6 +225,31 @@ public sealed partial class ToolboxPage : BasePage
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
+    }
+
+    private void ResetAppFilters()
+    {
+        if (_searchBox is not null)
+        {
+            _searchBox.Text = string.Empty;
+        }
+
+        if (_appsSourceFilterBox is not null)
+        {
+            _appsSourceFilterBox.SelectedIndex = 0;
+        }
+
+        if (_appsSortBox is not null)
+        {
+            _appsSortBox.SelectedIndex = 0;
+        }
+
+        if (_appsWithLocationOnlyBox is not null)
+        {
+            _appsWithLocationOnlyBox.IsChecked = false;
+        }
+
+        FilterAppsList();
     }
 
     #endregion
@@ -532,14 +605,15 @@ public sealed partial class ToolboxPage : BasePage
 
         _appsPanel.Children.Clear();
 
-        var query = _searchBox?.Text?.Trim() ?? string.Empty;
-        var filtered = _installedApps.Where(app =>
-            string.IsNullOrEmpty(query) ||
-            app.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-            app.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase)
-        ).ToList();
+        var filtered = SortInstalledApps(FilterInstalledApps(_installedApps)).ToList();
 
-        _appsPanel.Children.Add(SectionTitle(F("uninstaller.appsCount", filtered.Count)));
+        _appsPanel.Children.Add(SectionTitle(F("uninstaller.appsCountFiltered", filtered.Count, _installedApps.Count)));
+
+        if (filtered.Count == 0)
+        {
+            _appsPanel.Children.Add(InfoBlock(T("common.noMatches")));
+            return;
+        }
 
         foreach (var app in filtered.Take(150)) // Limit display to 150 items for UI performance
         {
@@ -550,6 +624,66 @@ public sealed partial class ToolboxPage : BasePage
         {
             _appsPanel.Children.Add(new TextBlock { Text = F("preview.moreTargets", filtered.Count - 150), Opacity = 0.65, Margin = new Thickness(0, 6, 0, 0) });
         }
+    }
+
+    private IEnumerable<InstalledApp> FilterInstalledApps(IEnumerable<InstalledApp> apps)
+    {
+        var query = _searchBox?.Text?.Trim() ?? string.Empty;
+        var sourceIndex = _appsSourceFilterBox?.SelectedIndex ?? 0;
+        var withLocationOnly = _appsWithLocationOnlyBox?.IsChecked == true;
+
+        foreach (var app in apps)
+        {
+            if (!MatchesInstalledAppQuery(app, query))
+            {
+                continue;
+            }
+
+            if (sourceIndex == 1 && !app.Source.Equals("Registry", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (sourceIndex == 2 && !app.Source.Equals("Winget", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (withLocationOnly && string.IsNullOrWhiteSpace(app.InstallLocation))
+            {
+                continue;
+            }
+
+            yield return app;
+        }
+    }
+
+    private IEnumerable<InstalledApp> SortInstalledApps(IEnumerable<InstalledApp> apps)
+    {
+        return (_appsSortBox?.SelectedIndex ?? 0) switch
+        {
+            1 => apps
+                .OrderBy(app => app.Publisher, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase),
+            2 => apps
+                .OrderBy(app => app.Source, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase),
+            3 => apps
+                .OrderBy(app => string.IsNullOrWhiteSpace(app.InstallLocation))
+                .ThenBy(app => app.InstallLocation, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase),
+            _ => apps.OrderBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase)
+        };
+    }
+
+    private static bool MatchesInstalledAppQuery(InstalledApp app, string query)
+    {
+        return string.IsNullOrWhiteSpace(query)
+            || app.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || app.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || app.Version.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || app.Source.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || app.InstallLocation.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
 
     private Border CreateAppRow(InstalledApp app)
