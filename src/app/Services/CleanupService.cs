@@ -344,25 +344,44 @@ public sealed class CleanupService(CommandRunner commands)
             return (0, 0);
         }
 
-        foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+        List<string> files;
+        List<string> dirs;
+        try
+        {
+            files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToList();
+            dirs = Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories)
+                .OrderByDescending(d => d.Length)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"{path}: {ex.Message}");
+            return (0, 1);
+        }
+
+        foreach (var file in files)
         {
             try
             {
-                if (Directory.Exists(entry))
-                {
-                    Directory.Delete(entry, true);
-                }
-                else
-                {
-                    File.Delete(entry);
-                }
-
+                File.Delete(file);
                 removed++;
             }
             catch (Exception ex)
             {
                 skipped++;
-                errors.Add($"{entry}: {ex.Message}");
+                errors.Add($"{file}: {ex.Message}");
+            }
+        }
+
+        foreach (var dir in dirs)
+        {
+            try
+            {
+                Directory.Delete(dir, false);
+            }
+            catch
+            {
+                // Directory not empty due to skipped files, or access denied.
             }
         }
 
@@ -409,9 +428,21 @@ public sealed class CleanupService(CommandRunner commands)
 
     private static (string FileName, string Arguments) SplitCommand(string command)
     {
-        var firstSpace = command.IndexOf(' ', StringComparison.Ordinal);
+        var trimmed = command.Trim();
+        if (trimmed.StartsWith('"'))
+        {
+            var nextQuote = trimmed.IndexOf('"', 1);
+            if (nextQuote > 0)
+            {
+                var exe = trimmed.Substring(1, nextQuote - 1);
+                var args = trimmed.Substring(nextQuote + 1).Trim();
+                return (exe, args);
+            }
+        }
+
+        var firstSpace = trimmed.IndexOf(' ', StringComparison.Ordinal);
         return firstSpace < 0
-            ? (command, string.Empty)
-            : (command[..firstSpace], command[(firstSpace + 1)..]);
+            ? (trimmed, string.Empty)
+            : (trimmed[..firstSpace], trimmed[(firstSpace + 1)..]);
     }
 }

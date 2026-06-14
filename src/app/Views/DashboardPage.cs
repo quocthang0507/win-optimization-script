@@ -12,16 +12,57 @@ public sealed partial class DashboardPage : BasePage
         _wingetResultPanel = new StackPanel { Spacing = 8 };
     }
 
-    public override async Task OnNavigatedToAsync()
+    public override Task OnNavigatedToAsync()
     {
         MainContent.Children.Clear();
         _wingetResultPanel.Children.Clear();
 
         AddHeader(T("dashboard.title"), T("dashboard.subtitle"));
 
-        var status = await MainWindow.Status.GetAsync();
-        var health = DashboardHealthCheckService.Analyze(status);
+        var loadingRing = new ProgressRing
+        {
+            IsActive = true,
+            Width = 40,
+            Height = 40,
+            Margin = new Thickness(0, 48, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        MainContent.Children.Add(loadingRing);
 
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var status = await MainWindow.Status.GetAsync();
+                var health = DashboardHealthCheckService.Analyze(status);
+
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    MainContent.Children.Remove(loadingRing);
+                    RenderDashboardData(status, health);
+                });
+            }
+            catch (Exception ex)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    MainContent.Children.Remove(loadingRing);
+                    var errorBlock = new TextBlock
+                    {
+                        Text = $"Error loading dashboard: {ex.Message}",
+                        Foreground = Brush(Colors.OrangeRed),
+                        Margin = new Thickness(0, 16, 0, 0)
+                    };
+                    MainContent.Children.Add(errorBlock);
+                });
+            }
+        });
+
+        return Task.CompletedTask;
+    }
+
+    private void RenderDashboardData(DashboardStatus status, HealthCheckResult health)
+    {
         MainContent.Children.Add(HealthCheckPanel(health));
 
         // System Health Section

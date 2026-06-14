@@ -162,7 +162,7 @@ Commit or stash unrelated changes first. The release script intentionally stops 
 2. Run tests and build before preparing a release.
 
 ```powershell
-dotnet test .\src\tests\WinOptimizationApp.Tests\WinOptimizationApp.Tests.csproj
+dotnet test .\src\WinOptimizationApp.Tests\WinOptimizationApp.Tests.csproj
 dotnet build .\src\app\WinOptimizationApp.csproj
 ```
 

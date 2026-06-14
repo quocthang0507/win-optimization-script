@@ -3,8 +3,6 @@
     <File Path="cli/Utilities.ps1" />
     <File Path="cli/Utilities.exe" />
   </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/WinOptimizationApp.Tests/WinOptimizationApp.Tests.csproj" />
-  </Folder>
+  <Project Path="WinOptimizationApp.Tests/WinOptimizationApp.Tests.csproj" />
   <Project Path="app/WinOptimizationApp.csproj" />
 </Solution>

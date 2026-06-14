@@ -52,7 +52,7 @@ Set-Location -LiteralPath $root
 Assert-CleanWorkingTree
 
 $projectPath = Join-Path $root 'src/app/WinOptimizationApp.csproj'
-$testProjectPath = Join-Path $root 'src/tests/WinOptimizationApp.Tests/WinOptimizationApp.Tests.csproj'
+$testProjectPath = Join-Path $root 'src/WinOptimizationApp.Tests/WinOptimizationApp.Tests.csproj'
 $tag = "v$Version"
 
 if ((git tag --list $tag)) {

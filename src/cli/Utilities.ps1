@@ -110,18 +110,25 @@ function Get-DirectoryCleanupInitializationScript {
                 }
             }
 
-            $files = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue)
-            $freedBytes = ($files | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
-            if ($null -eq $freedBytes) {
-                $freedBytes = 0
-            }
+            $filesBefore = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue)
+            $bytesBefore = ($filesBefore | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+            if ($null -eq $bytesBefore) { $bytesBefore = 0 }
+            $countBefore = $filesBefore.Count
 
             Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
                 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
+            $filesAfter = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue)
+            $bytesAfter = ($filesAfter | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+            if ($null -eq $bytesAfter) { $bytesAfter = 0 }
+            $countAfter = $filesAfter.Count
+
+            $freedBytes = $bytesBefore - $bytesAfter
+            $deletedCount = $countBefore - $countAfter
+
             return [pscustomobject]@{
                 Exists = $true
-                FileCount = $files.Count
+                FileCount = $deletedCount
                 FreedBytes = [int64]$freedBytes
             }
         }
@@ -514,6 +521,21 @@ function Clear-WindowsUpdateCache {
 }
 
 function Clear-BrowserCache {
+    $runningBrowsers = @()
+    $browserProcesses = @('chrome', 'msedge', 'firefox', 'brave', 'opera')
+    foreach ($proc in $browserProcesses) {
+        if (Get-Process -Name $proc -ErrorAction SilentlyContinue) {
+            $runningBrowsers += $proc
+        }
+    }
+    if ($runningBrowsers.Count -gt 0) {
+        Write-Host "Warning: The following browsers are running: $($runningBrowsers -join ', ')." -ForegroundColor Yellow
+        Write-Host "Please close them to ensure a complete cache cleanup." -ForegroundColor Yellow
+        $confirm = (Read-Host "Continue anyway? (Y/N)").Trim()
+        if ($confirm -notmatch '^(y|yes)$') {
+            return
+        }
+    }
 
     Invoke-Spinner -Message "Clearing browser cache" -ScriptBlock {
         $freedBytes = 0

@@ -9,6 +9,8 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        ProcessEfficiencyService.EnableForCurrentProcess();
+
         var runRunner = args.Any(arg => arg.Equals(AppProcessLauncher.RunnerArgument, StringComparison.OrdinalIgnoreCase));
 
         if (runRunner)

@@ -21,7 +21,7 @@ jobs:
 
     env:
       PROJECT_PATH: src/app/WinOptimizationApp.csproj
-      TEST_PROJECT_PATH: src/tests/WinOptimizationApp.Tests/WinOptimizationApp.Tests.csproj
+      TEST_PROJECT_PATH: src/WinOptimizationApp.Tests/WinOptimizationApp.Tests.csproj
       PUBLISH_DIR: artifacts/publish/win-x64
 
     steps:

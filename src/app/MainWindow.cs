@@ -53,48 +53,6 @@ public sealed class MainWindow : Window
         NetworkOptimizer = new NetworkOptimizationService(Commands);
         Uninstaller = new UninstallerService(Commands);
 
-        if (ShouldConnectToRunner())
-        {
-            try
-            {
-                var connected = Task.Run(() => _ipcClient.ConnectAsync(2000)).GetAwaiter().GetResult();
-                if (connected)
-                {
-                    Cleanup.Client = _ipcClient;
-                    Status.Client = _ipcClient;
-                    Winget.Client = _ipcClient;
-                    Execution.Client = _ipcClient;
-                    Startup.Client = _ipcClient;
-                    RegistryCleaner.Client = _ipcClient;
-                    NetworkOptimizer.Client = _ipcClient;
-                    Uninstaller.Client = _ipcClient;
-                }
-            }
-            catch
-            {
-                // Fallback
-            }
-        }
-
-        Title = T("app.title");
-
-        try
-        {
-            var hwnd = WindowNative.GetWindowHandle(this);
-            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            var appWindow = AppWindow.GetFromWindowId(windowId);
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
-            if (File.Exists(iconPath))
-            {
-                appWindow.SetIcon(iconPath);
-            }
-        }
-        catch
-        {
-            // Icon loading is best-effort.
-        }
-
-        _scrollViewer = new ScrollViewer();
         _statusProgress = new ProgressBar
         {
             IsIndeterminate = true,
@@ -118,6 +76,62 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        if (ShouldConnectToRunner())
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var connected = await _ipcClient.ConnectAsync(2000);
+                    if (connected)
+                    {
+                        Cleanup.Client = _ipcClient;
+                        Status.Client = _ipcClient;
+                        Winget.Client = _ipcClient;
+                        Execution.Client = _ipcClient;
+                        Startup.Client = _ipcClient;
+                        RegistryCleaner.Client = _ipcClient;
+                        NetworkOptimizer.Client = _ipcClient;
+                        Uninstaller.Client = _ipcClient;
+
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            var statusText = T("common.ready");
+                            if (SystemStatusService.IsAdministrator())
+                            {
+                                statusText += Settings.Language == AppLanguage.Vietnamese ? " (Quyền Admin)" : " (Admin)";
+                            }
+                            _statusText.Text = statusText;
+                        });
+                    }
+                }
+                catch
+                {
+                    // Fallback
+                }
+            });
+        }
+
+        Title = T("app.title");
+
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = AppWindow.GetFromWindowId(windowId);
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
+            if (File.Exists(iconPath))
+            {
+                appWindow.SetIcon(iconPath);
+            }
+        }
+        catch
+        {
+            // Icon loading is best-effort.
+        }
+
+        _scrollViewer = new ScrollViewer();
 
         Navigation_Internal = new NavigationView
         {
@@ -307,8 +321,15 @@ public sealed class MainWindow : Window
 
         if (page != null)
         {
-            await page.OnNavigatedToAsync();
             _scrollViewer.Content = page;
+            try
+            {
+                await page.OnNavigatedToAsync();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Navigation error: {ex.Message}");
+            }
         }
 
         SetStatus(T("common.ready"));

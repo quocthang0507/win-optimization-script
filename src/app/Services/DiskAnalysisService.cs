@@ -21,7 +21,7 @@ public sealed class DiskAnalysisService
     {
         var started = DateTimeOffset.Now;
         var errors = new List<string>();
-        var fileTypes = new Dictionary<string, FileTypeAccumulator>(StringComparer.OrdinalIgnoreCase);
+        var fileTypes = new Dictionary<string, FileTypeAccumulator>(StringComparer.Ordinal);
         var largestFiles = new List<DiskItem>();
         var skipped = 0;
         var filesScanned = 0;
@@ -34,7 +34,10 @@ public sealed class DiskAnalysisService
         DiskItem? currentRoot = null;
         try
         {
-            currentRoot = ScanPath(rootPath, null, keepChildren: true, isRoot: true);
+            FileSystemInfo rootInfo = File.Exists(rootPath)
+                ? new FileInfo(rootPath)
+                : new DirectoryInfo(rootPath);
+            currentRoot = ScanPath(rootInfo, null, keepChildren: true, isRoot: true);
             return BuildResult(currentRoot, isPartial: false);
         }
         catch (OperationCanceledException)
@@ -42,16 +45,15 @@ public sealed class DiskAnalysisService
             return BuildResult(currentRoot ?? CreateFallbackRoot(rootPath), isPartial: true);
         }
 
-        DiskItem ScanPath(string path, DiskItem? parent, bool keepChildren, bool isRoot = false)
+        DiskItem ScanPath(FileSystemInfo info, DiskItem? parent, bool keepChildren, bool isRoot = false)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            return File.Exists(path) ? ScanFile(path, parent) : ScanDirectory(path, parent, keepChildren, isRoot);
+            return info is FileInfo fileInfo ? ScanFile(fileInfo, parent) : ScanDirectory((DirectoryInfo)info, parent, keepChildren, isRoot);
         }
 
-        DiskItem ScanDirectory(string path, DiskItem? parent, bool keepChildren, bool isRoot = false)
+        DiskItem ScanDirectory(DirectoryInfo directory, DiskItem? parent, bool keepChildren, bool isRoot = false)
         {
-            var directory = new DirectoryInfo(path);
             foldersScanned++;
 
             var item = new DiskItem
@@ -74,10 +76,10 @@ public sealed class DiskAnalysisService
                 return item;
             }
 
-            IEnumerator<string>? entries;
+            IEnumerator<FileSystemInfo>? entries;
             try
             {
-                entries = Directory.EnumerateFileSystemEntries(directory.FullName).GetEnumerator();
+                entries = directory.EnumerateFileSystemInfos().GetEnumerator();
             }
             catch (Exception ex)
             {
@@ -100,8 +102,6 @@ public sealed class DiskAnalysisService
                         if (keepChildren)
                         {
                             item.Children.Add(child);
-                            item.Children.Sort((left, right) => right.Size.CompareTo(left.Size));
-                            ReportProgress(entry);
                         }
                     }
                     catch (OperationCanceledException)
@@ -111,7 +111,7 @@ public sealed class DiskAnalysisService
                     catch (Exception ex)
                     {
                         skipped++;
-                        errors.Add($"{entry}: {ex.Message}");
+                        errors.Add($"{entry.FullName}: {ex.Message}");
                     }
 
                     if ((filesScanned + foldersScanned) % ProgressInterval == 0)
@@ -121,14 +121,17 @@ public sealed class DiskAnalysisService
                 }
             }
 
-            item.Children.Sort((left, right) => right.Size.CompareTo(left.Size));
+            if (keepChildren)
+            {
+                item.Children.Sort((left, right) => right.Size.CompareTo(left.Size));
+            }
             ReportProgress(directory.FullName);
             return item;
         }
 
-        bool TryMoveNext(IEnumerator<string> entries, DirectoryInfo directory, DiskItem item, out string entry)
+        bool TryMoveNext(IEnumerator<FileSystemInfo> entries, DirectoryInfo directory, DiskItem item, out FileSystemInfo entry)
         {
-            entry = string.Empty;
+            entry = null!;
             try
             {
                 if (!entries.MoveNext())
@@ -160,9 +163,8 @@ public sealed class DiskAnalysisService
             }
         }
 
-        DiskItem ScanFile(string path, DiskItem? parent)
+        DiskItem ScanFile(FileInfo file, DiskItem? parent)
         {
-            var file = new FileInfo(path);
             filesScanned++;
 
             var item = new DiskItem
@@ -227,6 +229,7 @@ public sealed class DiskAnalysisService
 
         DiskScanResult BuildResult(DiskItem root, bool isPartial)
         {
+            root.Children.Sort((left, right) => right.Size.CompareTo(left.Size));
             var snapshotRoot = CloneDiskItem(root);
             CalculatePercentages(snapshotRoot);
             return new DiskScanResult(
@@ -356,14 +359,27 @@ public sealed class DiskAnalysisService
 
     private static void TrackLargestFile(DiskItem item, List<DiskItem> largestFiles)
     {
-        largestFiles.Add(item);
-        if (largestFiles.Count <= LargestFileLimit * 2)
+        if (largestFiles.Count < LargestFileLimit)
+        {
+            largestFiles.Add(item);
+            if (largestFiles.Count == LargestFileLimit)
+            {
+                largestFiles.Sort((left, right) => right.Size.CompareTo(left.Size));
+            }
+            return;
+        }
+
+        if (item.Size <= largestFiles[^1].Size)
         {
             return;
         }
 
-        largestFiles.Sort((left, right) => right.Size.CompareTo(left.Size));
-        largestFiles.RemoveRange(LargestFileLimit, largestFiles.Count - LargestFileLimit);
+        int index = largestFiles.FindIndex(x => x.Size < item.Size);
+        if (index >= 0)
+        {
+            largestFiles.Insert(index, item);
+            largestFiles.RemoveAt(largestFiles.Count - 1);
+        }
     }
 
     private static void TrackFileType(DiskItem item, Dictionary<string, FileTypeAccumulator> fileTypes)
