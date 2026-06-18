@@ -5,6 +5,11 @@ namespace WinOptimizationApp.Services;
 public sealed class CleanupService(CommandRunner commands)
 {
     private readonly CommandRunner _commands = commands;
+    private static readonly EnumerationOptions RecursiveEnumeration = new()
+    {
+        RecurseSubdirectories = true,
+        AttributesToSkip = FileAttributes.ReparsePoint
+    };
 
     public IpcClient? Client { get; set; }
 
@@ -128,11 +133,11 @@ public sealed class CleanupService(CommandRunner commands)
                             continue;
                         }
 
-                        var (removedCount, skippedCount) = DeleteContents(target.Path, errors);
-                        freedBytes += preview.Bytes;
+                        var (removedCount, skippedCount, removedBytes) = DeleteContents(target.Path, errors);
+                        freedBytes += removedBytes;
                         filesRemoved += removedCount;
                         filesSkipped += skippedCount;
-                        messages.Add($"Cleaned {target.Name}: {Formatters.FormatBytes(preview.Bytes)}.");
+                        messages.Add($"Cleaned {target.Name}: {Formatters.FormatBytes(removedBytes)}.");
                     }
                     break;
             }
@@ -169,6 +174,14 @@ public sealed class CleanupService(CommandRunner commands)
             [
                 ("User temp", Path.GetTempPath()),
                 ("Windows temp", Path.Combine(windir, "Temp"))
+            ],
+            "cleanup.shaders" =>
+            [
+                ("DirectX shader cache", Path.Combine(localAppData, "D3DSCache"))
+            ],
+            "cleanup.crashdumps" =>
+            [
+                ("User crash dumps", Path.Combine(localAppData, "CrashDumps"))
             ],
             "cleanup.browser" => GetBrowserTargets(localAppData, appData),
             "cleanup.windowsupdate" =>
@@ -298,7 +311,7 @@ public sealed class CleanupService(CommandRunner commands)
 
             long bytes = 0;
             var fileCount = 0;
-            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            foreach (var file in Directory.EnumerateFiles(path, "*", RecursiveEnumeration))
             {
                 try
                 {
@@ -320,51 +333,55 @@ public sealed class CleanupService(CommandRunner commands)
         }
     }
 
-    private static (int Removed, int Skipped) DeleteContents(string path, List<string> errors)
+    private static (int Removed, int Skipped, long RemovedBytes) DeleteContents(string path, List<string> errors)
     {
         var removed = 0;
         var skipped = 0;
+        long removedBytes = 0;
 
         if (File.Exists(path))
         {
             try
             {
+                var bytes = new FileInfo(path).Length;
                 File.Delete(path);
-                return (1, 0);
+                return (1, 0, bytes);
             }
             catch (Exception ex)
             {
                 errors.Add($"{path}: {ex.Message}");
-                return (0, 1);
+                return (0, 1, 0);
             }
         }
 
         if (!Directory.Exists(path))
         {
-            return (0, 0);
+            return (0, 0, 0);
         }
 
         List<string> files;
         List<string> dirs;
         try
         {
-            files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).ToList();
-            dirs = Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories)
+            files = Directory.EnumerateFiles(path, "*", RecursiveEnumeration).ToList();
+            dirs = Directory.EnumerateDirectories(path, "*", RecursiveEnumeration)
                 .OrderByDescending(d => d.Length)
                 .ToList();
         }
         catch (Exception ex)
         {
             errors.Add($"{path}: {ex.Message}");
-            return (0, 1);
+            return (0, 1, 0);
         }
 
         foreach (var file in files)
         {
             try
             {
+                var bytes = new FileInfo(file).Length;
                 File.Delete(file);
                 removed++;
+                removedBytes += bytes;
             }
             catch (Exception ex)
             {
@@ -385,7 +402,7 @@ public sealed class CleanupService(CommandRunner commands)
             }
         }
 
-        return (removed, skipped);
+        return (removed, skipped, removedBytes);
     }
 
     private static bool IsSafeFile(string path)
@@ -412,6 +429,8 @@ public sealed class CleanupService(CommandRunner commands)
         [
             Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             Path.Combine(windir, "Temp"),
+            Path.Combine(localAppData, "D3DSCache"),
+            Path.Combine(localAppData, "CrashDumps"),
             Path.Combine(localAppData, "Microsoft", "Edge", "User Data"),
             Path.Combine(localAppData, "Google", "Chrome", "User Data"),
             Path.Combine(localAppData, "BraveSoftware", "Brave-Browser", "User Data"),

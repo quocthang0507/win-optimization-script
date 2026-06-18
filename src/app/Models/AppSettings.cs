@@ -9,4 +9,12 @@ public sealed class AppSettings
     public AppWinUiStyle? WinUiStyle { get; set; }
 
     public bool WidgetEnabled { get; set; }
+
+    public bool WidgetShowCpu { get; set; } = true;
+
+    public bool WidgetShowRam { get; set; } = true;
+
+    public bool WidgetShowDisk { get; set; } = true;
+
+    public bool WidgetShowNetwork { get; set; } = true;
 }

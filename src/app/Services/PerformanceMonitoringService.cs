@@ -1,10 +1,16 @@
 using System.Runtime.InteropServices;
+using System.Net.NetworkInformation;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
 
 public sealed class PerformanceMonitoringService
 {
+    private readonly object _networkLock = new();
+    private long _lastReceivedBytes;
+    private long _lastSentBytes;
+    private DateTimeOffset? _lastNetworkSample;
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     private struct MEMORYSTATUSEX
     {
@@ -65,6 +71,8 @@ public sealed class PerformanceMonitoringService
             long diskUsed = diskTotal - diskFree;
             double diskPercent = diskTotal > 0 ? (diskUsed * 100.0 / diskTotal) : 0;
 
+            var (downloadBytesPerSecond, uploadBytesPerSecond) = GetNetworkThroughput();
+
             return new SystemMetrics(
                 cpuUsage,
                 ramPercent,
@@ -72,9 +80,54 @@ public sealed class PerformanceMonitoringService
                 (long)totalRam,
                 diskFree,
                 diskTotal,
-                diskPercent
+                diskPercent,
+                downloadBytesPerSecond,
+                uploadBytesPerSecond
             );
         });
+    }
+
+    private (double Download, double Upload) GetNetworkThroughput()
+    {
+        long received = 0;
+        long sent = 0;
+
+        foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (networkInterface.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+                networkInterface.OperationalStatus != OperationalStatus.Up)
+            {
+                continue;
+            }
+
+            try
+            {
+                var statistics = networkInterface.GetIPv4Statistics();
+                received += statistics.BytesReceived;
+                sent += statistics.BytesSent;
+            }
+            catch (NetworkInformationException)
+            {
+                // An adapter can disappear while metrics are being sampled.
+            }
+        }
+
+        lock (_networkLock)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var elapsed = _lastNetworkSample is null ? 0 : (now - _lastNetworkSample.Value).TotalSeconds;
+            var download = elapsed > 0 && received >= _lastReceivedBytes
+                ? (received - _lastReceivedBytes) / elapsed
+                : 0;
+            var upload = elapsed > 0 && sent >= _lastSentBytes
+                ? (sent - _lastSentBytes) / elapsed
+                : 0;
+
+            _lastReceivedBytes = received;
+            _lastSentBytes = sent;
+            _lastNetworkSample = now;
+            return (download, upload);
+        }
     }
 
     private static double GetCpuUsageInternal()

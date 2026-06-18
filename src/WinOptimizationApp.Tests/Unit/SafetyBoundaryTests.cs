@@ -1,3 +1,4 @@
+using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp.Tests.Unit;
@@ -13,6 +14,23 @@ public sealed class SafetyBoundaryTests
 
         Assert.False(found);
         Assert.Null(task);
+    }
+
+    [Fact]
+    public void MaintenanceCatalog_NewCleanupTasksStayPreviewableAndNonAdministrative()
+    {
+        var catalog = new MaintenanceCatalog();
+
+        var shaderCache = catalog.GetById("cleanup.shaders");
+        var crashDumps = catalog.GetById("cleanup.crashdumps");
+
+        Assert.Equal(RiskLevel.Safe, shaderCache.RiskLevel);
+        Assert.True(shaderCache.CanPreview);
+        Assert.False(shaderCache.RequiresAdmin);
+        Assert.Equal(RiskLevel.Medium, crashDumps.RiskLevel);
+        Assert.True(crashDumps.CanPreview);
+        Assert.True(crashDumps.RequiresConfirmation);
+        Assert.False(crashDumps.RequiresAdmin);
     }
 
     [Fact]

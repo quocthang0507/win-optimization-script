@@ -7,6 +7,8 @@ public sealed class MaintenanceCatalog
 {
     public IReadOnlyList<MaintenanceTask> All { get; } = [
         new("cleanup.temp", "Cleanup", "Temporary files", "User and Windows temporary folders.", RiskLevel.Safe, false, false, true, false, "Frees local temporary files."),
+        new("cleanup.shaders", "Cleanup", "DirectX shader cache", "Per-user DirectX compiled shader cache.", RiskLevel.Safe, false, false, true, false, "Windows and games rebuild shaders when needed."),
+        new("cleanup.crashdumps", "Cleanup", "User crash dumps", "Application crash dumps stored for the current user.", RiskLevel.Medium, false, true, true, false, "Removes local diagnostic dumps; applications are unaffected."),
         new("cleanup.browser", "Cleanup", "Browser cache", "Edge, Chrome, Firefox, Brave and Opera cache folders.", RiskLevel.Medium, false, true, true, false, "Browsers may reload cached assets."),
         new("cleanup.dev", "Cleanup", "Developer caches", "NuGet, pip, npm and yarn cache commands.", RiskLevel.Medium, false, true, true, false, "Build tools may download packages again."),
         new("cleanup.windowsupdate", "Cleanup", "Windows Update cache", "SoftwareDistribution and Delivery Optimization caches.", RiskLevel.High, true, true, true, true, "May require services to restart."),

@@ -12,6 +12,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
     private bool _updateCheckStarted;
+    private bool _isClosing;
     private MiniToolbarWindow? _widgetWindow;
 
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
@@ -195,6 +196,7 @@ public sealed class MainWindow : Window
 
         Closed += (s, e) =>
         {
+            _isClosing = true;
             ToggleWidget(false);
             _ipcClient.Disconnect();
         };
@@ -293,6 +295,20 @@ public sealed class MainWindow : Window
 
     internal async Task NavigateAsync(string tag)
     {
+        if (tag.Equals("toolbox", StringComparison.OrdinalIgnoreCase))
+        {
+            Settings.WidgetEnabled = true;
+            SettingsService.Save(Settings);
+            ToggleWidget(true);
+            SetStatus(T("common.ready"));
+
+            if (_navItems.TryGetValue(_currentPageTag, out var currentItem))
+            {
+                DispatcherQueue.TryEnqueue(() => Navigation_Internal.SelectedItem = currentItem);
+            }
+            return;
+        }
+
         _currentPageTag = tag;
         _scrollViewer.Content = null;
         SetStatus(T("common.loading"));
@@ -307,7 +323,6 @@ public sealed class MainWindow : Window
                 "startup" => new StartupPage(this),
                 "updates" => new UpdatesPage(this),
                 "repair" => new MaintenancePage(this, T("nav.repair"), "Repair", includeOptimization: true),
-                "toolbox" => new ToolboxPage(this),
                 "history" => new HistoryPage(this),
                 "settings" => new SettingsPage(this),
                 _ => null
@@ -917,7 +932,7 @@ public sealed class MainWindow : Window
                 _widgetWindow.Closed += (s, e) =>
                 {
                     _widgetWindow = null;
-                    if (Settings.WidgetEnabled)
+                    if (!_isClosing && Settings.WidgetEnabled)
                     {
                         Settings.WidgetEnabled = false;
                         SettingsService.Save(Settings);

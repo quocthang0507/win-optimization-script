@@ -7,5 +7,7 @@ public sealed record SystemMetrics(
     long RamTotalBytes,
     long DiskFreeBytes,
     long DiskTotalBytes,
-    double DiskUsagePercent
+    double DiskUsagePercent,
+    double DownloadBytesPerSecond,
+    double UploadBytesPerSecond
 );
