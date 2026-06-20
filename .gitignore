@@ -11,6 +11,7 @@ logs/
 # IDE/User-specific configurations
 .vs/
 .idea/
+.suo
 *.suo
 *.user
 *.userosscache
