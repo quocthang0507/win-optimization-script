@@ -11,8 +11,10 @@ public sealed class MainWindow : Window
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
+    private readonly CancellationTokenSource _shutdownCts = new();
     private bool _updateCheckStarted;
     private bool _isClosing;
+    private bool _suppressNavigationSelectionChanged;
     private MiniToolbarWindow? _widgetWindow;
 
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
@@ -156,6 +158,11 @@ public sealed class MainWindow : Window
 
         Navigation_Internal.SelectionChanged += async (sender, args) =>
         {
+            if (_suppressNavigationSelectionChanged)
+            {
+                return;
+            }
+
             if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
             {
                 try
@@ -169,7 +176,10 @@ public sealed class MainWindow : Window
             }
         };
 
-        var rootGrid = new Grid();
+        var rootGrid = new Grid
+        {
+            Background = AppBackgroundBrush(CurrentElementTheme)
+        };
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -191,25 +201,71 @@ public sealed class MainWindow : Window
         rootGrid.Children.Add(statusBar);
 
         Content = rootGrid;
-        Navigation_Internal.SelectedItem = Navigation_Internal.MenuItems[0];
-        Activated += async (_, _) => await CheckForUpdatesOnceAsync();
 
         Closed += (s, e) =>
         {
             _isClosing = true;
+            _shutdownCts.Cancel();
             ToggleWidget(false);
             _ipcClient.Disconnect();
+            Application.Current.Exit();
         };
+    }
+
+    internal async Task CompleteStartupAsync()
+    {
+        SetStatus(T("common.loading"));
+        await Task.Yield();
+
+        if (_navItems.TryGetValue("dashboard", out var dashboardItem))
+        {
+            _suppressNavigationSelectionChanged = true;
+            Navigation_Internal.SelectedItem = dashboardItem;
+            _suppressNavigationSelectionChanged = false;
+        }
+
+        await NavigateAsync("dashboard");
+        SetStatus(T("common.ready"));
 
         if (Settings.WidgetEnabled)
         {
-            ToggleWidget(true);
+            DispatcherQueue.TryEnqueue(() => ToggleWidget(true));
+        }
+
+        _ = RunDeferredUpdateCheckAsync();
+    }
+
+    private async Task RunDeferredUpdateCheckAsync()
+    {
+        try
+        {
+            await Task.Delay(1800, _shutdownCts.Token);
+            if (_isClosing)
+            {
+                return;
+            }
+
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                if (!_isClosing)
+                {
+                    await CheckForUpdatesOnceAsync(_shutdownCts.Token);
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Closing the main window cancels deferred startup work.
+        }
+        catch
+        {
+            // Background startup work should never block the main window.
         }
     }
 
-    private async Task CheckForUpdatesOnceAsync()
+    private async Task CheckForUpdatesOnceAsync(CancellationToken cancellationToken = default)
     {
-        if (_updateCheckStarted)
+        if (_updateCheckStarted || _isClosing)
         {
             return;
         }
@@ -218,7 +274,12 @@ public sealed class MainWindow : Window
         try
         {
             SetStatus(T("update.checking"));
-            var update = await Updates.CheckLatestReleaseAsync();
+            var update = await Updates.CheckLatestReleaseAsync(cancellationToken);
+            if (_isClosing || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             if (update is null)
             {
                 SetStatus(T("common.ready"));
@@ -232,12 +293,22 @@ public sealed class MainWindow : Window
             }
 
             SetStatus(F("update.availableStatus", update.TagName));
-            await ShowUpdateDialogAsync(update);
+            if (!_isClosing)
+            {
+                await ShowUpdateDialogAsync(update);
+            }
             SetStatus(T("common.ready"));
+        }
+        catch (OperationCanceledException)
+        {
+            // App is shutting down.
         }
         catch
         {
-            SetStatus(T("common.ready"));
+            if (!_isClosing)
+            {
+                SetStatus(T("common.ready"));
+            }
         }
     }
 
@@ -790,6 +861,10 @@ public sealed class MainWindow : Window
         {
             fe.RequestedTheme = elementTheme;
         }
+        if (Content is Grid rootGrid)
+        {
+            rootGrid.Background = AppBackgroundBrush(elementTheme);
+        }
         if (_widgetWindow != null && _widgetWindow.Content is FrameworkElement widgetFe)
         {
             widgetFe.RequestedTheme = elementTheme;
@@ -805,6 +880,17 @@ public sealed class MainWindow : Window
             AppWinUiStyle.Solid => null,
             _ => new MicaBackdrop()
         };
+    }
+
+    private static SolidColorBrush AppBackgroundBrush(ElementTheme theme)
+    {
+        var resolvedTheme = theme == ElementTheme.Default
+            ? Application.Current.RequestedTheme == ApplicationTheme.Dark ? ElementTheme.Dark : ElementTheme.Light
+            : theme;
+
+        return resolvedTheme == ElementTheme.Dark
+            ? new SolidColorBrush(Color.FromArgb(255, 18, 22, 29))
+            : new SolidColorBrush(Color.FromArgb(255, 244, 247, 251));
     }
 
     private static string GetNavKey(string tag)

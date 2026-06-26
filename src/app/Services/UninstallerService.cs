@@ -65,7 +65,10 @@ public sealed class UninstallerService
         if (app.Source == "Winget")
         {
             var id = app.Id.Split('\\').Last();
-            var result = await _commands.RunCaptureAsync("winget.exe", $"uninstall --id {id} --silent", cancellationToken);
+            var result = await _commands.RunCaptureAsync(
+                "winget.exe",
+                $"uninstall --id {QuoteArgument(id)} --exact --silent --accept-source-agreements --disable-interactivity",
+                cancellationToken);
             return result.ExitCode == 0;
         }
         else
@@ -394,6 +397,11 @@ public sealed class UninstallerService
         }
 
         return (trimmed, string.Empty);
+    }
+
+    private static string QuoteArgument(string value)
+    {
+        return $"\"{value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
     }
 
     private static string CleanAppNameForSearch(string name)

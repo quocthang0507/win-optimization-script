@@ -23,6 +23,7 @@ public sealed class SafetyBoundaryTests
 
         var shaderCache = catalog.GetById("cleanup.shaders");
         var crashDumps = catalog.GetById("cleanup.crashdumps");
+        var diskCleanup = catalog.GetById("cleanup.diskcleanup");
 
         Assert.Equal(RiskLevel.Safe, shaderCache.RiskLevel);
         Assert.True(shaderCache.CanPreview);
@@ -31,6 +32,44 @@ public sealed class SafetyBoundaryTests
         Assert.True(crashDumps.CanPreview);
         Assert.True(crashDumps.RequiresConfirmation);
         Assert.False(crashDumps.RequiresAdmin);
+        Assert.Equal(RiskLevel.Medium, diskCleanup.RiskLevel);
+        Assert.True(diskCleanup.CanPreview);
+        Assert.True(diskCleanup.RequiresConfirmation);
+        Assert.False(diskCleanup.RequiresAdmin);
+    }
+
+    [Fact]
+    public async Task CleanupService_DiskCleanupPreviewShowsWindowsCleanmgrCommands()
+    {
+        var catalog = new MaintenanceCatalog();
+        var diskCleanup = catalog.GetById("cleanup.diskcleanup");
+        var service = new CleanupService(new CommandRunner());
+
+        var preview = await service.PreviewAsync(diskCleanup);
+
+        Assert.Equal("cleanup.diskcleanup", preview.TaskId);
+        Assert.Equal(
+            [
+                "cleanmgr.exe /sageset:7307",
+                "cleanmgr.exe /sagerun:7307"
+            ],
+            preview.PlannedCommands);
+    }
+
+    [Fact]
+    public void MaintenanceCatalog_PrivacyBrowserTasksStayOptInAndPreviewable()
+    {
+        var catalog = new MaintenanceCatalog();
+
+        foreach (var taskId in new[] { "privacy.recentFiles", "privacy.browserHistory", "privacy.browserCookies" })
+        {
+            var task = catalog.GetById(taskId);
+
+            Assert.Equal("Privacy", task.Group);
+            Assert.True(task.CanPreview);
+            Assert.True(task.RequiresConfirmation);
+            Assert.False(task.RequiresAdmin);
+        }
     }
 
     [Fact]

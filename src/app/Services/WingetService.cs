@@ -4,6 +4,8 @@ namespace WinOptimizationApp.Services;
 
 public sealed class WingetService
 {
+    private const string AgreementArguments = "--accept-package-agreements --accept-source-agreements --disable-interactivity";
+    private const string SourceAgreementArguments = "--accept-source-agreements --disable-interactivity";
     private readonly CommandRunner _commands;
 
     public IpcClient? Client { get; set; }
@@ -25,8 +27,46 @@ public sealed class WingetService
             return [];
         }
 
-        var result = await _commands.RunCaptureAsync("winget.exe", "upgrade", cancellationToken);
+        var result = await _commands.RunCaptureAsync("winget.exe", $"upgrade {SourceAgreementArguments}", cancellationToken);
         return result.ExitCode != 0 ? [] : Parse(result.StandardOutput);
+    }
+
+    public async Task<WingetPackageUpgradeResult> UpgradePackageAsync(WingetPackage package, CancellationToken cancellationToken = default)
+    {
+        if (Client != null)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(package);
+            var response = await Client.SendRequestAsync("UpgradeWingetPackage", payload);
+            return System.Text.Json.JsonSerializer.Deserialize<WingetPackageUpgradeResult>(response)
+                ?? new WingetPackageUpgradeResult(package, false, -1, string.Empty, "Failed to deserialize winget upgrade result.");
+        }
+
+        if (!_commands.Exists("winget"))
+        {
+            return new WingetPackageUpgradeResult(package, false, -1, string.Empty, "winget is not available.");
+        }
+
+        var result = await _commands.RunCaptureAsync("winget.exe", BuildUpgradeArguments(package), cancellationToken);
+        return new WingetPackageUpgradeResult(
+            package,
+            result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardError),
+            result.ExitCode,
+            result.StandardOutput.Trim(),
+            result.StandardError.Trim());
+    }
+
+    public static string BuildUpgradeAllArguments()
+    {
+        return $"upgrade --all --silent {AgreementArguments}";
+    }
+
+    public static string BuildUpgradeArguments(WingetPackage package)
+    {
+        var source = string.IsNullOrWhiteSpace(package.Source)
+            ? string.Empty
+            : $" --source {QuoteArgument(package.Source)}";
+
+        return $"upgrade --id {QuoteArgument(package.Id)} --exact --silent{source} {AgreementArguments}";
     }
 
     private static IReadOnlyList<WingetPackage> Parse(string output)
@@ -62,5 +102,10 @@ public sealed class WingetService
         }
 
         return packages;
+    }
+
+    private static string QuoteArgument(string value)
+    {
+        return $"\"{value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
     }
 }

@@ -217,10 +217,10 @@ public sealed class RegistryCleanerService
     private bool CleanInternal(List<RegistryIssue> issues)
     {
         var pathService = new PathService();
-        var logsDir = pathService.LogsDirectory;
-        if (!Directory.Exists(logsDir))
+        var backupsDir = pathService.BackupsDirectory;
+        if (!Directory.Exists(backupsDir))
         {
-            Directory.CreateDirectory(logsDir);
+            Directory.CreateDirectory(backupsDir);
         }
 
         bool overallSuccess = true;
@@ -234,7 +234,7 @@ public sealed class RegistryCleanerService
 
             try
             {
-                CreateRegBackup(issue, logsDir);
+                CreateRegBackup(issue, backupsDir);
 
                 var parts = issue.KeyPath.Split('\\');
                 if (parts.Length < 2)
@@ -292,12 +292,12 @@ public sealed class RegistryCleanerService
         return overallSuccess;
     }
 
-    private static void CreateRegBackup(RegistryIssue issue, string logsDir)
+    private static void CreateRegBackup(RegistryIssue issue, string backupsDir)
     {
         var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss");
         var safeCategory = issue.Category.Replace(" ", "_");
         var filename = $"registry-backup-{safeCategory}-{timestamp}.reg";
-        var path = Path.Combine(logsDir, filename);
+        var path = Path.Combine(backupsDir, filename);
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("Windows Registry Editor Version 5.00");

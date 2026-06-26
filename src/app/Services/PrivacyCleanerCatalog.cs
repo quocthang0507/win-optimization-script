@@ -24,8 +24,8 @@ public static class PrivacyCleanerCatalog
                 RiskLevel.Safe,
                 IsSensitive: false,
                 IsSelectedByDefault: true,
-                CanCleanAutomatically: false,
-                "Useful to add after recent-files cleanup gets report coverage."),
+                CanCleanAutomatically: true,
+                "Clears Windows recent documents, jump lists and taskbar recent shortcuts."),
             new PrivacyCleanupItem(
                 "privacy.powershell",
                 "PowerShell history",
@@ -42,8 +42,8 @@ public static class PrivacyCleanerCatalog
                 RiskLevel.High,
                 IsSensitive: true,
                 IsSelectedByDefault: false,
-                CanCleanAutomatically: false,
-                "Sensitive browsing data must stay opt-in and require browser-aware preview."),
+                CanCleanAutomatically: true,
+                "Opt-in cleanup for local browsing history; close browsers first."),
             new PrivacyCleanupItem(
                 "privacy.browserCookies",
                 "Browser cookies and sessions",
@@ -51,17 +51,8 @@ public static class PrivacyCleanerCatalog
                 RiskLevel.High,
                 IsSensitive: true,
                 IsSelectedByDefault: false,
-                CanCleanAutomatically: false,
-                "Deleting cookies can sign users out; keep disabled by default."),
-            new PrivacyCleanupItem(
-                "privacy.browserPasswords",
-                "Saved browser passwords",
-                "Browser credential stores",
-                RiskLevel.High,
-                IsSensitive: true,
-                IsSelectedByDefault: false,
-                CanCleanAutomatically: false,
-                "Never clean saved passwords automatically.")
+                CanCleanAutomatically: true,
+                "Opt-in cleanup that signs websites out and removes local browser sessions.")
         ];
     }
 }

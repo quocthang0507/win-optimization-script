@@ -19,13 +19,13 @@ public sealed class PrivacyCleanerCatalogTests
     }
 
     [Fact]
-    public void BuildDefault_KeepsBrowserHistoryCookiesAndPasswordsOptIn()
+    public void BuildDefault_KeepsBrowserHistoryAndCookiesOptInButRunnable()
     {
         var items = PrivacyCleanerCatalog.BuildDefault();
 
-        Assert.Contains(items, item => item.Id == "privacy.browserHistory" && item.IsSensitive && !item.IsSelectedByDefault);
-        Assert.Contains(items, item => item.Id == "privacy.browserCookies" && item.IsSensitive && !item.IsSelectedByDefault);
-        Assert.Contains(items, item => item.Id == "privacy.browserPasswords" && item.IsSensitive && !item.IsSelectedByDefault && !item.CanCleanAutomatically);
+        Assert.Contains(items, item => item.Id == "privacy.browserHistory" && item.IsSensitive && !item.IsSelectedByDefault && item.CanCleanAutomatically);
+        Assert.Contains(items, item => item.Id == "privacy.browserCookies" && item.IsSensitive && !item.IsSelectedByDefault && item.CanCleanAutomatically);
+        Assert.DoesNotContain(items, item => item.Id == "privacy.browserPasswords");
     }
 
     [Fact]

@@ -158,15 +158,15 @@ public sealed class StartupService
         try
         {
             var pathService = new PathService();
-            var logsDir = pathService.LogsDirectory;
-            if (!Directory.Exists(logsDir))
+            var backupsDir = pathService.BackupsDirectory;
+            if (!Directory.Exists(backupsDir))
             {
-                Directory.CreateDirectory(logsDir);
+                Directory.CreateDirectory(backupsDir);
             }
 
             var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss");
             var filename = $"startup-backup-{entry.Name.Replace(" ", "_")}-{timestamp}.json";
-            var backupPath = Path.Combine(logsDir, filename);
+            var backupPath = Path.Combine(backupsDir, filename);
 
             var backupContent = System.Text.Json.JsonSerializer.Serialize(entry, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(backupPath, backupContent, System.Text.Encoding.UTF8);

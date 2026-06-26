@@ -58,12 +58,12 @@ public sealed class RegistryCleanerServiceTests : IDisposable
             Assert.Null(checkKey);
         }
 
-        // 5. Verify that a backup .reg file was created in logs directory
+        // 5. Verify that a backup .reg file was created in backups directory
         var pathService = new PathService();
-        var logsDir = pathService.LogsDirectory;
-        Assert.True(Directory.Exists(logsDir));
+        var backupsDir = pathService.BackupsDirectory;
+        Assert.True(Directory.Exists(backupsDir));
 
-        var regFiles = Directory.GetFiles(logsDir, "registry-backup-*.reg");
+        var regFiles = Directory.GetFiles(backupsDir, "registry-backup-*.reg");
         Assert.NotEmpty(regFiles);
 
         // Verify content of the latest backup file contains the registry details

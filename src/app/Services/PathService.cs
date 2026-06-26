@@ -4,7 +4,8 @@ public sealed class PathService
 {
     public string RepositoryRoot { get; }
     public string CliScriptPath => Path.Combine(RepositoryRoot, "src", "cli", "Utilities.ps1");
-    public string LogsDirectory => Path.Combine(RepositoryRoot, "logs");
+    public string LogsDirectory => AppRuntimePaths.OriginalBaseDirectory;
+    public string BackupsDirectory => Path.Combine(AppRuntimePaths.OriginalBaseDirectory, "backups");
 
     public PathService()
     {

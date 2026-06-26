@@ -1,10 +1,13 @@
+using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
+using WinOptimizationApp.Views;
 
 namespace WinOptimizationApp;
 
 public sealed partial class App : Application
 {
     private Window? _window;
+    private SplashScreenWindow? _splashWindow;
 
     public App()
     {
@@ -24,15 +27,36 @@ public sealed partial class App : Application
         };
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         try
         {
-            _window = new MainWindow();
+            var startupTheme = ResolveStartupTheme(new AppSettingsService().Load().Theme);
+            _splashWindow = new SplashScreenWindow(startupTheme);
+            _splashWindow.Activate();
+            await _splashWindow.WaitUntilReadyAsync();
+
+            _splashWindow.SetStatus("Loading settings...");
+
+            var mainWindow = new MainWindow();
+            _splashWindow.SetStatus("Preparing dashboard...");
+            await mainWindow.CompleteStartupAsync();
+
+            _window = mainWindow;
             _window.Activate();
+            _splashWindow.Close();
+            _splashWindow = null;
         }
         catch (Exception ex)
         {
+            try
+            {
+                _splashWindow?.Close();
+            }
+            catch
+            {
+            }
+
             WriteCrashLog(ex);
             throw;
         }
@@ -43,14 +67,23 @@ public sealed partial class App : Application
         WriteCrashLog(args.Exception);
     }
 
+    private static ElementTheme ResolveStartupTheme(AppTheme? theme)
+    {
+        return theme switch
+        {
+            AppTheme.Light => ElementTheme.Light,
+            AppTheme.Dark => ElementTheme.Dark,
+            _ => Application.Current.RequestedTheme == ApplicationTheme.Dark ? ElementTheme.Dark : ElementTheme.Light
+        };
+    }
+
     private static void WriteCrashLog(Exception exception)
     {
         try
         {
-            var root = FindRepositoryRoot(AppRuntimePaths.OriginalBaseDirectory);
-            var logs = Path.Combine(root, "logs");
-            Directory.CreateDirectory(logs);
-            var path = Path.Combine(logs, $"app-crash-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+            var crashLogDirectory = AppRuntimePaths.OriginalBaseDirectory;
+            Directory.CreateDirectory(crashLogDirectory);
+            var path = Path.Combine(crashLogDirectory, $"app-crash-{DateTime.Now:yyyyMMdd-HHmmss}.log");
 
             var builder = new StringBuilder();
             builder.AppendLine(DateTimeOffset.Now.ToString("O"));

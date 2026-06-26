@@ -165,6 +165,19 @@ public sealed class IpcServer
                         return new IpcMessage("Response", json);
                     }
 
+                case "UpgradeWingetPackage":
+                    {
+                        var package = JsonSerializer.Deserialize<WingetPackage>(request.Payload ?? "{}");
+                        if (package == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+
+                        var result = await _winget.UpgradePackageAsync(package);
+                        var json = JsonSerializer.Serialize(result);
+                        return new IpcMessage("Response", json);
+                    }
+
                 case "PreviewTask":
                     {
                         var payload = JsonSerializer.Deserialize<PreviewTaskRequestPayload>(request.Payload ?? "{}");

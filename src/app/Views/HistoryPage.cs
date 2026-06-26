@@ -12,8 +12,12 @@ public sealed partial class HistoryPage : BasePage
         AddHeader(T("history.title"), T("history.subtitle"));
 
         var logsDir = MainWindow.Paths.LogsDirectory;
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        actions.Children.Add(ActionButton(T("history.openLogs"), Symbol.OpenFile, (_, _) => MainWindow.OpenFolder_Internal(logsDir)));
+
         if (!Directory.Exists(logsDir))
         {
+            MainContent.Children.Add(actions);
             MainContent.Children.Add(InfoBlock(T("history.empty")));
             return Task.CompletedTask;
         }
@@ -25,10 +29,10 @@ public sealed partial class HistoryPage : BasePage
 
         if (reports.Count > 0)
         {
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
             actions.Children.Add(ActionButton(T("history.clearAll"), Symbol.Delete, async (_, _) => await ClearAllHistoryAsync(logsDir)));
-            MainContent.Children.Add(actions);
         }
+
+        MainContent.Children.Add(actions);
 
         bool hasReports = false;
         foreach (var report in reports)

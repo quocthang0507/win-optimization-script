@@ -174,8 +174,8 @@ public abstract partial class BasePage : UserControl
     {
         var theme = ResolveEffectiveTheme();
         return theme == ElementTheme.Light
-            ? Brush(Color.FromArgb(60, 0, 0, 0))
-            : Brush(Color.FromArgb(45, 255, 255, 255));
+            ? Brush(Color.FromArgb(255, 214, 222, 232))
+            : Brush(Color.FromArgb(255, 58, 66, 79));
     }
 
     /// <summary>
@@ -185,8 +185,8 @@ public abstract partial class BasePage : UserControl
     {
         var theme = ResolveEffectiveTheme();
         return theme == ElementTheme.Light
-            ? Brush(Color.FromArgb(220, 245, 245, 245))
-            : Brush(Colors.White);
+            ? Brush(Color.FromArgb(255, 226, 232, 240))
+            : Brush(Color.FromArgb(255, 64, 72, 86));
     }
 
     /// <summary>
@@ -197,8 +197,8 @@ public abstract partial class BasePage : UserControl
     {
         var theme = ResolveEffectiveTheme();
         return theme == ElementTheme.Light
-            ? Brush(Colors.White)
-            : Brush(Color.FromArgb(12, 255, 255, 255));
+            ? Brush(Color.FromArgb(255, 252, 253, 255))
+            : Brush(Color.FromArgb(255, 31, 36, 44));
     }
 
     private static ElementTheme ResolveEffectiveTheme()

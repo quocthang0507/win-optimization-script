@@ -321,9 +321,9 @@ function Run-WingetUpgrade {
         return
     }
 
-    Write-Host "Running 'winget upgrade --all'..." -ForegroundColor Cyan
+    Write-Host "Running 'winget upgrade --all' with source/package agreements accepted..." -ForegroundColor Cyan
     # Using Start-Process to prevent the progress bar from bugging out PowerShell's output
-    Start-Process -FilePath "winget" -ArgumentList "upgrade --all" -Wait -NoNewWindow
+    Start-Process -FilePath "winget" -ArgumentList "upgrade --all --silent --accept-package-agreements --accept-source-agreements --disable-interactivity" -Wait -NoNewWindow
     Pause-ForUser
 }
 

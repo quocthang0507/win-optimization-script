@@ -149,7 +149,7 @@ public sealed class MaintenanceExecutionService(
         }
         else
         {
-            var result = await _commands.RunCaptureAsync("winget.exe", "upgrade --all", cancellationToken);
+            var result = await _commands.RunCaptureAsync("winget.exe", WingetService.BuildUpgradeAllArguments(), cancellationToken);
             messages.Add(result.StandardOutput.Trim());
             if (result.ExitCode != 0 || !string.IsNullOrWhiteSpace(result.StandardError))
             {

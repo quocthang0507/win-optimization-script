@@ -22,6 +22,7 @@
   <ItemGroup>
     <Compile Include="..\app\Models\AppLanguage.cs" Link="Production\Models\AppLanguage.cs" />
     <Compile Include="..\app\Models\AppUpdateInfo.cs" Link="Production\Models\AppUpdateInfo.cs" />
+    <Compile Include="..\app\Models\CleanupTargetPreview.cs" Link="Production\Models\CleanupTargetPreview.cs" />
     <Compile Include="..\app\Models\CloudStorageLocation.cs" Link="Production\Models\CloudStorageLocation.cs" />
     <Compile Include="..\app\Models\CloudStorageProvider.cs" Link="Production\Models\CloudStorageProvider.cs" />
     <Compile Include="..\app\Models\DiskItem.cs" Link="Production\Models\DiskItem.cs" />
@@ -43,12 +44,15 @@
     <Compile Include="..\app\Models\StorageCleanupCandidate.cs" Link="Production\Models\StorageCleanupCandidate.cs" />
     <Compile Include="..\app\Models\StorageCleanupMode.cs" Link="Production\Models\StorageCleanupMode.cs" />
     <Compile Include="..\app\Models\TaskRunResult.cs" Link="Production\Models\TaskRunResult.cs" />
+    <Compile Include="..\app\Models\TaskPreview.cs" Link="Production\Models\TaskPreview.cs" />
     <Compile Include="..\app\Models\RegistryIssue.cs" Link="Production\Models\RegistryIssue.cs" />
     <Compile Include="..\app\Models\InstalledApp.cs" Link="Production\Models\InstalledApp.cs" />
     <Compile Include="..\app\Models\SystemMetrics.cs" Link="Production\Models\SystemMetrics.cs" />
+    <Compile Include="..\app\Models\WingetPackage.cs" Link="Production\Models\WingetPackage.cs" />
     <Compile Include="..\app\Services\AppProcessLauncher.cs" Link="Production\Services\AppProcessLauncher.cs" />
     <Compile Include="..\app\Services\AppRuntimePaths.cs" Link="Production\Services\AppRuntimePaths.cs" />
     <Compile Include="..\app\Services\CloudStorageDetector.cs" Link="Production\Services\CloudStorageDetector.cs" />
+    <Compile Include="..\app\Services\CleanupService.cs" Link="Production\Services\CleanupService.cs" />
     <Compile Include="..\app\Services\CommandRunner.cs" Link="Production\Services\CommandRunner.cs" />
     <Compile Include="..\app\Services\DashboardExportService.cs" Link="Production\Services\DashboardExportService.cs" />
     <Compile Include="..\app\Services\DashboardHealthCheckService.cs" Link="Production\Services\DashboardHealthCheckService.cs" />
@@ -69,6 +73,7 @@
     <Compile Include="..\app\Services\RegistryCleanerService.cs" Link="Production\Services\RegistryCleanerService.cs" />
     <Compile Include="..\app\Services\NetworkOptimizationService.cs" Link="Production\Services\NetworkOptimizationService.cs" />
     <Compile Include="..\app\Services\UninstallerService.cs" Link="Production\Services\UninstallerService.cs" />
+    <Compile Include="..\app\Services\WingetService.cs" Link="Production\Services\WingetService.cs" />
     <Compile Include="..\app\Services\IpcClient.cs" Link="Production\Services\IpcClient.cs" />
     <Compile Include="..\app\Services\IpcMessages.cs" Link="Production\Services\IpcMessages.cs" />
     <Compile Include="..\app\Services\ProcessEfficiencyService.cs" Link="Production\Services\ProcessEfficiencyService.cs" />

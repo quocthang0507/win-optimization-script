@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
@@ -79,6 +80,27 @@ public sealed class CleanupService(CommandRunner commands)
                         if (!string.IsNullOrWhiteSpace(result.StandardError))
                         {
                             errors.Add(result.StandardError.Trim());
+                        }
+                        break;
+                    }
+
+                case "cleanup.diskcleanup":
+                    {
+                        foreach (var command in GetPlannedCommands(task.Id))
+                        {
+                            var (fileName, arguments) = SplitCommand(command);
+                            var result = await _commands.RunCaptureAsync(fileName, arguments, cancellationToken);
+                            messages.Add($"{command}: exit {result.ExitCode}");
+                            if (!string.IsNullOrWhiteSpace(result.StandardOutput))
+                            {
+                                messages.Add(result.StandardOutput.Trim());
+                            }
+
+                            if (result.ExitCode != 0 && !string.IsNullOrWhiteSpace(result.StandardError))
+                            {
+                                errors.Add(result.StandardError.Trim());
+                                break;
+                            }
                         }
                         break;
                     }
@@ -194,12 +216,23 @@ public sealed class CleanupService(CommandRunner commands)
             [
                 ("Windows.old", Path.Combine(systemDrive, "Windows.old"))
             ],
+            "privacy.recentFiles" => GetRecentFileTargets(appData),
             "privacy.powershell" =>
             [
                 ("PowerShell history", Path.Combine(appData, "Microsoft", "Windows", "PowerShell", "PSReadLine", "ConsoleHost_history.txt"))
             ],
+            "privacy.browserHistory" => GetBrowserHistoryTargets(localAppData, appData),
+            "privacy.browserCookies" => GetBrowserCookieAndSessionTargets(localAppData, appData),
             _ => []
         };
+    }
+
+    private static IEnumerable<(string Name, string Path)> GetRecentFileTargets(string appData)
+    {
+        var recentRoot = Path.Combine(appData, "Microsoft", "Windows", "Recent");
+        yield return ("Recent documents", recentRoot);
+        yield return ("Automatic jump lists", Path.Combine(recentRoot, "AutomaticDestinations"));
+        yield return ("Custom jump lists", Path.Combine(recentRoot, "CustomDestinations"));
     }
 
     private static IEnumerable<(string Name, string Path)> GetBrowserTargets(string localAppData, string appData)
@@ -246,9 +279,89 @@ public sealed class CleanupService(CommandRunner commands)
         }
     }
 
+    private static IEnumerable<(string Name, string Path)> GetBrowserHistoryTargets(string localAppData, string appData)
+    {
+        string[] chromiumHistoryFiles = ["History", "History-journal", "Visited Links", "Top Sites", "Top Sites-journal"];
+
+        foreach (var (browser, profile) in GetChromiumProfiles(localAppData, appData))
+        {
+            foreach (var file in chromiumHistoryFiles)
+            {
+                yield return ($"{browser} {Path.GetFileName(profile)} {file}", Path.Combine(profile, file));
+            }
+        }
+
+        foreach (var profile in GetFirefoxProfiles(appData))
+        {
+            yield return ($"Firefox {Path.GetFileName(profile)} history", Path.Combine(profile, "places.sqlite"));
+            yield return ($"Firefox {Path.GetFileName(profile)} history wal", Path.Combine(profile, "places.sqlite-wal"));
+            yield return ($"Firefox {Path.GetFileName(profile)} history shm", Path.Combine(profile, "places.sqlite-shm"));
+            yield return ($"Firefox {Path.GetFileName(profile)} form history", Path.Combine(profile, "formhistory.sqlite"));
+        }
+    }
+
+    private static IEnumerable<(string Name, string Path)> GetBrowserCookieAndSessionTargets(string localAppData, string appData)
+    {
+        foreach (var (browser, profile) in GetChromiumProfiles(localAppData, appData))
+        {
+            yield return ($"{browser} {Path.GetFileName(profile)} cookies", Path.Combine(profile, "Network", "Cookies"));
+            yield return ($"{browser} {Path.GetFileName(profile)} cookies journal", Path.Combine(profile, "Network", "Cookies-journal"));
+            yield return ($"{browser} {Path.GetFileName(profile)} legacy cookies", Path.Combine(profile, "Cookies"));
+            yield return ($"{browser} {Path.GetFileName(profile)} legacy cookies journal", Path.Combine(profile, "Cookies-journal"));
+            yield return ($"{browser} {Path.GetFileName(profile)} sessions", Path.Combine(profile, "Sessions"));
+            yield return ($"{browser} {Path.GetFileName(profile)} session storage", Path.Combine(profile, "Session Storage"));
+        }
+
+        foreach (var profile in GetFirefoxProfiles(appData))
+        {
+            yield return ($"Firefox {Path.GetFileName(profile)} cookies", Path.Combine(profile, "cookies.sqlite"));
+            yield return ($"Firefox {Path.GetFileName(profile)} cookies wal", Path.Combine(profile, "cookies.sqlite-wal"));
+            yield return ($"Firefox {Path.GetFileName(profile)} cookies shm", Path.Combine(profile, "cookies.sqlite-shm"));
+            yield return ($"Firefox {Path.GetFileName(profile)} session", Path.Combine(profile, "sessionstore.jsonlz4"));
+            yield return ($"Firefox {Path.GetFileName(profile)} session backups", Path.Combine(profile, "sessionstore-backups"));
+        }
+    }
+
+    private static IEnumerable<(string Browser, string Profile)> GetChromiumProfiles(string localAppData, string appData)
+    {
+        var chromiumRoots = new (string Browser, string Root)[]
+        {
+            ("Edge", Path.Combine(localAppData, "Microsoft", "Edge", "User Data")),
+            ("Chrome", Path.Combine(localAppData, "Google", "Chrome", "User Data")),
+            ("Brave", Path.Combine(localAppData, "BraveSoftware", "Brave-Browser", "User Data")),
+            ("Opera", Path.Combine(appData, "Opera Software", "Opera Stable"))
+        };
+
+        foreach (var (browser, root) in chromiumRoots)
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            var profiles = Directory.GetDirectories(root)
+                .Where(path => Path.GetFileName(path).Equals("Default", StringComparison.OrdinalIgnoreCase) ||
+                               Path.GetFileName(path).StartsWith("Profile ", StringComparison.OrdinalIgnoreCase))
+                .DefaultIfEmpty(root);
+
+            foreach (var profile in profiles)
+            {
+                yield return (browser, profile);
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetFirefoxProfiles(string appData)
+    {
+        var firefoxProfiles = Path.Combine(appData, "Mozilla", "Firefox", "Profiles");
+        return Directory.Exists(firefoxProfiles)
+            ? Directory.GetDirectories(firefoxProfiles)
+            : [];
+    }
+
     private static IEnumerable<string> GetWarnings(string taskId)
     {
-        if (taskId == "cleanup.browser")
+        if (taskId is "cleanup.browser" or "privacy.browserHistory" or "privacy.browserCookies")
         {
             string[] names = ["msedge", "chrome", "firefox", "brave", "opera"];
             foreach (var processName in names)
@@ -268,6 +381,13 @@ public sealed class CleanupService(CommandRunner commands)
 
     private IEnumerable<string> GetPlannedCommands(string taskId)
     {
+        if (taskId == "cleanup.diskcleanup")
+        {
+            yield return "cleanmgr.exe /sageset:7307";
+            yield return "cleanmgr.exe /sagerun:7307";
+            yield break;
+        }
+
         if (taskId != "cleanup.dev")
         {
             yield break;
@@ -436,6 +556,7 @@ public sealed class CleanupService(CommandRunner commands)
             Path.Combine(localAppData, "BraveSoftware", "Brave-Browser", "User Data"),
             Path.Combine(appData, "Opera Software", "Opera Stable"),
             Path.Combine(appData, "Mozilla", "Firefox", "Profiles"),
+            Path.Combine(appData, "Microsoft", "Windows", "Recent"),
             Path.Combine(windir, "SoftwareDistribution", "Download"),
             Path.Combine(windir, "SoftwareDistribution", "DeliveryOptimization"),
             Path.Combine(programData, "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
