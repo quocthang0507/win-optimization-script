@@ -16,3 +16,4 @@ logs/
 *.user
 *.userosscache
 *.sln.docstates
+src/.vs/WinOptimizationApp.slnx/v18/.suo
