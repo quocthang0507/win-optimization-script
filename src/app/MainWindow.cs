@@ -659,13 +659,29 @@ public sealed class MainWindow : Window
 
         foreach (var message in result.Messages.Where(message => !string.IsNullOrWhiteSpace(message)).Take(100))
         {
-            logPanel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+            logPanel.Children.Add(new TextBox 
+            { 
+                Text = message, 
+                TextWrapping = TextWrapping.Wrap, 
+                IsReadOnly = true,
+                BorderThickness = new Thickness(0),
+                Background = new SolidColorBrush(Colors.Transparent),
+                Opacity = 0.8 
+            });
             hasDetails = true;
         }
 
         foreach (var error in result.Errors.Where(error => !string.IsNullOrWhiteSpace(error)).Take(100))
         {
-            logPanel.Children.Add(new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Colors.IndianRed) });
+            logPanel.Children.Add(new TextBox 
+            { 
+                Text = error, 
+                TextWrapping = TextWrapping.Wrap, 
+                IsReadOnly = true,
+                BorderThickness = new Thickness(0),
+                Background = new SolidColorBrush(Colors.Transparent),
+                Foreground = new SolidColorBrush(Colors.IndianRed) 
+            });
             hasDetails = true;
         }
 

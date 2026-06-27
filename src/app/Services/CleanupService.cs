@@ -498,6 +498,14 @@ public sealed class CleanupService(CommandRunner commands)
         {
             try
             {
+                var fileName = Path.GetFileName(file).ToLowerInvariant();
+                if (fileName == "f01b4d95cf55d32a.automaticdestinations-ms" || 
+                    fileName == "5b39b05c22c0cbb0.customdestinations-ms" ||
+                    fileName == "f01b4d95cf55d32a.customdestinations-ms")
+                {
+                    continue;
+                }
+
                 var bytes = new FileInfo(file).Length;
                 File.Delete(file);
                 removed++;
