@@ -24,7 +24,10 @@
     <Compile Include="..\app\Models\AppLanguage.cs" Link="Production\Models\AppLanguage.cs" />
     <Compile Include="..\app\Models\AppSettings.cs" Link="Production\Models\AppSettings.cs" />
     <Compile Include="..\app\Models\AppWinUiStyle.cs" Link="Production\Models\AppWinUiStyle.cs" />
+    <Compile Include="..\app\Models\CleanerEntry.cs" Link="Production\Models\CleanerEntry.cs" />
     <Compile Include="..\app\Services\AppSettingsService.cs" Link="Production\Services\AppSettingsService.cs" />
+    <Compile Include="..\app\Services\PathExpander.cs" Link="Production\Services\PathExpander.cs" />
+    <Compile Include="..\app\Services\Winapp2Parser.cs" Link="Production\Services\Winapp2Parser.cs" />
     <Compile Include="..\app\Models\AppUpdateInfo.cs" Link="Production\Models\AppUpdateInfo.cs" />
     <Compile Include="..\app\Models\CleanupTargetPreview.cs" Link="Production\Models\CleanupTargetPreview.cs" />
     <Compile Include="..\app\Models\CloudStorageLocation.cs" Link="Production\Models\CloudStorageLocation.cs" />

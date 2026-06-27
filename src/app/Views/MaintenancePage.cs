@@ -49,6 +49,27 @@ public sealed partial class MaintenancePage : BasePage
         }
     }
 
+    public override async Task OnNavigatedToAsync()
+    {
+        // Only load Winapp2 for the Cleanup page (which includes privacy)
+        var hasPrivacy = MainContent.Children.OfType<Border>().Any(); 
+        if (hasPrivacy)
+        {
+            try
+            {
+                var entries = await MainWindow.Winapp2.GetDetectedEntriesAsync();
+                if (entries.Count > 0)
+                {
+                    MainContent.Children.Add(Winapp2CleanerPanel(entries));
+                }
+            }
+            catch
+            {
+                // Ignore parsing errors and skip UI
+            }
+        }
+    }
+
     private void AddTaskRow(MaintenanceTask task)
     {
         var row = new Border
@@ -177,5 +198,135 @@ public sealed partial class MaintenancePage : BasePage
         var key = $"privacy.item.{itemId}.{field}";
         var value = T(key);
         return value == key ? fallback : value;
+    }
+
+    private Border Winapp2CleanerPanel(List<CleanerEntry> entries)
+    {
+        var stack = new StackPanel { Spacing = 10 };
+        stack.Children.Add(SectionTitle("Third-Party App Cleaner (Winapp2)"));
+        stack.Children.Add(InfoBlock($"Detected {entries.Count} supported applications on your system."));
+
+        var row = new Grid { ColumnSpacing = 12, MinHeight = 44 };
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        // Dropdown with Checkboxes (ListView inside Flyout)
+        var dropDownBtn = new DropDownButton
+        {
+            Content = $"Select apps to clean ({entries.Count(e => e.Default)} selected)",
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+
+        var listView = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.Multiple,
+            MaxHeight = 400,
+            Width = 350
+        };
+
+        foreach (var entry in entries)
+        {
+            var item = new ListViewItem
+            {
+                Content = entry.Name,
+                Tag = entry,
+                IsSelected = entry.Default
+            };
+            listView.Items.Add(item);
+        }
+
+        listView.SelectionChanged += (s, e) =>
+        {
+            dropDownBtn.Content = $"Select apps to clean ({listView.SelectedItems.Count} selected)";
+        };
+
+        var flyout = new Flyout
+        {
+            Content = listView,
+            Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Bottom
+        };
+        dropDownBtn.Flyout = flyout;
+        Grid.SetColumn(dropDownBtn, 0);
+        row.Children.Add(dropDownBtn);
+
+        var runBtn = new Button { Content = T("common.run"), MinWidth = 82 };
+        runBtn.Click += async (_, _) =>
+        {
+            var selected = listView.SelectedItems.Select(i => (CleanerEntry)((ListViewItem)i).Tag).ToList();
+            await RunWinapp2CleanupAsync(selected);
+        };
+        Grid.SetColumn(runBtn, 1);
+        row.Children.Add(runBtn);
+
+        stack.Children.Add(row);
+
+        return new Border
+        {
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Child = stack,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+    }
+
+    private async Task RunWinapp2CleanupAsync(List<CleanerEntry> selectedEntries)
+    {
+        MainWindow.SetStatusText("Cleaning third-party apps...");
+        var freed = 0L;
+        var files = 0;
+        var errors = new List<string>();
+
+        await Task.Run(() =>
+        {
+            foreach (var entry in selectedEntries)
+            {
+                foreach (var fileKey in entry.FileKeys)
+                {
+                    var path = PathExpander.Expand(fileKey.Path);
+                    if (Directory.Exists(path))
+                    {
+                        try
+                        {
+                            var searchOption = fileKey.Recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                            var searchPattern = fileKey.Extension == "*.*" ? "*" : fileKey.Extension;
+                            foreach (var file in Directory.EnumerateFiles(path, searchPattern, searchOption))
+                            {
+                                try
+                                {
+                                    var info = new FileInfo(file);
+                                    freed += info.Length;
+                                    File.Delete(file);
+                                    files++;
+                                }
+                                catch { }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            errors.Add($"{entry.Name}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+        });
+
+        MainWindow.SetStatusText(T("common.ready"));
+        var result = new TaskRunResult(
+            "winapp2.cleanup",
+            "Third-Party App Cleanup",
+            DateTimeOffset.Now,
+            DateTimeOffset.Now,
+            errors.Count == 0,
+            freed,
+            files,
+            0,
+            new List<string> { $"Cleaned {files} files across {selectedEntries.Count} apps." },
+            errors
+        );
+
+        await MainWindow.ShowRunResultAsync_Internal(result);
     }
 }

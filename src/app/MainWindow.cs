@@ -40,6 +40,7 @@ public sealed class MainWindow : Window
     internal RegistryCleanerService RegistryCleaner { get; }
     internal NetworkOptimizationService NetworkOptimizer { get; }
     internal UninstallerService Uninstaller { get; }
+    internal Winapp2Service Winapp2 { get; } = new();
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
 
