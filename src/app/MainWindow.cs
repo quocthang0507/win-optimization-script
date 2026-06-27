@@ -14,6 +14,7 @@ public sealed class MainWindow : Window
     private readonly CancellationTokenSource _shutdownCts = new();
     private bool _updateCheckStarted;
     private bool _isClosing;
+    private bool _isHidden;
     private bool _suppressNavigationSelectionChanged;
     private MiniToolbarWindow? _widgetWindow;
 
@@ -204,6 +205,22 @@ public sealed class MainWindow : Window
 
         Closed += (s, e) =>
         {
+            if (!_isClosing && _widgetWindow != null && Settings.WidgetEnabled)
+            {
+                // Widget is running — hide the main window instead of exiting.
+                _isHidden = true;
+                try
+                {
+                    var hwnd = WindowNative.GetWindowHandle(this);
+                    ShowWindow(hwnd, SW_HIDE);
+                }
+                catch
+                {
+                    // Best effort hide.
+                }
+                return;
+            }
+
             _isClosing = true;
             _shutdownCts.Cancel();
             ToggleWidget(false);
@@ -992,6 +1009,8 @@ public sealed class MainWindow : Window
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     private const int SW_RESTORE = 9;
+    private const int SW_HIDE = 0;
+    private const int SW_SHOW = 5;
 
     public void BringToForeground()
     {
@@ -1023,6 +1042,12 @@ public sealed class MainWindow : Window
                         Settings.WidgetEnabled = false;
                         SettingsService.Save(Settings);
                     }
+
+                    // If the main window is hidden and widget is closed, exit the app.
+                    if (_isHidden)
+                    {
+                        ExitApp();
+                    }
                 };
                 _widgetWindow.Activate();
             }
@@ -1032,5 +1057,40 @@ public sealed class MainWindow : Window
             _widgetWindow?.Close();
             _widgetWindow = null;
         }
+    }
+
+    internal void ShowMainWindow()
+    {
+        _isHidden = false;
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            ShowWindow(hwnd, SW_SHOW);
+            ShowWindow(hwnd, SW_RESTORE);
+            SetForegroundWindow(hwnd);
+        }
+        catch
+        {
+            // Best effort restore.
+        }
+        Activate();
+    }
+
+    internal void ExitApp()
+    {
+        _isClosing = true;
+        _isHidden = false;
+        _shutdownCts.Cancel();
+        ToggleWidget(false);
+        _ipcClient.Disconnect();
+        try
+        {
+            Close();
+        }
+        catch
+        {
+            // Window may already be closed.
+        }
+        Application.Current.Exit();
     }
 }

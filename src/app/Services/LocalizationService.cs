@@ -499,6 +499,8 @@ public sealed class LocalizationService
         ["widget.healthCheck"] = "Health Check",
         ["widget.scan"] = "Scan",
         ["widget.storage"] = "Storage",
+        ["widget.openApp"] = "Open App",
+        ["widget.exitApp"] = "Exit App",
         ["settings.widget"] = "Mini Toolbar Widget",
         ["settings.widgetDescription"] = "Enable a compact floating system monitoring widget on top of all windows."
     };
@@ -997,6 +999,8 @@ public sealed class LocalizationService
         ["widget.healthCheck"] = "Kiểm tra",
         ["widget.scan"] = "Quét dọn",
         ["widget.storage"] = "Bộ nhớ",
+        ["widget.openApp"] = "Mở ứng dụng",
+        ["widget.exitApp"] = "Thoát ứng dụng",
         ["settings.widget"] = "Widget thanh công cụ nổi",
         ["settings.widgetDescription"] = "Hiển thị widget giám sát hệ thống nổi nhỏ gọn trên cùng các cửa sổ khác."
     };

@@ -4,8 +4,8 @@ namespace WinOptimizationApp.Views;
 
 public sealed class SplashScreenWindow : Window
 {
-    private const int SplashWidth = 560;
-    private const int SplashHeight = 320;
+    private const int SplashWidth = 620;
+    private const int SplashHeight = 380;
 
     private readonly TextBlock _statusText;
     private readonly TaskCompletionSource<bool> _loadedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -43,6 +43,9 @@ public sealed class SplashScreenWindow : Window
         await Task.Delay(350);
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
     private static (Grid Layout, TextBlock StatusText) CreateLayout(ElementTheme theme)
     {
         var isDark = theme == ElementTheme.Dark;
@@ -78,8 +81,8 @@ public sealed class SplashScreenWindow : Window
 
         var surface = new Border
         {
-            Margin = new Thickness(16),
-            Padding = new Thickness(28),
+            Margin = new Thickness(20),
+            Padding = new Thickness(32),
             CornerRadius = new CornerRadius(24),
             BorderThickness = new Thickness(1),
             BorderBrush = new SolidColorBrush(border),
@@ -96,8 +99,8 @@ public sealed class SplashScreenWindow : Window
 
         var hero = new Grid
         {
-            ColumnSpacing = 22,
-            Margin = new Thickness(0, 0, 0, 22)
+            ColumnSpacing = 24,
+            Margin = new Thickness(0, 0, 0, 26)
         };
         hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(86) });
         hero.ColumnDefinitions.Add(new ColumnDefinition());
@@ -135,7 +138,7 @@ public sealed class SplashScreenWindow : Window
             FontSize = 13,
             Foreground = new SolidColorBrush(mutedText),
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(2, 0, 2, 10)
+            Margin = new Thickness(2, 0, 2, 14)
         };
         Grid.SetRow(statusText, 1);
         content.Children.Add(statusText);
@@ -215,15 +218,20 @@ public sealed class SplashScreenWindow : Window
                 return;
             }
 
-            appWindow.ResizeClient(new Windows.Graphics.SizeInt32(SplashWidth, SplashHeight));
+            var dpi = GetDpiForWindow(_windowHandle);
+            var scaleFactor = dpi / 96.0;
+            var physicalWidth = (int)(SplashWidth * scaleFactor);
+            var physicalHeight = (int)(SplashHeight * scaleFactor);
+
+            appWindow.ResizeClient(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
 
             var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
             if (displayArea is not null)
             {
                 var workArea = displayArea.WorkArea;
                 appWindow.Move(new Windows.Graphics.PointInt32(
-                    workArea.X + ((workArea.Width - SplashWidth) / 2),
-                    workArea.Y + ((workArea.Height - SplashHeight) / 2)));
+                    workArea.X + ((workArea.Width - physicalWidth) / 2),
+                    workArea.Y + ((workArea.Height - physicalHeight) / 2)));
             }
 
             if (appWindow.Presenter is OverlappedPresenter presenter)

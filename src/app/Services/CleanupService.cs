@@ -414,7 +414,7 @@ public sealed class CleanupService(CommandRunner commands)
         }
     }
 
-    private static CleanupTargetPreview PreviewTarget(string name, string path)
+    internal static CleanupTargetPreview PreviewTarget(string name, string path)
     {
         try
         {

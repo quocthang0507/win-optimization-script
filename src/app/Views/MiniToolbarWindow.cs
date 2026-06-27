@@ -44,6 +44,9 @@ public sealed class MiniToolbarWindow : Window
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
     private void ApplySystemBackdrop()
     {
         SystemBackdrop = _mainWindow.Settings.WinUiStyle switch
@@ -161,13 +164,22 @@ public sealed class MiniToolbarWindow : Window
         header.Children.Add(title);
 
         var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+
+        var openApp = HeaderButton(Symbol.Home, T("widget.openApp"));
+        openApp.Click += (_, _) => _mainWindow.ShowMainWindow();
+        controls.Children.Add(openApp);
+
         var settings = HeaderButton(Symbol.Setting, T("widget.configure"));
         settings.Flyout = CreateSettingsFlyout();
         controls.Children.Add(settings);
 
-        var close = HeaderButton(Symbol.Cancel, T("common.close"));
-        close.Click += (_, _) => Close();
-        controls.Children.Add(close);
+        var closeWidget = HeaderButton(Symbol.Cancel, T("common.close"));
+        closeWidget.Click += (_, _) => Close();
+        controls.Children.Add(closeWidget);
+
+        var exitApp = HeaderButton((Symbol)0xE7E8, T("widget.exitApp")); // Symbol.PowerButton
+        exitApp.Click += (_, _) => _mainWindow.ExitApp();
+        controls.Children.Add(exitApp);
 
         Grid.SetColumn(controls, 1);
         header.Children.Add(controls);
@@ -355,7 +367,13 @@ public sealed class MiniToolbarWindow : Window
     {
         var windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new Windows.Graphics.SizeInt32(360, 292));
+
+        var dpi = GetDpiForWindow(_windowHandle);
+        var scaleFactor = dpi / 96.0;
+        var physicalWidth = (int)(380 * scaleFactor);
+        var physicalHeight = (int)(340 * scaleFactor);
+
+        appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
 
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {

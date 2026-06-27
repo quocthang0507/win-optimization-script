@@ -339,7 +339,7 @@ function Run-DISMRepair {
 function Run-DiskCleanupGUI {
 
     Invoke-Spinner -Message "Launching Disk Cleanup (GUI)" -ScriptBlock {
-        Start-Process -FilePath "cleanmgr.exe" -ArgumentList "/d C:" -NoNewWindow -Wait
+        Start-Process -FilePath "cleanmgr.exe" -ArgumentList "/d $env:SystemDrive" -NoNewWindow -Wait
     }
     Pause-ForUser
 }

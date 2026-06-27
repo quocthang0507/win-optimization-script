@@ -34,7 +34,7 @@ public static class ProcessEfficiencyService
         try
         {
             using var currentProcess = Process.GetCurrentProcess();
-            
+
             // In Windows, the green leaf icon in Task Manager is shown only when
             // both EcoQoS is enabled and the process priority class is set to Idle.
             currentProcess.PriorityClass = ProcessPriorityClass.Idle;

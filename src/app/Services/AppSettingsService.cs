@@ -1,4 +1,7 @@
 using WinOptimizationApp.Models;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WinOptimizationApp.Services;
 
@@ -10,7 +13,12 @@ public sealed class AppSettingsService
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public string SettingsPath { get; } = Path.Combine(AppRuntimePaths.OriginalBaseDirectory, "settings.json");
+    public AppSettingsService(string? customPath = null)
+    {
+        SettingsPath = customPath ?? Path.Combine(AppRuntimePaths.OriginalBaseDirectory, "settings.json");
+    }
+
+    public string SettingsPath { get; }
 
     public AppSettings Load()
     {

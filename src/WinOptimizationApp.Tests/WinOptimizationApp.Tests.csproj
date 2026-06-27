@@ -20,7 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\app\Models\AppTheme.cs" Link="Production\Models\AppTheme.cs" />
     <Compile Include="..\app\Models\AppLanguage.cs" Link="Production\Models\AppLanguage.cs" />
+    <Compile Include="..\app\Models\AppSettings.cs" Link="Production\Models\AppSettings.cs" />
+    <Compile Include="..\app\Models\AppWinUiStyle.cs" Link="Production\Models\AppWinUiStyle.cs" />
+    <Compile Include="..\app\Services\AppSettingsService.cs" Link="Production\Services\AppSettingsService.cs" />
     <Compile Include="..\app\Models\AppUpdateInfo.cs" Link="Production\Models\AppUpdateInfo.cs" />
     <Compile Include="..\app\Models\CleanupTargetPreview.cs" Link="Production\Models\CleanupTargetPreview.cs" />
     <Compile Include="..\app\Models\CloudStorageLocation.cs" Link="Production\Models\CloudStorageLocation.cs" />
