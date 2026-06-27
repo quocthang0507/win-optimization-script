@@ -28,8 +28,8 @@ public static class PrivacyCleanerCatalog
                 "Clears Windows recent documents, jump lists and taskbar recent shortcuts."),
             new PrivacyCleanupItem(
                 "privacy.powershell",
-                "PowerShell history",
-                "PSReadLine console history",
+                "Command & Run history",
+                "PSReadLine, Clink and Run dialog",
                 RiskLevel.Medium,
                 IsSensitive: true,
                 IsSelectedByDefault: false,
