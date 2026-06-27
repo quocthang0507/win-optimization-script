@@ -72,10 +72,6 @@ public sealed class SplashScreenWindow : Window
 
         var root = new Grid
         {
-            MinWidth = SplashWidth,
-            MinHeight = SplashHeight,
-            Width = SplashWidth,
-            Height = SplashHeight,
             RequestedTheme = theme,
             Background = new SolidColorBrush(background)
         };
