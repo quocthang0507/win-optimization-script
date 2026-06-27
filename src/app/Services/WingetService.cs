@@ -55,6 +55,29 @@ public sealed class WingetService
             result.StandardError.Trim());
     }
 
+    public async Task<WingetPackageUpgradeResult> InstallPackageAsync(string packageId, CancellationToken cancellationToken = default)
+    {
+        if (Client != null)
+        {
+            var response = await Client.SendRequestAsync("InstallWingetPackage", packageId);
+            return System.Text.Json.JsonSerializer.Deserialize<WingetPackageUpgradeResult>(response)
+                ?? new WingetPackageUpgradeResult(new WingetPackage(packageId, packageId, "", "", ""), false, -1, string.Empty, "Failed to deserialize winget install result.");
+        }
+
+        if (!_commands.Exists("winget"))
+        {
+            return new WingetPackageUpgradeResult(new WingetPackage(packageId, packageId, "", "", ""), false, -1, string.Empty, "winget is not available.");
+        }
+
+        var result = await _commands.RunCaptureAsync("winget.exe", BuildInstallArguments(packageId), cancellationToken);
+        return new WingetPackageUpgradeResult(
+            new WingetPackage(packageId, packageId, "", "", ""),
+            result.ExitCode == 0,
+            result.ExitCode,
+            result.StandardOutput.Trim(),
+            result.StandardError.Trim());
+    }
+
     public static string BuildUpgradeAllArguments()
     {
         return $"upgrade --all --silent {AgreementArguments}";
@@ -67,6 +90,11 @@ public sealed class WingetService
             : $" --source {QuoteArgument(package.Source)}";
 
         return $"upgrade --id {QuoteArgument(package.Id)} --exact --silent{source} {AgreementArguments}";
+    }
+
+    public static string BuildInstallArguments(string packageId)
+    {
+        return $"install --id {QuoteArgument(packageId)} --exact --silent {AgreementArguments}";
     }
 
     private static IReadOnlyList<WingetPackage> Parse(string output)

@@ -84,6 +84,14 @@
     <Compile Include="..\app\Services\IpcClient.cs" Link="Production\Services\IpcClient.cs" />
     <Compile Include="..\app\Services\IpcMessages.cs" Link="Production\Services\IpcMessages.cs" />
     <Compile Include="..\app\Services\ProcessEfficiencyService.cs" Link="Production\Services\ProcessEfficiencyService.cs" />
+    <Compile Include="..\app\Models\SystemTweak.cs" Link="Production\Models\SystemTweak.cs" />
+    <Compile Include="..\app\Services\TweakService.cs" Link="Production\Services\TweakService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\app\Assets\Langs\**" Link="Assets\Langs\%(RecursiveDir)%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

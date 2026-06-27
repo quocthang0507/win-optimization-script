@@ -41,6 +41,8 @@ public sealed partial class SettingsPage : BasePage
             MainWindow.Paths.RepositoryRoot,
             T("common.open"),
             (_, _) => MainWindow.OpenFolder_Internal(MainWindow.Paths.RepositoryRoot)));
+
+        MainContent.Children.Add(AcknowledgmentsCard());
     }
 
     private Border LanguageCard()
@@ -216,6 +218,40 @@ public sealed partial class SettingsPage : BasePage
         Grid.SetColumn(toggle, 1);
         grid.Children.Add(toggle);
         border.Child = grid;
+        return border;
+    }
+
+    private Border AcknowledgmentsCard()
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock { Text = "Acknowledgments", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 18 });
+        stack.Children.Add(new TextBlock { Text = "This project takes inspiration and borrows concepts/architectural patterns from the following amazing open-source projects:", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+        
+        var list = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 0) };
+        
+        var fluentCleaner = new HyperlinkButton { Content = "FluentCleaner (builtbybel)", NavigateUri = new Uri("https://github.com/builtbybel/FluentCleaner") };
+        var fluentDesc = new TextBlock { Text = "Inspired the integration of the Winapp2 third-party cleaning database and dynamic UWP app cleaning functionalities.", TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        list.Children.Add(fluentCleaner);
+        list.Children.Add(fluentDesc);
+
+        var winhance = new HyperlinkButton { Content = "Winhance (memstechtips)", NavigateUri = new Uri("https://github.com/memstechtips/Winhance"), Margin = new Thickness(0, 8, 0, 0) };
+        var winhanceDesc = new TextBlock { Text = "Inspired the comprehensive system optimization, registry tweaking toggles, and advanced Windows bloatware removal features.", TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        list.Children.Add(winhance);
+        list.Children.Add(winhanceDesc);
+
+        stack.Children.Add(list);
+        border.Child = stack;
+
         return border;
     }
 }

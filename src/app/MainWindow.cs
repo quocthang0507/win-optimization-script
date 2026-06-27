@@ -43,6 +43,8 @@ public sealed class MainWindow : Window
     internal Winapp2Service Winapp2 { get; } = new();
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
+    internal IpcClient IpcClient => _ipcClient;
+    internal IntPtr WindowHandle => WinRT.Interop.WindowNative.GetWindowHandle(this);
 
     public MainWindow()
     {
@@ -150,9 +152,12 @@ public sealed class MainWindow : Window
 
         AddNavItem("dashboard", "nav.dashboard", Symbol.Home);
         AddNavItem("cleanup", "nav.cleanup", Symbol.Delete);
+        AddNavItem("bloatware", "nav.bloatware", Symbol.AllApps);
         AddNavItem("storage", "nav.storage", Symbol.View);
         AddNavItem("startup", "nav.startup", Symbol.List);
         AddNavItem("updates", "nav.updates", Symbol.Download);
+        AddNavItem("software", "nav.software", Symbol.Shop);
+        AddNavItem("optimize", "nav.optimize", Symbol.Setting);
         AddNavItem("repair", "nav.repair", Symbol.Refresh);
         AddNavItem("toolbox", "nav.toolbox", Symbol.Repair);
         AddNavItem("history", "nav.history", Symbol.Document);
@@ -408,9 +413,12 @@ public sealed class MainWindow : Window
             {
                 "dashboard" => new DashboardPage(this),
                 "cleanup" => new MaintenancePage(this, T("nav.cleanup"), "Cleanup", includePrivacy: true),
+                "bloatware" => new BloatwarePage(this),
                 "storage" => new StoragePage(this),
                 "startup" => new StartupPage(this),
                 "updates" => new UpdatesPage(this),
+                "software" => new SoftwareInstallerPage(this),
+                "optimize" => new OptimizePage(this),
                 "repair" => new MaintenancePage(this, T("nav.repair"), "Repair", includeOptimization: true),
                 "history" => new HistoryPage(this),
                 "settings" => new SettingsPage(this),

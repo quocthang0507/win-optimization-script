@@ -36,4 +36,18 @@ public sealed class WingetServiceTests
         Assert.Contains("--accept-source-agreements", arguments);
         Assert.Contains("--disable-interactivity", arguments);
     }
+
+    [Fact]
+    public void BuildInstallArguments_TargetsSinglePackageAndDisablesInteractiveAgreementPrompts()
+    {
+        var packageId = "Google.Chrome";
+
+        var arguments = WingetService.BuildInstallArguments(packageId);
+
+        Assert.Contains("install --id \"Google.Chrome\" --exact", arguments);
+        Assert.Contains("--silent", arguments);
+        Assert.Contains("--accept-package-agreements", arguments);
+        Assert.Contains("--accept-source-agreements", arguments);
+        Assert.Contains("--disable-interactivity", arguments);
+    }
 }

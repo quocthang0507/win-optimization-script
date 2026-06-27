@@ -448,4 +448,95 @@ public sealed class UninstallerService
         var parts = clean.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         return string.Join(" ", parts).Trim().ToLowerInvariant();
     }
+
+    public async Task<IReadOnlyList<InstalledApp>> ScanAppxPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        if (Client != null)
+        {
+            var response = await Client.SendRequestAsync("ScanAppxPackages");
+            return System.Text.Json.JsonSerializer.Deserialize<List<InstalledApp>>(response) ?? [];
+        }
+
+        return await Task.Run<IReadOnlyList<InstalledApp>>(async () =>
+        {
+            var apps = new List<InstalledApp>();
+            try
+            {
+                var result = await _commands.RunCaptureAsync(
+                    "powershell.exe",
+                    "-NoProfile -Command \"Get-AppxPackage -AllUsers | Select-Object Name, Publisher, Version, PackageFullName | ConvertTo-Json -Compress\"",
+                    cancellationToken);
+
+                if (result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.StandardOutput))
+                {
+                    // ConvertTo-Json might return an array or a single object.
+                    // PowerShell 5.1 truncates JSON arrays. Better to use a specific script to ensure valid JSON array.
+                    var script = "[System.Collections.ArrayList]$apps = @(); foreach ($app in Get-AppxPackage -AllUsers) { $apps.Add(@{ Name = $app.Name; Publisher = $app.Publisher; Version = $app.Version; PackageFullName = $app.PackageFullName }) | Out-Null }; ConvertTo-Json $apps -Depth 2 -Compress";
+                    var jsonResult = await _commands.RunCaptureAsync("powershell.exe", $"-NoProfile -Command \"{script}\"", cancellationToken);
+                    
+                    if (jsonResult.ExitCode == 0 && !string.IsNullOrWhiteSpace(jsonResult.StandardOutput))
+                    {
+                        var json = jsonResult.StandardOutput;
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        {
+                            foreach (var element in doc.RootElement.EnumerateArray())
+                            {
+                                var name = element.GetProperty("Name").GetString() ?? "Unknown";
+                                var publisher = element.GetProperty("Publisher").GetString() ?? "Unknown";
+                                var version = element.GetProperty("Version").GetString() ?? "Unknown";
+                                var fullName = element.GetProperty("PackageFullName").GetString() ?? "";
+
+                                // Filter out core OS components
+                                if (name.StartsWith("Microsoft.Windows.", StringComparison.OrdinalIgnoreCase) && 
+                                    !name.Contains("Photos", StringComparison.OrdinalIgnoreCase) &&
+                                    !name.Contains("Calculator", StringComparison.OrdinalIgnoreCase) &&
+                                    !name.Contains("Camera", StringComparison.OrdinalIgnoreCase) &&
+                                    !name.Contains("SoundRecorder", StringComparison.OrdinalIgnoreCase) &&
+                                    !name.Contains("Terminal", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    continue; 
+                                }
+
+                                apps.Add(new InstalledApp
+                                {
+                                    Id = $"Appx\\{fullName}",
+                                    Name = name,
+                                    Publisher = publisher,
+                                    Version = version,
+                                    Source = "Appx",
+                                    UninstallString = $"Remove-AppxPackage -Package \"{fullName}\" -AllUsers",
+                                    InstallLocation = string.Empty
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[UninstallerService] Appx scan failed: {ex.Message}");
+            }
+
+            return apps.GroupBy(a => a.Name).Select(g => g.First()).OrderBy(a => a.Name).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task<bool> RemoveAppxPackageAsync(InstalledApp app, CancellationToken cancellationToken = default)
+    {
+        if (Client != null)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(app);
+            var response = await Client.SendRequestAsync("RemoveAppxPackage", payload);
+            return response == "Success";
+        }
+
+        var fullName = app.Id.Replace("Appx\\", "");
+        var result = await _commands.RunCaptureAsync(
+            "powershell.exe",
+            $"-NoProfile -Command \"Remove-AppxPackage -Package '{fullName}' -AllUsers\"",
+            cancellationToken);
+
+        return result.ExitCode == 0;
+    }
 }

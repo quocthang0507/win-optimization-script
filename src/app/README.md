@@ -28,3 +28,10 @@ graph TD
     E -->|JSON Requests| C
     C -->|Task Executions / Progress| E
 ```
+
+## Acknowledgments
+
+This project takes inspiration and borrows concepts/architectural patterns from the following amazing open-source projects:
+
+- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)**: Inspired the integration of the Winapp2 third-party cleaning database and dynamic UWP app cleaning functionalities.
+- **[Winhance](https://github.com/memstechtips/Winhance)**: Inspired the comprehensive system optimization, registry tweaking toggles, and advanced Windows bloatware removal features.

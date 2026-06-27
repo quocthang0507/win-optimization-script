@@ -178,6 +178,37 @@ public sealed class IpcServer
                         return new IpcMessage("Response", json);
                     }
 
+                case "InstallWingetPackage":
+                    {
+                        var packageId = request.Payload;
+                        if (string.IsNullOrWhiteSpace(packageId))
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+
+                        var result = await _winget.InstallPackageAsync(packageId);
+                        var json = JsonSerializer.Serialize(result);
+                        return new IpcMessage("Response", json);
+                    }
+
+                case "CheckTweakState":
+                    {
+                        var tweakId = request.Payload ?? "";
+                        var service = new TweakService(new CommandRunner());
+                        var result = await service.CheckTweakStateAsync(tweakId);
+                        return new IpcMessage("Response", JsonSerializer.Serialize(result));
+                    }
+
+                case "ApplyTweak":
+                    {
+                        var jsonElement = JsonSerializer.Deserialize<JsonElement>(request.Payload ?? "{}");
+                        var tweakId = jsonElement.GetProperty("Id").GetString() ?? "";
+                        var enable = jsonElement.GetProperty("Enable").GetBoolean();
+                        var service = new TweakService(new CommandRunner());
+                        var result = await service.ApplyTweakAsync(tweakId, enable);
+                        return new IpcMessage("Response", JsonSerializer.Serialize(result));
+                    }
+
                 case "PreviewTask":
                     {
                         var payload = JsonSerializer.Deserialize<PreviewTaskRequestPayload>(request.Payload ?? "{}");
@@ -335,6 +366,24 @@ public sealed class IpcServer
                             return new IpcMessage("Error", "Invalid payload");
                         }
                         var ok = await _uninstaller.DeleteLeftoversAsync(paths);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                    }
+
+                case "ScanAppxPackages":
+                    {
+                        var apps = await _uninstaller.ScanAppxPackagesAsync();
+                        var json = JsonSerializer.Serialize(apps);
+                        return new IpcMessage("Response", json);
+                    }
+
+                case "RemoveAppxPackage":
+                    {
+                        var app = JsonSerializer.Deserialize<InstalledApp>(request.Payload ?? "{}");
+                        if (app == null)
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+                        var ok = await _uninstaller.RemoveAppxPackageAsync(app);
                         return new IpcMessage("Response", ok ? "Success" : "Failed");
                     }
 
