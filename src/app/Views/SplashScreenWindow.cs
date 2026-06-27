@@ -16,6 +16,7 @@ public sealed class SplashScreenWindow : Window
         _windowHandle = WindowNative.GetWindowHandle(this);
         Title = "Windows System Maintenance";
         SystemBackdrop = null;
+        ExtendsContentIntoTitleBar = true; // Fixes black borders around the window
         var (layout, statusText) = CreateLayout(theme);
         _statusText = statusText;
         Content = layout;
