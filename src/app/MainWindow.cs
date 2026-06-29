@@ -155,6 +155,7 @@ public sealed class MainWindow : Window
         AddNavItem("bloatware", "nav.bloatware", Symbol.AllApps);
         AddNavItem("storage", "nav.storage", Symbol.View);
         AddNavItem("startup", "nav.startup", Symbol.List);
+        AddNavItem("tweaks", "nav.tweaks", Symbol.Important);
         AddNavItem("updates", "nav.updates", Symbol.Download);
         AddNavItem("software", "nav.software", Symbol.Shop);
         AddNavItem("optimize", "nav.optimize", Symbol.Setting);
@@ -416,6 +417,7 @@ public sealed class MainWindow : Window
                 "bloatware" => new BloatwarePage(this),
                 "storage" => new StoragePage(this),
                 "startup" => new StartupPage(this),
+                "tweaks" => new TweaksPage(this),
                 "updates" => new UpdatesPage(this),
                 "software" => new SoftwareInstallerPage(this),
                 "optimize" => new OptimizePage(this),
