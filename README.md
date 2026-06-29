@@ -254,6 +254,11 @@ src/app/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish/
 
 Chi tiết kế hoạch triển khai và tiến trình hiện tại có thể xem tại [docs/implementation_plan.md](docs/implementation_plan.md).
 
+## Lời cảm ơn (Acknowledgments)
+
+- Xin gửi lời cảm ơn đến đội ngũ phát triển [Microsoft WinUI 3](https://github.com/microsoft/microsoft-ui-xaml) và .NET.
+- Cảm ơn cộng đồng mã nguồn mở và những người dùng đã đóng góp ý tưởng để cải thiện và hoàn thiện công cụ này.
+
 ---
 
 Phát triển bởi [quoct](https://github.com/quoct)
