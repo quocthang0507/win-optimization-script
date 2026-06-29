@@ -140,115 +140,115 @@ Hoặc chạy file EXE trực tiếp nếu đã build:
 - **Điểm khôi phục (Restore Point)**: Đối với các tác vụ có mức rủi ro `High` (như xóa Event Logs hoặc Windows.old), hệ thống sẽ tạo một điểm khôi phục (System Restore Point) trước khi chạy.
 - **Báo cáo**: Lịch sử dọn dẹp được ghi lại đầy đủ tại thư mục `logs/` giúp bạn có thể theo dõi và đối chiếu khi cần thiết.
 
-## Release and update workflow
+## Quy trình phát hành và cập nhật
 
-- The WinUI app checks GitHub Releases on startup through `https://api.github.com/repos/quocthang0507/win-optimization-script/releases/latest`.
-- A newer release opens an in-app dialog with the Windows ZIP asset or the GitHub release page.
-- Push a tag named `vX.Y.Z` to trigger `.github/workflows/release-windows.yml`.
-- The release workflow runs tests, publishes a self-contained `win-x64` build, creates a ZIP, writes a SHA256 checksum, and creates or updates the GitHub release.
-- VS Code launch configuration `Release: Bump Version and Push Tag` runs `scripts/Release.ps1`, which updates project version metadata, runs tests, publishes locally, commits, tags, and pushes the tag.
-- The local release script requires a clean working tree before changing version metadata.
+- Ứng dụng WinUI kiểm tra GitHub Releases khi khởi động thông qua `https://api.github.com/repos/quocthang0507/win-optimization-script/releases/latest`.
+- Nếu có bản cập nhật mới, một hộp thoại trong ứng dụng sẽ hiện ra kèm theo tệp ZIP hoặc liên kết trang phát hành.
+- Đẩy một tag có tên `vX.Y.Z` để kích hoạt luồng `.github/workflows/release-windows.yml`.
+- Quy trình này sẽ chạy test, biên dịch ứng dụng độc lập `win-x64`, tạo file ZIP, tính toán mã băm SHA256, và tạo hoặc cập nhật GitHub release.
+- Cấu hình chạy của VS Code `Release: Bump Version and Push Tag` sẽ thực thi script `scripts/Release.ps1`, giúp tự động cập nhật metadata phiên bản, chạy test, biên dịch, commit, gắn tag, và đẩy tag lên GitHub.
+- Lưu ý: Bạn cần có một working tree sạch trước khi chạy script cập nhật phiên bản.
 
-### Full publish steps
+### Các bước phát hành chi tiết
 
-1. Review the working tree.
+1. Kiểm tra trạng thái thư mục làm việc.
 
 ```powershell
 git status --short
 ```
 
-Commit or stash unrelated changes first. The release script intentionally stops when the working tree is dirty.
+Hãy commit hoặc stash các thay đổi không liên quan trước. Script phát hành sẽ tự động dừng nếu phát hiện working tree chưa sạch.
 
-2. Run tests and build before preparing a release.
+2. Chạy test và biên dịch trước khi chuẩn bị phát hành.
 
 ```powershell
 dotnet test .\src\WinOptimizationApp.Tests\WinOptimizationApp.Tests.csproj
 dotnet build .\src\app\WinOptimizationApp.csproj
 ```
 
-3. Choose the next semantic version.
+3. Chọn phiên bản kế tiếp theo Semantic Versioning.
 
-Use `X.Y.Z` without the `v` prefix for the script. Examples:
+Nhập `X.Y.Z` (không có chữ `v` ở trước) cho script. Ví dụ:
 
 - Patch: `0.2.1`
 - Minor: `0.3.0`
 - Major: `1.0.0`
 
-4. Create the release commit and tag locally.
+4. Tạo commit phát hành và gắn tag ở máy cục bộ.
 
 ```powershell
 .\scripts\Release.ps1 -Version 0.2.1
 ```
 
-This updates `src/app/WinOptimizationApp.csproj`, runs tests, publishes locally, creates commit `Release v0.2.1`, and creates tag `v0.2.1`.
+Thao tác này sẽ cập nhật `src/app/WinOptimizationApp.csproj`, chạy test, biên dịch local, tạo commit `Release v0.2.1` và tạo tag `v0.2.1`.
 
-5. Push the release commit and tag.
+5. Đẩy commit phát hành và tag lên GitHub.
 
 ```powershell
 git push origin HEAD
 git push origin v0.2.1
 ```
 
-Or do steps 4 and 5 together:
+Hoặc thực hiện gộp chung bước 4 và 5:
 
 ```powershell
 .\scripts\Release.ps1 -Version 0.2.1 -Push
 ```
 
-6. Wait for GitHub Actions.
+6. Đợi GitHub Actions chạy xong.
 
-Open:
+Mở:
 
 ```text
 https://github.com/quocthang0507/win-optimization-script/actions
 ```
 
-Workflow `Release Windows App` should complete successfully.
+Workflow `Release Windows App` cần phải hoàn tất thành công.
 
-7. Verify the GitHub Release.
+7. Kiểm tra trên GitHub Release.
 
-Open:
+Mở:
 
 ```text
 https://github.com/quocthang0507/win-optimization-script/releases
 ```
 
-Confirm the release contains:
+Xác nhận bản release bao gồm:
 
 - `WinOptimizationApp-vX.Y.Z-win-x64.zip`
 - `WinOptimizationApp-vX.Y.Z-win-x64.zip.sha256`
 
-8. Verify checksum locally after downloading the ZIP.
+8. Xác minh mã băm (checksum) ở máy cục bộ sau khi tải ZIP về.
 
 ```powershell
 Get-FileHash .\WinOptimizationApp-v0.2.1-win-x64.zip -Algorithm SHA256
 Get-Content .\WinOptimizationApp-v0.2.1-win-x64.zip.sha256
 ```
 
-The hash values must match.
+Hai giá trị băm này phải khớp nhau hoàn toàn.
 
-9. Verify app update detection.
+9. Kiểm tra tính năng phát hiện cập nhật trong app.
 
-Run an older app version. On startup, the app checks the latest GitHub Release and shows an update dialog when the release tag is newer than the current `InformationalVersion`.
+Chạy một phiên bản cũ của app. Khi khởi động, app sẽ kiểm tra GitHub Release và hiện hộp thoại cập nhật nếu tag trên GitHub mới hơn `InformationalVersion` hiện tại của app.
 
-10. Publish manually only when needed.
+10. Phát hành thủ công (chỉ khi thực sự cần).
 
-Manual publish without creating a GitHub Release:
+Biên dịch phát hành thủ công mà không cần tạo GitHub Release:
 
 ```powershell
 dotnet publish .\src\app\WinOptimizationApp.csproj --configuration Release --runtime win-x64 --self-contained true
 ```
 
-The output is written under:
+Thư mục đầu ra được lưu tại:
 
 ```text
 src/app/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish/
 ```
 
-### VS Code publish shortcuts
+### Các lối tắt phát hành trong VS Code
 
-- `Run and Debug` -> `Release: Bump Version and Push Tag`: prompts for `X.Y.Z`, then runs the full release script with `-Push`.
-- `Tasks: Run Task` -> `publish WinUI app release`: publishes a local Release build without tagging or pushing.
+- `Run and Debug` -> `Release: Bump Version and Push Tag`: Hiển thị hộp thoại nhập `X.Y.Z`, sau đó chạy toàn bộ script phát hành với cờ `-Push`.
+- `Tasks: Run Task` -> `publish WinUI app release`: Biên dịch một bản Release ở máy cục bộ mà không cần tạo tag hoặc đẩy lên GitHub.
 
 ## Roadmap & Kế hoạch
 
