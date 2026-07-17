@@ -234,18 +234,18 @@ public sealed partial class SettingsPage : BasePage
         };
 
         var stack = new StackPanel { Spacing = 8 };
-        stack.Children.Add(new TextBlock { Text = "Acknowledgments", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 18 });
-        stack.Children.Add(new TextBlock { Text = "This project takes inspiration and borrows concepts/architectural patterns from the following amazing open-source projects:", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+        stack.Children.Add(new TextBlock { Text = T("settings.acknowledgments"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 18 });
+        stack.Children.Add(new TextBlock { Text = T("settings.acknowledgmentsDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
         
         var list = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 0) };
         
         var fluentCleaner = new HyperlinkButton { Content = "FluentCleaner (builtbybel)", NavigateUri = new Uri("https://github.com/builtbybel/FluentCleaner") };
-        var fluentDesc = new TextBlock { Text = "Inspired the integration of the Winapp2 third-party cleaning database and dynamic UWP app cleaning functionalities.", TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        var fluentDesc = new TextBlock { Text = T("settings.fluentCleanerCredit"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
         list.Children.Add(fluentCleaner);
         list.Children.Add(fluentDesc);
 
         var winhance = new HyperlinkButton { Content = "Winhance (memstechtips)", NavigateUri = new Uri("https://github.com/memstechtips/Winhance"), Margin = new Thickness(0, 8, 0, 0) };
-        var winhanceDesc = new TextBlock { Text = "Inspired the comprehensive system optimization, registry tweaking toggles, and advanced Windows bloatware removal features.", TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        var winhanceDesc = new TextBlock { Text = T("settings.winhanceCredit"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
         list.Children.Add(winhance);
         list.Children.Add(winhanceDesc);
 

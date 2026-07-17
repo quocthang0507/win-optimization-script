@@ -33,5 +33,5 @@ graph TD
 
 This project takes inspiration and borrows concepts/architectural patterns from the following amazing open-source projects:
 
-- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)**: Inspired the integration of the Winapp2 third-party cleaning database and dynamic UWP app cleaning functionalities.
-- **[Winhance](https://github.com/memstechtips/Winhance)**: Inspired the comprehensive system optimization, registry tweaking toggles, and advanced Windows bloatware removal features.
+- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)**: Inspired the Winapp2 cleaning database integration, transparent preview workflow, and focused WinUI experience.
+- **[Winhance](https://github.com/memstechtips/Winhance)**: Inspired system optimization, reversible tweaks, software management, and reusable configuration profiles.

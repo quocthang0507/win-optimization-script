@@ -60,6 +60,7 @@ public class RegKeyEntry
 
 public class ExcludeKeyEntry
 {
+    public string Type { get; set; } = "FILE";
     public string Path { get; set; } = string.Empty;
     public string Expression { get; set; } = string.Empty;
 
@@ -68,8 +69,9 @@ public class ExcludeKeyEntry
         var parts = value.Split('|');
         return new ExcludeKeyEntry
         {
-            Path = parts[0],
-            Expression = parts.Length > 1 ? parts[1] : string.Empty
+            Type = parts[0],
+            Path = parts.Length > 1 ? parts[1] : string.Empty,
+            Expression = parts.Length > 2 ? parts[2] : "*"
         };
     }
 }

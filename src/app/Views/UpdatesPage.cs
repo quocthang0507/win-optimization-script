@@ -10,6 +10,7 @@ public sealed partial class UpdatesPage : BasePage
     private ComboBox? _sortBox;
     private Button? _scanButton;
     private Button? _upgradeAllButton;
+    private CheckBox? _saveInstallersCheckBox;
     private List<WingetPackage> _packages = [];
     private readonly Dictionary<string, TextBlock> _packageStatusLabels = new(StringComparer.OrdinalIgnoreCase);
     private bool _isUpgrading;
@@ -92,6 +93,13 @@ public sealed partial class UpdatesPage : BasePage
         filterRow.Children.Add(_sortBox);
 
         panel.Children.Add(filterRow);
+
+        _saveInstallersCheckBox = new CheckBox
+        {
+            Content = T("updates.saveInstallers"),
+            IsChecked = false
+        };
+        panel.Children.Add(_saveInstallersCheckBox);
         return panel;
     }
 
@@ -306,6 +314,17 @@ public sealed partial class UpdatesPage : BasePage
             return;
         }
 
+        string? downloadDirectory = null;
+        if (selectedPackages == null && _saveInstallersCheckBox?.IsChecked == true)
+        {
+            downloadDirectory = await PickUpdateDownloadFolderAsync();
+            if (downloadDirectory == null)
+            {
+                MainWindow.SetStatusText(T("common.ready"));
+                return;
+            }
+        }
+
         if (!await ConfirmUpgradeAsync(packages.Count))
         {
             return;
@@ -329,6 +348,20 @@ public sealed partial class UpdatesPage : BasePage
                 WingetPackageUpgradeResult result;
                 try
                 {
+                    if (downloadDirectory != null)
+                    {
+                        var downloadProgress = F("updates.downloadProgress", index + 1, packages.Count, package.Name);
+                        MainWindow.SetStatusText(downloadProgress);
+                        SetPackageStatus(package, downloadProgress, Colors.DeepSkyBlue);
+                        var downloadResult = await MainWindow.Winget.DownloadPackageAsync(package, downloadDirectory);
+                        if (!downloadResult.Success)
+                        {
+                            throw new InvalidOperationException(F("updates.downloadFailed", SummarizeFailure(downloadResult)));
+                        }
+                    }
+
+                    MainWindow.SetStatusText(progressText);
+                    SetPackageStatus(package, progressText, Colors.DeepSkyBlue);
                     result = await MainWindow.Winget.UpgradePackageAsync(package);
                 }
                 catch (Exception ex)
@@ -355,6 +388,18 @@ public sealed partial class UpdatesPage : BasePage
         }
 
         MainWindow.SetStatusText(F("updates.upgradeSummary", succeeded, failed));
+    }
+
+    private async Task<string?> PickUpdateDownloadFolderAsync()
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.Downloads
+        };
+        picker.FileTypeFilter.Add("*");
+        InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
+        var folder = await picker.PickSingleFolderAsync();
+        return folder?.Path;
     }
 
     private async Task<bool> ConfirmUpgradeAsync(int packageCount)
@@ -386,6 +431,11 @@ public sealed partial class UpdatesPage : BasePage
         if (_upgradeAllButton != null)
         {
             _upgradeAllButton.IsEnabled = isEnabled;
+        }
+
+        if (_saveInstallersCheckBox != null)
+        {
+            _saveInstallersCheckBox.IsEnabled = isEnabled;
         }
     }
 

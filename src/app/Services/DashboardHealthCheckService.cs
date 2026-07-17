@@ -7,7 +7,7 @@ public static class DashboardHealthCheckService
     private const long FiveGb = 5L * 1024 * 1024 * 1024;
     private const long FifteenGb = 15L * 1024 * 1024 * 1024;
 
-    public static HealthCheckResult Analyze(DashboardStatus status)
+    public static HealthCheckResult Analyze(DashboardStatus status, HealthCheckScanMetrics? metrics = null)
     {
         var score = 100;
         var findings = new List<HealthCheckFinding>();
@@ -20,9 +20,76 @@ public static class DashboardHealthCheckService
         AnalyzeWinget(status, findings, recommendations, ref score);
         AnalyzeMaintenanceHistory(status, findings, recommendations, ref score);
         AnalyzeAdminState(status, findings);
+        AnalyzeDeepScan(metrics, findings, recommendations, ref score);
 
         score = Math.Clamp(score, 0, 100);
-        return new HealthCheckResult(score, GetStatus(score), findings, recommendations);
+        return new HealthCheckResult(score, GetStatus(score), findings, recommendations, metrics);
+    }
+
+    private static void AnalyzeDeepScan(
+        HealthCheckScanMetrics? metrics,
+        List<HealthCheckFinding> findings,
+        List<HealthCheckRecommendation> recommendations,
+        ref int score)
+    {
+        if (metrics is null)
+        {
+            return;
+        }
+
+        if (metrics.CleanupBytes >= 500L * 1024 * 1024)
+        {
+            findings.Add(new HealthCheckFinding(
+                "cleanup.available",
+                RiskLevel.Safe,
+                "Safe cleanup is available",
+                $"{Formatters.FormatBytes(metrics.CleanupBytes)} across {metrics.CleanupFiles:N0} files can be reviewed.",
+                "Space"));
+            recommendations.Add(new HealthCheckRecommendation(
+                "cleanup.review",
+                RiskLevel.Safe,
+                "Review safe cleanup",
+                "Open Cleanup to inspect every target before deleting files.",
+                "Review Cleanup",
+                "cleanup"));
+            score -= 4;
+        }
+
+        if (metrics.AvailableUpdates > 0)
+        {
+            findings.Add(new HealthCheckFinding(
+                "updates.available",
+                RiskLevel.Medium,
+                "Application updates are available",
+                $"WinGet found {metrics.AvailableUpdates:N0} package updates.",
+                "Security"));
+            recommendations.Add(new HealthCheckRecommendation(
+                "updates.review",
+                RiskLevel.Medium,
+                "Review application updates",
+                "Review package versions and sources before upgrading.",
+                "Review Updates",
+                "updates"));
+            score -= Math.Min(12, 3 + metrics.AvailableUpdates);
+        }
+
+        if (metrics.HighImpactStartupItems > 0)
+        {
+            findings.Add(new HealthCheckFinding(
+                "startup.highImpact",
+                RiskLevel.Medium,
+                "High-impact startup items need review",
+                $"{metrics.HighImpactStartupItems:N0} enabled startup item(s) were classified as high impact.",
+                "Speed"));
+            recommendations.Add(new HealthCheckRecommendation(
+                "startup.highImpact",
+                RiskLevel.Medium,
+                "Review high-impact startup items",
+                "Verify the publisher and purpose before disabling anything.",
+                "Open Startup",
+                "startup"));
+            score -= Math.Min(10, metrics.HighImpactStartupItems * 3);
+        }
     }
 
     private static void AnalyzeSystemDrive(

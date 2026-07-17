@@ -106,6 +106,9 @@ public sealed class TweakService
             Category = "UI/Taskbar",
             Title = "Align Taskbar to Left (Win 11)",
             Description = "Moves the Taskbar icons to the left like Windows 10.",
+            RequiresAdministrator = false,
+            SupportedWindows = "Windows 11",
+            RestartRequirement = "Explorer restarts",
             CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'TaskbarAl' -ErrorAction SilentlyContinue).TaskbarAl -eq 0",
             EnableScript = @"
                 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'TaskbarAl' -Value 0 -Type DWord -Force
@@ -122,6 +125,7 @@ public sealed class TweakService
             Category = "UI/Taskbar",
             Title = "Hide Taskbar Search",
             Description = "Hides the search box on the taskbar to save space.",
+            RequiresAdministrator = false,
             CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -Name 'SearchboxTaskbarMode' -ErrorAction SilentlyContinue).SearchboxTaskbarMode -eq 0",
             EnableScript = @"
                 New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -Force | Out-Null
@@ -137,6 +141,7 @@ public sealed class TweakService
             Category = "UI/Taskbar",
             Title = "Hide Task View Button",
             Description = "Hides the Task View button from the taskbar.",
+            RequiresAdministrator = false,
             CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'ShowTaskViewButton' -ErrorAction SilentlyContinue).ShowTaskViewButton -eq 0",
             EnableScript = @"
                 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'ShowTaskViewButton' -Value 0 -Type DWord -Force
@@ -184,7 +189,7 @@ public sealed class TweakService
 
     public IReadOnlyList<SystemTweak> GetAllTweaks() => Tweaks;
 
-    public async Task<TweakStateResponse> CheckTweakStateAsync(string id)
+    public async Task<TweakStateResponse> CheckTweakStateAsync(string id, CancellationToken cancellationToken = default)
     {
         if (Client != null)
         {
@@ -196,7 +201,7 @@ public sealed class TweakService
         var tweak = Tweaks.FirstOrDefault(t => t.Id == id);
         if (tweak == null) return new TweakStateResponse { Id = id, Error = "Tweak not found." };
 
-        var result = await _commands.RunCaptureAsync("powershell.exe", $"-NoProfile -Command \"{tweak.CheckScript}\"");
+        var result = await _commands.RunCaptureAsync("powershell.exe", $"-NoProfile -Command \"{tweak.CheckScript}\"", cancellationToken);
         var output = result.StandardOutput.Trim();
         
         return new TweakStateResponse
@@ -207,7 +212,7 @@ public sealed class TweakService
         };
     }
 
-    public async Task<TweakStateResponse> ApplyTweakAsync(string id, bool enable)
+    public async Task<TweakStateResponse> ApplyTweakAsync(string id, bool enable, CancellationToken cancellationToken = default)
     {
         if (Client != null)
         {
@@ -221,13 +226,23 @@ public sealed class TweakService
         if (tweak == null) return new TweakStateResponse { Id = id, Error = "Tweak not found." };
 
         var script = enable ? tweak.EnableScript : tweak.DisableScript;
-        var result = await _commands.RunCaptureAsync("powershell.exe", $"-NoProfile -Command \"{script}\"");
-        
-        return new TweakStateResponse
+        var result = await _commands.RunCaptureAsync("powershell.exe", $"-NoProfile -Command \"{script}\"", cancellationToken);
+        if (result.ExitCode != 0)
         {
-            Id = id,
-            IsEnabled = enable, // Assume it applied if exit code is 0, but ideally we re-check
-            Error = result.ExitCode != 0 ? result.StandardError : ""
-        };
+            return new TweakStateResponse
+            {
+                Id = id,
+                IsEnabled = !enable,
+                Error = string.IsNullOrWhiteSpace(result.StandardError) ? $"PowerShell exited with code {result.ExitCode}." : result.StandardError.Trim()
+            };
+        }
+
+        var verified = await CheckTweakStateAsync(id, cancellationToken);
+        if (string.IsNullOrWhiteSpace(verified.Error) && verified.IsEnabled != enable)
+        {
+            verified.Error = "The command completed, but Windows did not report the requested state.";
+        }
+
+        return verified;
     }
 }

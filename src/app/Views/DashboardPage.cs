@@ -34,7 +34,12 @@ public sealed partial class DashboardPage : BasePage
             try
             {
                 var status = await MainWindow.Status.GetAsync();
-                var health = DashboardHealthCheckService.Analyze(status);
+                var metrics = await HealthCheckScanService.ScanAsync(
+                    MainWindow.Cleanup,
+                    MainWindow.Catalog,
+                    MainWindow.Winget,
+                    MainWindow.Startup);
+                var health = DashboardHealthCheckService.Analyze(status, metrics);
 
                 DispatcherQueue.TryEnqueue(() =>
                 {
@@ -362,6 +367,18 @@ public sealed partial class DashboardPage : BasePage
             Foreground = Brush(color),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         });
+        if (health.Metrics is not null)
+        {
+            scoreStack.Children.Add(new TextBlock
+            {
+                Text = F("dashboard.healthMetrics", Formatters.FormatBytes(health.Metrics.CleanupBytes), health.Metrics.AvailableUpdates, health.Metrics.HighImpactStartupItems),
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.72
+            });
+        }
+        var reviewButton = new Button { Content = T("dashboard.reviewAll"), HorizontalAlignment = HorizontalAlignment.Left };
+        reviewButton.Click += async (_, _) => await ShowHealthReviewAsync(health);
+        scoreStack.Children.Add(reviewButton);
         Grid.SetColumn(scoreStack, 0);
         root.Children.Add(scoreStack);
 
@@ -408,6 +425,43 @@ public sealed partial class DashboardPage : BasePage
         };
     }
 
+    private async Task ShowHealthReviewAsync(HealthCheckResult health)
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        if (health.Findings.Count == 0)
+        {
+            panel.Children.Add(InfoBlock(T("dashboard.healthNoRecommendations")));
+        }
+        else
+        {
+            panel.Children.Add(SectionTitle(F("dashboard.healthFindingCount", health.Findings.Count)));
+            foreach (var finding in health.Findings)
+            {
+                var text = new StackPanel { Spacing = 3 };
+                text.Children.Add(new TextBlock { Text = LocalizedHealthFindingTitle(finding), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+                text.Children.Add(new TextBlock { Text = LocalizedHealthFindingDetail(finding), Opacity = 0.72, TextWrapping = TextWrapping.Wrap });
+                text.Children.Add(new TextBlock { Text = $"{MainWindow.Localization.RiskName(finding.Severity)} • {finding.Source}", Opacity = 0.62 });
+                panel.Children.Add(new Border
+                {
+                    Padding = new Thickness(12),
+                    CornerRadius = new CornerRadius(8),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = ThemeBorderBrush(),
+                    Child = text
+                });
+            }
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = T("dashboard.reviewCenter"),
+            Content = new ScrollViewer { Content = panel, MaxHeight = 520, MaxWidth = 720 },
+            CloseButtonText = T("common.close"),
+            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
+        };
+        await dialog.ShowAsync();
+    }
+
     private Grid HealthRecommendationRow(HealthCheckRecommendation recommendation)
     {
         var row = new Grid { ColumnSpacing = 12, MinHeight = 42 };
@@ -449,6 +503,16 @@ public sealed partial class DashboardPage : BasePage
     private string LocalizedHealthRecommendationTitle(HealthCheckRecommendation recommendation)
     {
         return LocalizedOrFallback($"health.recommendation.{recommendation.Id}.title", recommendation.Title);
+    }
+
+    private string LocalizedHealthFindingTitle(HealthCheckFinding finding)
+    {
+        return LocalizedOrFallback($"health.finding.{finding.Id}.title", finding.Title);
+    }
+
+    private string LocalizedHealthFindingDetail(HealthCheckFinding finding)
+    {
+        return LocalizedOrFallback($"health.finding.{finding.Id}.detail", finding.Detail);
     }
 
     private string LocalizedHealthRecommendationDetail(HealthCheckRecommendation recommendation)

@@ -17,6 +17,7 @@ public sealed class MainWindow : Window
     private bool _isHidden;
     private bool _suppressNavigationSelectionChanged;
     private MiniToolbarWindow? _widgetWindow;
+    private AppWindow? _appWindow;
 
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
     private string _currentPageTag = "dashboard";
@@ -41,6 +42,8 @@ public sealed class MainWindow : Window
     internal NetworkOptimizationService NetworkOptimizer { get; }
     internal UninstallerService Uninstaller { get; }
     internal Winapp2Service Winapp2 { get; } = new();
+    internal TweakSnapshotService TweakSnapshots { get; }
+    internal Winapp2CleanupService Winapp2Cleanup { get; }
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
     internal IpcClient IpcClient => _ipcClient;
@@ -59,6 +62,8 @@ public sealed class MainWindow : Window
         RegistryCleaner = new RegistryCleanerService();
         NetworkOptimizer = new NetworkOptimizationService(Commands);
         Uninstaller = new UninstallerService(Commands);
+        TweakSnapshots = new TweakSnapshotService(Paths);
+        Winapp2Cleanup = new Winapp2CleanupService(Reports);
 
         _statusProgress = new ProgressBar
         {
@@ -127,6 +132,11 @@ public sealed class MainWindow : Window
             var hwnd = WindowNative.GetWindowHandle(this);
             var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = AppWindow.GetFromWindowId(windowId);
+            _appWindow = appWindow;
+            if (Settings.WindowWidth >= 900 && Settings.WindowHeight >= 600)
+            {
+                appWindow.Resize(new Windows.Graphics.SizeInt32(Settings.WindowWidth, Settings.WindowHeight));
+            }
             var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
             if (File.Exists(iconPath))
             {
@@ -138,29 +148,41 @@ public sealed class MainWindow : Window
             // Icon loading is best-effort.
         }
 
-        _scrollViewer = new ScrollViewer();
+        _scrollViewer = new ScrollViewer
+        {
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
 
         Navigation_Internal = new NavigationView
         {
             PaneTitle = T("app.paneTitle"),
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = false,
+            IsPaneOpen = Settings.IsNavigationPaneOpen,
+            PaneDisplayMode = NavigationViewPaneDisplayMode.Auto,
+            CompactPaneLength = 48,
+            OpenPaneLength = 240,
             Content = _scrollViewer
         };
         ApplyTheme(Settings.Theme ?? AppTheme.System);
         ApplyWinUiStyle(Settings.WinUiStyle ?? AppWinUiStyle.Default);
 
         AddNavItem("dashboard", "nav.dashboard", Symbol.Home);
+        AddNavSeparator();
         AddNavItem("cleanup", "nav.cleanup", Symbol.Delete);
         AddNavItem("bloatware", "nav.bloatware", Symbol.AllApps);
         AddNavItem("storage", "nav.storage", Symbol.View);
-        AddNavItem("startup", "nav.startup", Symbol.List);
-        AddNavItem("tweaks", "nav.tweaks", Symbol.Important);
-        AddNavItem("updates", "nav.updates", Symbol.Download);
+        AddNavSeparator();
         AddNavItem("software", "nav.software", Symbol.Shop);
+        AddNavItem("updates", "nav.updates", Symbol.Download);
+        AddNavItem("startup", "nav.startup", Symbol.List);
+        AddNavSeparator();
         AddNavItem("optimize", "nav.optimize", Symbol.Setting);
         AddNavItem("repair", "nav.repair", Symbol.Refresh);
         AddNavItem("toolbox", "nav.toolbox", Symbol.Repair);
+        AddNavSeparator();
         AddNavItem("history", "nav.history", Symbol.Document);
         AddNavItem("settings", "nav.settings", Symbol.Setting, isFooter: true);
 
@@ -212,6 +234,7 @@ public sealed class MainWindow : Window
 
         Closed += (s, e) =>
         {
+            PersistWindowState();
             if (!_isClosing && _widgetWindow != null && Settings.WidgetEnabled)
             {
                 // Widget is running — hide the main window instead of exiting.
@@ -234,6 +257,18 @@ public sealed class MainWindow : Window
             _ipcClient.Disconnect();
             Application.Current.Exit();
         };
+    }
+
+    private void PersistWindowState()
+    {
+        if (_appWindow is not null && _appWindow.Size.Width >= 900 && _appWindow.Size.Height >= 600)
+        {
+            Settings.WindowWidth = _appWindow.Size.Width;
+            Settings.WindowHeight = _appWindow.Size.Height;
+        }
+
+        Settings.IsNavigationPaneOpen = Navigation_Internal.IsPaneOpen;
+        SettingsService.Save(Settings);
     }
 
     internal async Task CompleteStartupAsync()
@@ -417,7 +452,6 @@ public sealed class MainWindow : Window
                 "bloatware" => new BloatwarePage(this),
                 "storage" => new StoragePage(this),
                 "startup" => new StartupPage(this),
-                "tweaks" => new TweaksPage(this),
                 "updates" => new UpdatesPage(this),
                 "software" => new SoftwareInstallerPage(this),
                 "optimize" => new OptimizePage(this),
@@ -943,9 +977,12 @@ public sealed class MainWindow : Window
         {
             "dashboard" => "nav.dashboard",
             "cleanup" => "nav.cleanup",
+            "bloatware" => "nav.bloatware",
             "storage" => "nav.storage",
             "startup" => "nav.startup",
             "updates" => "nav.updates",
+            "software" => "nav.software",
+            "optimize" => "nav.optimize",
             "repair" => "nav.repair",
             "toolbox" => "nav.toolbox",
             "history" => "nav.history",
@@ -971,6 +1008,11 @@ public sealed class MainWindow : Window
         {
             Navigation_Internal.MenuItems.Add(item);
         }
+    }
+
+    private void AddNavSeparator()
+    {
+        Navigation_Internal.MenuItems.Add(new NavigationViewItemSeparator());
     }
 
     internal static void OpenFolder_Internal(string path)

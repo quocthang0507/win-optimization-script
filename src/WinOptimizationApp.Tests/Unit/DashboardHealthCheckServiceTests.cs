@@ -65,6 +65,21 @@ public sealed class DashboardHealthCheckServiceTests
         Assert.Empty(result.Recommendations);
     }
 
+    [Fact]
+    public void Analyze_DeepScanAddsSpaceSecurityAndSpeedRecommendations()
+    {
+        var status = CreateStatus(isAdministrator: true, lastReportPath: @"D:\logs\maintenance.json");
+        var metrics = new HealthCheckScanMetrics(2L * 1024 * 1024 * 1024, 400, 3, 2, []);
+
+        var result = DashboardHealthCheckService.Analyze(status, metrics);
+
+        Assert.Contains(result.Findings, finding => finding.Id == "cleanup.available");
+        Assert.Contains(result.Findings, finding => finding.Id == "updates.available");
+        Assert.Contains(result.Findings, finding => finding.Id == "startup.highImpact");
+        Assert.Same(metrics, result.Metrics);
+        Assert.True(result.Score < 100);
+    }
+
     private static DashboardStatus CreateStatus(
         long systemDriveFreeBytes = 80L * 1024 * 1024 * 1024,
         long systemDriveTotalBytes = 200L * 1024 * 1024 * 1024,

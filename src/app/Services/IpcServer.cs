@@ -178,6 +178,19 @@ public sealed class IpcServer
                         return new IpcMessage("Response", json);
                     }
 
+                case "DownloadWingetPackage":
+                    {
+                        var download = JsonSerializer.Deserialize<WingetPackageDownloadRequest>(request.Payload ?? "{}");
+                        if (download == null || string.IsNullOrWhiteSpace(download.DownloadDirectory))
+                        {
+                            return new IpcMessage("Error", "Invalid payload");
+                        }
+
+                        var result = await _winget.DownloadPackageAsync(download.Package, download.DownloadDirectory);
+                        var json = JsonSerializer.Serialize(result);
+                        return new IpcMessage("Response", json);
+                    }
+
                 case "InstallWingetPackage":
                     {
                         var packageId = request.Payload;

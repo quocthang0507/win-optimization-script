@@ -17,4 +17,10 @@ public sealed class AppSettings
     public bool WidgetShowDisk { get; set; } = true;
 
     public bool WidgetShowNetwork { get; set; } = true;
+
+    public int WindowWidth { get; set; } = 1180;
+
+    public int WindowHeight { get; set; } = 760;
+
+    public bool IsNavigationPaneOpen { get; set; } = true;
 }

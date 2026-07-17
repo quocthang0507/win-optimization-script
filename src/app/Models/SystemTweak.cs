@@ -8,6 +8,14 @@ public sealed class SystemTweak
     public string Category { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+
+    public RiskLevel RiskLevel { get; set; } = RiskLevel.Medium;
+
+    public bool RequiresAdministrator { get; set; } = true;
+
+    public string SupportedWindows { get; set; } = "Windows 10/11";
+
+    public string RestartRequirement { get; set; } = "None";
     
     // PowerShell script that returns "True" if enabled/applied, otherwise "False"
     public string CheckScript { get; set; } = string.Empty;

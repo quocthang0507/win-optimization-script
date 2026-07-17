@@ -2,14 +2,16 @@ namespace WinOptimizationApp.Services;
 
 public sealed class PathService
 {
+    private readonly string _baseDirectory;
     public string RepositoryRoot { get; }
     public string CliScriptPath => Path.Combine(RepositoryRoot, "src", "cli", "Utilities.ps1");
-    public string LogsDirectory => AppRuntimePaths.OriginalBaseDirectory;
-    public string BackupsDirectory => Path.Combine(AppRuntimePaths.OriginalBaseDirectory, "backups");
+    public string LogsDirectory => Path.Combine(_baseDirectory, "logs");
+    public string BackupsDirectory => Path.Combine(_baseDirectory, "backups");
 
-    public PathService()
+    public PathService(string? baseDirectory = null)
     {
-        RepositoryRoot = FindRepositoryRoot(AppRuntimePaths.OriginalBaseDirectory);
+        _baseDirectory = Path.GetFullPath(baseDirectory ?? AppRuntimePaths.OriginalBaseDirectory);
+        RepositoryRoot = FindRepositoryRoot(_baseDirectory);
     }
 
     private static string FindRepositoryRoot(string start)

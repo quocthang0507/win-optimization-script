@@ -50,4 +50,17 @@ public sealed class WingetServiceTests
         Assert.Contains("--accept-source-agreements", arguments);
         Assert.Contains("--disable-interactivity", arguments);
     }
+
+    [Fact]
+    public void BuildDownloadArguments_TargetsPackageAndQuotesDownloadDirectory()
+    {
+        var package = new WingetPackage("Example App", "Vendor.Example", "1.0.0", "2.0.0", "winget");
+
+        var arguments = WingetService.BuildDownloadArguments(package, @"C:\Users\Example User\Downloads\Updates");
+
+        Assert.Contains("download --id \"Vendor.Example\" --exact", arguments);
+        Assert.Contains("--source \"winget\"", arguments);
+        Assert.Contains("--download-directory \"C:\\Users\\Example User\\Downloads\\Updates\"", arguments);
+        Assert.Contains("--disable-interactivity", arguments);
+    }
 }

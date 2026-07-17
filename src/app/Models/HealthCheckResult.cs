@@ -4,4 +4,5 @@ public sealed record HealthCheckResult(
     int Score,
     string Status,
     IReadOnlyList<HealthCheckFinding> Findings,
-    IReadOnlyList<HealthCheckRecommendation> Recommendations);
+    IReadOnlyList<HealthCheckRecommendation> Recommendations,
+    HealthCheckScanMetrics? Metrics = null);

@@ -36,4 +36,16 @@ public sealed class TweakServiceTests
             Assert.False(string.IsNullOrWhiteSpace(tweak.DisableScript));
         }
     }
+
+    [Fact]
+    public void Profiles_ReferenceOnlyKnownTweaks()
+    {
+        var knownIds = TweakService.Tweaks.Select(tweak => tweak.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var profile in TweakProfileCatalog.All)
+        {
+            Assert.NotEmpty(profile.Values);
+            Assert.All(profile.Values.Keys, id => Assert.Contains(id, knownIds));
+        }
+    }
 }

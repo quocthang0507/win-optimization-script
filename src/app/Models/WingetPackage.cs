@@ -13,3 +13,7 @@ public sealed record WingetPackageUpgradeResult(
     int ExitCode,
     string StandardOutput,
     string StandardError);
+
+public sealed record WingetPackageDownloadRequest(
+    WingetPackage Package,
+    string DownloadDirectory);

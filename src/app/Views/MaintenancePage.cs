@@ -5,6 +5,8 @@ namespace WinOptimizationApp.Views;
 
 public sealed partial class MaintenancePage : BasePage
 {
+    private readonly bool _includeWinapp2;
+
     public MaintenancePage(
         MainWindow mainWindow,
         string title,
@@ -12,6 +14,7 @@ public sealed partial class MaintenancePage : BasePage
         bool includePrivacy = false,
         bool includeOptimization = false) : base(mainWindow)
     {
+        _includeWinapp2 = includePrivacy;
         AddHeader(title, T("taskPage.subtitle"));
 
         var groups = new List<string> { group };
@@ -51,9 +54,7 @@ public sealed partial class MaintenancePage : BasePage
 
     public override async Task OnNavigatedToAsync()
     {
-        // Only load Winapp2 for the Cleanup page (which includes privacy)
-        var hasPrivacy = MainContent.Children.OfType<Border>().Any(); 
-        if (hasPrivacy)
+        if (_includeWinapp2)
         {
             try
             {
@@ -203,8 +204,8 @@ public sealed partial class MaintenancePage : BasePage
     private Border Winapp2CleanerPanel(List<CleanerEntry> entries)
     {
         var stack = new StackPanel { Spacing = 10 };
-        stack.Children.Add(SectionTitle("Third-Party App Cleaner (Winapp2)"));
-        stack.Children.Add(InfoBlock($"Detected {entries.Count} supported applications on your system."));
+        stack.Children.Add(SectionTitle(T("winapp2.title")));
+        stack.Children.Add(InfoBlock(F("winapp2.detected", entries.Count)));
 
         var row = new Grid { ColumnSpacing = 12, MinHeight = 44 };
         row.ColumnDefinitions.Add(new ColumnDefinition());
@@ -213,7 +214,7 @@ public sealed partial class MaintenancePage : BasePage
         // Dropdown with Checkboxes (ListView inside Flyout)
         var dropDownBtn = new DropDownButton
         {
-            Content = $"Select apps to clean ({entries.Count(e => e.Default)} selected)",
+            Content = F("winapp2.selectApps", entries.Count(e => e.Default)),
             HorizontalAlignment = HorizontalAlignment.Left
         };
 
@@ -235,9 +236,12 @@ public sealed partial class MaintenancePage : BasePage
             listView.Items.Add(item);
         }
 
+        var runBtn = new Button { Content = T("common.scan"), MinWidth = 82, IsEnabled = listView.SelectedItems.Count > 0 };
+
         listView.SelectionChanged += (s, e) =>
         {
-            dropDownBtn.Content = $"Select apps to clean ({listView.SelectedItems.Count} selected)";
+            dropDownBtn.Content = F("winapp2.selectApps", listView.SelectedItems.Count);
+            runBtn.IsEnabled = listView.SelectedItems.Count > 0;
         };
 
         var flyout = new Flyout
@@ -249,11 +253,10 @@ public sealed partial class MaintenancePage : BasePage
         Grid.SetColumn(dropDownBtn, 0);
         row.Children.Add(dropDownBtn);
 
-        var runBtn = new Button { Content = T("common.run"), MinWidth = 82 };
         runBtn.Click += async (_, _) =>
         {
             var selected = listView.SelectedItems.Select(i => (CleanerEntry)((ListViewItem)i).Tag).ToList();
-            await RunWinapp2CleanupAsync(selected);
+            await PreviewAndRunWinapp2CleanupAsync(selected);
         };
         Grid.SetColumn(runBtn, 1);
         row.Children.Add(runBtn);
@@ -272,61 +275,39 @@ public sealed partial class MaintenancePage : BasePage
         };
     }
 
-    private async Task RunWinapp2CleanupAsync(List<CleanerEntry> selectedEntries)
+    private async Task PreviewAndRunWinapp2CleanupAsync(List<CleanerEntry> selectedEntries)
     {
-        MainWindow.SetStatusText("Cleaning third-party apps...");
-        var freed = 0L;
-        var files = 0;
-        var errors = new List<string>();
-
-        await Task.Run(() =>
+        MainWindow.SetStatusText(T("winapp2.scanning"));
+        var preview = await MainWindow.Winapp2Cleanup.PreviewAsync(selectedEntries);
+        if (preview.Candidates.Count == 0)
         {
-            foreach (var entry in selectedEntries)
+            MainWindow.SetStatusText(T("common.ready"));
+            await MainWindow.ShowDialogAsync_Internal(T("winapp2.title"), InfoBlock(T("winapp2.nothingFound")), T("common.close"));
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = T("winapp2.confirmTitle"),
+            Content = new TextBlock
             {
-                foreach (var fileKey in entry.FileKeys)
-                {
-                    var path = PathExpander.Expand(fileKey.Path);
-                    if (Directory.Exists(path))
-                    {
-                        try
-                        {
-                            var searchOption = fileKey.Recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-                            var searchPattern = fileKey.Extension == "*.*" ? "*" : fileKey.Extension;
-                            foreach (var file in Directory.EnumerateFiles(path, searchPattern, searchOption))
-                            {
-                                try
-                                {
-                                    var info = new FileInfo(file);
-                                    freed += info.Length;
-                                    File.Delete(file);
-                                    files++;
-                                }
-                                catch { }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            errors.Add($"{entry.Name}: {ex.Message}");
-                        }
-                    }
-                }
-            }
-        });
+                Text = F("winapp2.confirmBody", preview.Candidates.Count, Formatters.FormatBytes(preview.TotalBytes), selectedEntries.Count),
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = T("common.delete"),
+            CloseButtonText = T("common.cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            MainWindow.SetStatusText(T("common.ready"));
+            return;
+        }
 
+        MainWindow.SetStatusText(T("winapp2.cleaning"));
+        var result = await MainWindow.Winapp2Cleanup.RunAsync(preview, selectedEntries.Count);
         MainWindow.SetStatusText(T("common.ready"));
-        var result = new TaskRunResult(
-            "winapp2.cleanup",
-            "Third-Party App Cleanup",
-            DateTimeOffset.Now,
-            DateTimeOffset.Now,
-            errors.Count == 0,
-            freed,
-            files,
-            0,
-            new List<string> { $"Cleaned {files} files across {selectedEntries.Count} apps." },
-            errors
-        );
-
         await MainWindow.ShowRunResultAsync_Internal(result);
     }
 }

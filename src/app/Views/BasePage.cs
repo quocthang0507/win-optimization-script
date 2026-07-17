@@ -10,7 +10,13 @@ public abstract partial class BasePage : UserControl
     protected BasePage(MainWindow mainWindow)
     {
         MainWindow = mainWindow;
-        MainContent = new StackPanel { Spacing = 16, Padding = new Thickness(28, 22, 28, 28) };
+        MainContent = new StackPanel
+        {
+            Spacing = 16,
+            Padding = new Thickness(28, 22, 28, 28),
+            MaxWidth = 1440,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
         Content = MainContent;
     }
 

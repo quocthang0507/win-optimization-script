@@ -257,7 +257,8 @@ Chi tiết kế hoạch triển khai và tiến trình hiện tại có thể xe
 ## Lời cảm ơn (Acknowledgments)
 
 - Xin gửi lời cảm ơn đến đội ngũ phát triển [Microsoft WinUI 3](https://github.com/microsoft/microsoft-ui-xaml) và .NET.
-- Chân thành cảm ơn 2 dự án mã nguồn mở tuyệt vời [Chris Titus Tech's Windows Utility (winutil)](https://github.com/ChrisTitusTech/winutil) và [Sophia-Script-for-Windows](https://github.com/farag2/Sophia-Script-for-Windows) đã truyền cảm hứng và cung cấp nhiều kiến thức tham khảo giá trị cho ứng dụng này.
+- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)** đã truyền cảm hứng cho việc tích hợp cơ sở dữ liệu dọn dẹp Winapp2, quy trình xem trước minh bạch và trải nghiệm WinUI tối giản.
+- **[Winhance](https://github.com/memstechtips/Winhance)** đã truyền cảm hứng cho các chức năng tối ưu hệ thống, tinh chỉnh có thể khôi phục, quản lý phần mềm và cấu hình tái sử dụng.
 - Cảm ơn cộng đồng mã nguồn mở và những người dùng đã đóng góp ý tưởng để cải thiện và hoàn thiện công cụ này.
 
 ---

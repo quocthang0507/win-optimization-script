@@ -46,11 +46,18 @@ public class Winapp2Service
 
     private static bool IsDetected(CleanerEntry entry)
     {
-        // Simple detection: if any of the target folders exist, we consider it detected
+        foreach (var detectFile in entry.DetectFiles)
+        {
+            if (PathExpander.Exists(detectFile))
+            {
+                return true;
+            }
+        }
+
+        // Some entries do not declare DetectFile, so fall back to their cleanup targets.
         foreach (var fileKey in entry.FileKeys)
         {
-            var expandedPath = PathExpander.Expand(fileKey.Path);
-            if (!string.IsNullOrWhiteSpace(expandedPath) && Directory.Exists(expandedPath))
+            if (PathExpander.Exists(fileKey.Path))
             {
                 return true;
             }

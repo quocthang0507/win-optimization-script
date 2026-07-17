@@ -28,6 +28,7 @@
     <Compile Include="..\app\Services\AppSettingsService.cs" Link="Production\Services\AppSettingsService.cs" />
     <Compile Include="..\app\Services\PathExpander.cs" Link="Production\Services\PathExpander.cs" />
     <Compile Include="..\app\Services\Winapp2Parser.cs" Link="Production\Services\Winapp2Parser.cs" />
+    <Compile Include="..\app\Services\Winapp2CleanupService.cs" Link="Production\Services\Winapp2CleanupService.cs" />
     <Compile Include="..\app\Models\AppUpdateInfo.cs" Link="Production\Models\AppUpdateInfo.cs" />
     <Compile Include="..\app\Models\CleanupTargetPreview.cs" Link="Production\Models\CleanupTargetPreview.cs" />
     <Compile Include="..\app\Models\CloudStorageLocation.cs" Link="Production\Models\CloudStorageLocation.cs" />
@@ -38,6 +39,7 @@
     <Compile Include="..\app\Models\HealthCheckFinding.cs" Link="Production\Models\HealthCheckFinding.cs" />
     <Compile Include="..\app\Models\HealthCheckRecommendation.cs" Link="Production\Models\HealthCheckRecommendation.cs" />
     <Compile Include="..\app\Models\HealthCheckResult.cs" Link="Production\Models\HealthCheckResult.cs" />
+    <Compile Include="..\app\Models\HealthCheckScanMetrics.cs" Link="Production\Models\HealthCheckScanMetrics.cs" />
     <Compile Include="..\app\Models\DiskScanOptions.cs" Link="Production\Models\DiskScanOptions.cs" />
     <Compile Include="..\app\Models\DiskScanProgress.cs" Link="Production\Models\DiskScanProgress.cs" />
     <Compile Include="..\app\Models\DiskScanResult.cs" Link="Production\Models\DiskScanResult.cs" />
@@ -56,6 +58,7 @@
     <Compile Include="..\app\Models\InstalledApp.cs" Link="Production\Models\InstalledApp.cs" />
     <Compile Include="..\app\Models\SystemMetrics.cs" Link="Production\Models\SystemMetrics.cs" />
     <Compile Include="..\app\Models\WingetPackage.cs" Link="Production\Models\WingetPackage.cs" />
+    <Compile Include="..\app\Models\Winapp2CleanupPreview.cs" Link="Production\Models\Winapp2CleanupPreview.cs" />
     <Compile Include="..\app\Services\AppProcessLauncher.cs" Link="Production\Services\AppProcessLauncher.cs" />
     <Compile Include="..\app\Services\AppRuntimePaths.cs" Link="Production\Services\AppRuntimePaths.cs" />
     <Compile Include="..\app\Services\CloudStorageDetector.cs" Link="Production\Services\CloudStorageDetector.cs" />
@@ -85,7 +88,10 @@
     <Compile Include="..\app\Services\IpcMessages.cs" Link="Production\Services\IpcMessages.cs" />
     <Compile Include="..\app\Services\ProcessEfficiencyService.cs" Link="Production\Services\ProcessEfficiencyService.cs" />
     <Compile Include="..\app\Models\SystemTweak.cs" Link="Production\Models\SystemTweak.cs" />
+    <Compile Include="..\app\Models\TweakSnapshot.cs" Link="Production\Models\TweakSnapshot.cs" />
     <Compile Include="..\app\Services\TweakService.cs" Link="Production\Services\TweakService.cs" />
+    <Compile Include="..\app\Services\TweakProfileCatalog.cs" Link="Production\Services\TweakProfileCatalog.cs" />
+    <Compile Include="..\app\Services\TweakSnapshotService.cs" Link="Production\Services\TweakSnapshotService.cs" />
   </ItemGroup>
 
   <ItemGroup>

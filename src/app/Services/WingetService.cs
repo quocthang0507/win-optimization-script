@@ -55,6 +55,34 @@ public sealed class WingetService
             result.StandardError.Trim());
     }
 
+    public async Task<WingetPackageUpgradeResult> DownloadPackageAsync(
+        WingetPackage package,
+        string downloadDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (Client != null)
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(new WingetPackageDownloadRequest(package, downloadDirectory));
+            var response = await Client.SendRequestAsync("DownloadWingetPackage", payload);
+            return System.Text.Json.JsonSerializer.Deserialize<WingetPackageUpgradeResult>(response)
+                ?? new WingetPackageUpgradeResult(package, false, -1, string.Empty, "Failed to deserialize winget download result.");
+        }
+
+        if (!_commands.Exists("winget"))
+        {
+            return new WingetPackageUpgradeResult(package, false, -1, string.Empty, "winget is not available.");
+        }
+
+        Directory.CreateDirectory(downloadDirectory);
+        var result = await _commands.RunCaptureAsync("winget.exe", BuildDownloadArguments(package, downloadDirectory), cancellationToken);
+        return new WingetPackageUpgradeResult(
+            package,
+            result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardError),
+            result.ExitCode,
+            result.StandardOutput.Trim(),
+            result.StandardError.Trim());
+    }
+
     public async Task<WingetPackageUpgradeResult> InstallPackageAsync(string packageId, CancellationToken cancellationToken = default)
     {
         if (Client != null)
@@ -90,6 +118,15 @@ public sealed class WingetService
             : $" --source {QuoteArgument(package.Source)}";
 
         return $"upgrade --id {QuoteArgument(package.Id)} --exact --silent{source} {AgreementArguments}";
+    }
+
+    public static string BuildDownloadArguments(WingetPackage package, string downloadDirectory)
+    {
+        var source = string.IsNullOrWhiteSpace(package.Source)
+            ? string.Empty
+            : $" --source {QuoteArgument(package.Source)}";
+
+        return $"download --id {QuoteArgument(package.Id)} --exact{source} --download-directory {QuoteArgument(downloadDirectory)} {AgreementArguments}";
     }
 
     public static string BuildInstallArguments(string packageId)
@@ -134,6 +171,6 @@ public sealed class WingetService
 
     private static string QuoteArgument(string value)
     {
-        return $"\"{value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
+        return $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
     }
 }
