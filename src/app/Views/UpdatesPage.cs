@@ -1,4 +1,5 @@
 using WinOptimizationApp.Models;
+using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp.Views;
 
@@ -233,12 +234,26 @@ public sealed partial class UpdatesPage : BasePage
             Background = ThemeCardBackground()
         };
 
+        var mainLayout = new StackPanel { Spacing = 10 };
+
         var grid = new Grid { ColumnSpacing = 12 };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var details = new StackPanel { Spacing = 4 };
+        var leftPanel = new Grid { ColumnSpacing = 12 };
+        leftPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        leftPanel.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var iconContainer = new Grid { Width = 32, Height = 32, VerticalAlignment = VerticalAlignment.Center };
+        var fallbackIcon = new SymbolIcon(Symbol.Setting) { Opacity = 0.5, Width = 24, Height = 24 };
+        var actualIcon = new Image { Width = 32, Height = 32, Visibility = Visibility.Collapsed };
+        iconContainer.Children.Add(fallbackIcon);
+        iconContainer.Children.Add(actualIcon);
+        Grid.SetColumn(iconContainer, 0);
+        leftPanel.Children.Add(iconContainer);
+
+        var details = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
         details.Children.Add(new TextBlock { Text = package.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         details.Children.Add(new TextBlock
         {
@@ -246,7 +261,10 @@ public sealed partial class UpdatesPage : BasePage
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.7
         });
-        grid.Children.Add(details);
+        Grid.SetColumn(details, 1);
+        leftPanel.Children.Add(details);
+
+        grid.Children.Add(leftPanel);
 
         var statusText = new TextBlock
         {
@@ -282,17 +300,130 @@ public sealed partial class UpdatesPage : BasePage
                     UseShellExecute = true
                 });
             }
-            catch
-            {
-            }
+            catch {}
         });
         actions.Children.Add(openButton);
+
+        var detailsContent = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed, Margin = new Thickness(44, 4, 0, 0) };
+        var progressRing = new ProgressRing { IsActive = true, Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 10) };
+        var infoPanel = new StackPanel { Spacing = 6, Visibility = Visibility.Collapsed };
+        detailsContent.Children.Add(progressRing);
+        detailsContent.Children.Add(infoPanel);
+
+        bool detailsLoaded = false;
+        var infoButton = IconButton(Symbol.List, T("storage.details"), async (_, _) =>
+        {
+            if (detailsContent.Visibility == Visibility.Collapsed)
+            {
+                detailsContent.Visibility = Visibility.Visible;
+                if (!detailsLoaded)
+                {
+                    progressRing.Visibility = Visibility.Visible;
+                    infoPanel.Visibility = Visibility.Collapsed;
+
+                    var pkgDetails = await MainWindow.Winget.ShowPackageAsync(package.Id);
+                    if (pkgDetails != null)
+                    {
+                        infoPanel.Children.Clear();
+
+                        if (!string.IsNullOrWhiteSpace(pkgDetails.Publisher))
+                        {
+                            var pubPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                            pubPanel.Children.Add(new TextBlock { Text = "Publisher:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Width = 110 });
+                            pubPanel.Children.Add(string.IsNullOrWhiteSpace(pkgDetails.PublisherUrl) 
+                                ? new TextBlock { Text = pkgDetails.Publisher }
+                                : CreateLink(pkgDetails.Publisher, pkgDetails.PublisherUrl));
+                            infoPanel.Children.Add(pubPanel);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(pkgDetails.Homepage))
+                        {
+                            var hpPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                            hpPanel.Children.Add(new TextBlock { Text = "Homepage:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Width = 110 });
+                            hpPanel.Children.Add(CreateLink(pkgDetails.Homepage, pkgDetails.Homepage));
+                            infoPanel.Children.Add(hpPanel);
+
+                            try
+                            {
+                                var domain = new Uri(pkgDetails.Homepage).Host;
+                                actualIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri($"https://www.google.com/s2/favicons?sz=64&domain={domain}"));
+                                actualIcon.Visibility = Visibility.Visible;
+                                fallbackIcon.Visibility = Visibility.Collapsed;
+                            }
+                            catch {}
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(pkgDetails.License))
+                        {
+                            var licPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                            licPanel.Children.Add(new TextBlock { Text = "License:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Width = 110 });
+                            licPanel.Children.Add(string.IsNullOrWhiteSpace(pkgDetails.LicenseUrl)
+                                ? new TextBlock { Text = pkgDetails.License }
+                                : CreateLink(pkgDetails.License, pkgDetails.LicenseUrl));
+                            infoPanel.Children.Add(licPanel);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(pkgDetails.Description))
+                        {
+                            var descPanel = new StackPanel { Spacing = 2 };
+                            descPanel.Children.Add(new TextBlock { Text = "Description:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                            descPanel.Children.Add(new TextBlock { Text = pkgDetails.Description, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
+                            infoPanel.Children.Add(descPanel);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(pkgDetails.ReleaseNotes))
+                        {
+                            var rnPanel = new StackPanel { Spacing = 2 };
+                            rnPanel.Children.Add(new TextBlock { Text = "Release Notes:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                            rnPanel.Children.Add(new TextBlock { Text = pkgDetails.ReleaseNotes, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
+                            infoPanel.Children.Add(rnPanel);
+                        }
+
+                        detailsLoaded = true;
+                    }
+                    else
+                    {
+                        infoPanel.Children.Clear();
+                        infoPanel.Children.Add(new TextBlock { Text = "Failed to load package details from Winget.", Foreground = Brush(Colors.Red) });
+                    }
+
+                    progressRing.Visibility = Visibility.Collapsed;
+                    infoPanel.Visibility = Visibility.Visible;
+                }
+            }
+            else
+            {
+                detailsContent.Visibility = Visibility.Collapsed;
+            }
+        });
+        actions.Children.Insert(0, infoButton);
 
         Grid.SetColumn(actions, 2);
         grid.Children.Add(actions);
 
-        border.Child = grid;
+        mainLayout.Children.Add(grid);
+        mainLayout.Children.Add(detailsContent);
+
+        border.Child = mainLayout;
         return border;
+    }
+
+    private static UIElement CreateLink(string text, string url)
+    {
+        try
+        {
+            return new HyperlinkButton
+            {
+                Content = text,
+                NavigateUri = new Uri(url),
+                Padding = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+        catch
+        {
+            return new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center };
+        }
     }
 
     private async Task UpgradePackagesAsync(IReadOnlyList<WingetPackage>? selectedPackages)
@@ -390,16 +521,10 @@ public sealed partial class UpdatesPage : BasePage
         MainWindow.SetStatusText(F("updates.upgradeSummary", succeeded, failed));
     }
 
-    private async Task<string?> PickUpdateDownloadFolderAsync()
+    private Task<string?> PickUpdateDownloadFolderAsync()
     {
-        var picker = new FolderPicker
-        {
-            SuggestedStartLocation = PickerLocationId.Downloads
-        };
-        picker.FileTypeFilter.Add("*");
-        InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
-        var folder = await picker.PickSingleFolderAsync();
-        return folder?.Path;
+        var path = FolderPickerHelper.PickFolder(MainWindow.WindowHandle);
+        return Task.FromResult(path);
     }
 
     private async Task<bool> ConfirmUpgradeAsync(int packageCount)

@@ -1219,13 +1219,10 @@ public sealed partial class StoragePage : BasePage
             item.IsDirectory);
     }
 
-    private async Task<string?> PickFolderAsync()
+    private Task<string?> PickFolderAsync()
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(MainWindow));
-        var folder = await picker.PickSingleFolderAsync();
-        return folder?.Path;
+        var path = FolderPickerHelper.PickFolder(WindowNative.GetWindowHandle(MainWindow));
+        return Task.FromResult(path);
     }
 
     private static Grid StorageGrid()

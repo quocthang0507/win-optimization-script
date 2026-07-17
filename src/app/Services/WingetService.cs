@@ -169,6 +169,166 @@ public sealed class WingetService
         return packages;
     }
 
+    public async Task<WingetPackageDetails?> ShowPackageAsync(string packageId, CancellationToken cancellationToken = default)
+    {
+        if (!_commands.Exists("winget"))
+        {
+            return null;
+        }
+
+        var result = await _commands.RunCaptureAsync("winget.exe", $"show --id {QuoteArgument(packageId)} --exact", cancellationToken);
+        if (result.ExitCode != 0)
+        {
+            return null;
+        }
+
+        return ParseShowOutput(packageId, result.StandardOutput);
+    }
+
+    private static WingetPackageDetails ParseShowOutput(string packageId, string output)
+    {
+        var details = new WingetPackageDetails { Id = packageId };
+        var lines = output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        string currentMultiLineKey = "";
+        var multiLineValues = new List<string>();
+
+        void FlushMultiLine()
+        {
+            if (!string.IsNullOrEmpty(currentMultiLineKey))
+            {
+                var combined = string.Join("\n", multiLineValues).Trim();
+                if (combined.StartsWith("'") && combined.EndsWith("'") && combined.Length >= 2)
+                    combined = combined.Substring(1, combined.Length - 2).Trim();
+                if (combined.StartsWith("\"") && combined.EndsWith("\"") && combined.Length >= 2)
+                    combined = combined.Substring(1, combined.Length - 2).Trim();
+
+                switch (currentMultiLineKey.ToLowerInvariant())
+                {
+                    case "description":
+                        details.Description = combined;
+                        break;
+                    case "release notes":
+                    case "releasenotes":
+                        details.ReleaseNotes = combined;
+                        break;
+                    case "tags":
+                        details.Tags = multiLineValues.Select(t => t.Trim())
+                                                      .Select(t => t.StartsWith("- ") ? t.Substring(2).Trim() : t)
+                                                      .Where(t => !string.IsNullOrEmpty(t))
+                                                      .ToList();
+                        break;
+                }
+                currentMultiLineKey = "";
+                multiLineValues.Clear();
+            }
+        }
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            if (line.StartsWith("  ") && !string.IsNullOrEmpty(currentMultiLineKey))
+            {
+                multiLineValues.Add(line.Trim());
+                continue;
+            }
+
+            if (line.TrimStart().StartsWith("- ") && !string.IsNullOrEmpty(currentMultiLineKey))
+            {
+                multiLineValues.Add(line.TrimStart().Substring(2).Trim());
+                continue;
+            }
+
+            FlushMultiLine();
+
+            int colonIndex = line.IndexOf(':');
+            if (colonIndex > 0)
+            {
+                string key = line.Substring(0, colonIndex).Trim();
+                string val = line.Substring(colonIndex + 1).Trim();
+
+                bool isMultiLineKey = key.Equals("description", StringComparison.OrdinalIgnoreCase) ||
+                                      key.Equals("releasenotes", StringComparison.OrdinalIgnoreCase) ||
+                                      key.Equals("release notes", StringComparison.OrdinalIgnoreCase) ||
+                                      key.Equals("tags", StringComparison.OrdinalIgnoreCase) ||
+                                      key.Equals("documentations", StringComparison.OrdinalIgnoreCase) ||
+                                      key.Equals("documentation", StringComparison.OrdinalIgnoreCase);
+
+                if (isMultiLineKey)
+                {
+                    currentMultiLineKey = key;
+                    if (!string.IsNullOrEmpty(val))
+                    {
+                        multiLineValues.Add(val);
+                    }
+                }
+                else if (string.IsNullOrEmpty(val))
+                {
+                    currentMultiLineKey = key;
+                }
+                else
+                {
+                    // If val starts with quote and ends with quote, strip them
+                    if (val.StartsWith("'") && val.EndsWith("'") && val.Length >= 2) val = val.Substring(1, val.Length - 2).Trim();
+                    if (val.StartsWith("\"") && val.EndsWith("\"") && val.Length >= 2) val = val.Substring(1, val.Length - 2).Trim();
+
+                    switch (key.ToLowerInvariant())
+                    {
+                        case "version":
+                        case "packageversion":
+                            details.Version = val;
+                            break;
+                        case "publisher":
+                            details.Publisher = val;
+                            break;
+                        case "publisher url":
+                        case "publisherurl":
+                            details.PublisherUrl = val;
+                            break;
+                        case "homepage":
+                        case "packageurl":
+                            details.Homepage = val;
+                            break;
+                        case "license":
+                            details.License = val;
+                            break;
+                        case "license url":
+                        case "licenseurl":
+                            details.LicenseUrl = val;
+                            break;
+                        case "release notes url":
+                        case "releasenotesurl":
+                            details.ReleaseNotesUrl = val;
+                            break;
+                        case "installer url":
+                        case "installerurl":
+                            details.InstallerUrl = val;
+                            break;
+                        case "installer type":
+                        case "installertype":
+                            details.InstallerType = val;
+                            break;
+                        case "packagename":
+                            details.Name = val;
+                            break;
+                    }
+                }
+            }
+            else if (line.StartsWith("Found ") && line.Contains("[") && line.Contains("]"))
+            {
+                int nameStart = 6;
+                int nameEnd = line.IndexOf('[');
+                if (nameEnd > nameStart)
+                {
+                    details.Name = line.Substring(nameStart, nameEnd - nameStart).Trim();
+                }
+            }
+        }
+
+        FlushMultiLine();
+        return details;
+    }
+
     private static string QuoteArgument(string value)
     {
         return $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
