@@ -28,6 +28,17 @@ function Assert-CleanWorkingTree {
     }
 }
 
+function Assert-NativeCommandSucceeded {
+    param(
+        [Parameter(Mandatory)]
+        [string]$CommandName
+    )
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$CommandName failed with exit code $LASTEXITCODE. Release was not created."
+    }
+}
+
 function Set-ProjectVersion {
     param(
         [Parameter(Mandatory)]
@@ -62,15 +73,22 @@ if ((git tag --list $tag)) {
 Set-ProjectVersion -ProjectPath $projectPath -Version $Version
 
 dotnet test $testProjectPath --configuration Release
+Assert-NativeCommandSucceeded -CommandName 'dotnet test'
 dotnet publish $projectPath --configuration Release --runtime win-x64 --self-contained true
+Assert-NativeCommandSucceeded -CommandName 'dotnet publish'
 
 git add $projectPath
+Assert-NativeCommandSucceeded -CommandName 'git add'
 git commit -m "Release $tag"
+Assert-NativeCommandSucceeded -CommandName 'git commit'
 git tag -a $tag -m "Release $tag"
+Assert-NativeCommandSucceeded -CommandName 'git tag'
 
 if ($Push) {
     git push origin HEAD
+    Assert-NativeCommandSucceeded -CommandName 'git push branch'
     git push origin $tag
+    Assert-NativeCommandSucceeded -CommandName 'git push tag'
     Write-Host "Pushed release commit and tag $tag. GitHub Actions will build and publish the Windows release." -ForegroundColor Green
 }
 else {
