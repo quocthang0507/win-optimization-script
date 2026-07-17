@@ -163,7 +163,7 @@ public sealed class MiniToolbarWindow : Window
         });
         header.Children.Add(title);
 
-        var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
 
         var openApp = HeaderButton(Symbol.Home, T("widget.openApp"));
         openApp.Click += (_, _) => _mainWindow.ShowMainWindow();
@@ -283,7 +283,7 @@ public sealed class MiniToolbarWindow : Window
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        row.Children.Add(new SymbolIcon(symbol) { Width = 16, Height = 16, Opacity = 0.7 });
+        row.Children.Add(new SymbolIcon(symbol) { FontSize = 16, Opacity = 0.7 });
         var title = new TextBlock { Text = label, FontSize = 11, Opacity = 0.72, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(title, 1);
         row.Children.Add(title);
@@ -337,16 +337,14 @@ public sealed class MiniToolbarWindow : Window
         return toggle;
     }
 
-    private static Button HeaderButton(Symbol symbol, string label)
+    private static ButtonBase HeaderButton(Symbol symbol, string label)
     {
-        var button = new Button
+        var button = new HyperlinkButton
         {
             Width = 28,
             Height = 28,
             Padding = new Thickness(0),
-            Background = new SolidColorBrush(Colors.Transparent),
-            BorderThickness = new Thickness(0),
-            Content = new SymbolIcon(symbol) { Width = 13, Height = 13 }
+            Content = new SymbolIcon(symbol) { FontSize = 14 }
         };
         ToolTipService.SetToolTip(button, label);
         return button;
@@ -373,7 +371,7 @@ public sealed class MiniToolbarWindow : Window
         var physicalWidth = (int)(420 * scaleFactor);
         var physicalHeight = (int)(340 * scaleFactor);
 
-        appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
+        appWindow.ResizeClient(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
 
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
