@@ -246,7 +246,7 @@ public sealed partial class UpdatesPage : BasePage
         leftPanel.ColumnDefinitions.Add(new ColumnDefinition());
 
         var iconContainer = new Grid { Width = 32, Height = 32, VerticalAlignment = VerticalAlignment.Center };
-        var fallbackIcon = new SymbolIcon(Symbol.Setting) { Opacity = 0.5, FontSize = 24 };
+        var fallbackIcon = new Viewbox { Width = 24, Height = 24, Child = new SymbolIcon(Symbol.Setting) { Opacity = 0.5 } };
         var actualIcon = new Image { Width = 32, Height = 32, Visibility = Visibility.Collapsed };
         iconContainer.Children.Add(fallbackIcon);
         iconContainer.Children.Add(actualIcon);

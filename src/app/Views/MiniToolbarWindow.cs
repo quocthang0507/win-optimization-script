@@ -283,7 +283,7 @@ public sealed class MiniToolbarWindow : Window
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        row.Children.Add(new SymbolIcon(symbol) { FontSize = 16, Opacity = 0.7 });
+        row.Children.Add(new Viewbox { Width = 16, Height = 16, Opacity = 0.7, Child = new SymbolIcon(symbol) });
         var title = new TextBlock { Text = label, FontSize = 11, Opacity = 0.72, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(title, 1);
         row.Children.Add(title);
@@ -337,14 +337,16 @@ public sealed class MiniToolbarWindow : Window
         return toggle;
     }
 
-    private static ButtonBase HeaderButton(Symbol symbol, string label)
+    private static Button HeaderButton(Symbol symbol, string label)
     {
-        var button = new HyperlinkButton
+        var button = new Button
         {
             Width = 28,
             Height = 28,
             Padding = new Thickness(0),
-            Content = new SymbolIcon(symbol) { FontSize = 14 }
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Content = new Viewbox { Width = 14, Height = 14, Child = new SymbolIcon(symbol) }
         };
         ToolTipService.SetToolTip(button, label);
         return button;
