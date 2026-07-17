@@ -370,7 +370,7 @@ public sealed class MiniToolbarWindow : Window
 
         var dpi = GetDpiForWindow(_windowHandle);
         var scaleFactor = dpi / 96.0;
-        var physicalWidth = (int)(380 * scaleFactor);
+        var physicalWidth = (int)(420 * scaleFactor);
         var physicalHeight = (int)(340 * scaleFactor);
 
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
