@@ -72,5 +72,9 @@ public class AppSettingsServiceTests : IDisposable
         // Assert
         Assert.NotNull(settings);
         Assert.Null(settings.Theme);
+        Assert.False(File.Exists(_tempFile));
+        Assert.NotNull(service.RecoveredCorruptSettingsPath);
+        Assert.True(File.Exists(service.RecoveredCorruptSettingsPath));
+        File.Delete(service.RecoveredCorruptSettingsPath);
     }
 }

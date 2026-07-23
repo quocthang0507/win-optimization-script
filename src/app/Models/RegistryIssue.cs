@@ -8,5 +8,5 @@ public sealed class RegistryIssue
     public required string ValueName { get; init; }
     public required string ValueData { get; init; }
     public required string Description { get; init; }
-    public bool IsSelected { get; set; } = true;
+    public bool IsSelected { get; set; }
 }

@@ -50,7 +50,7 @@ public static class HealthCheckScanService
         IReadOnlyList<StartupEntry> startupEntries = [];
         try
         {
-            startupEntries = await startup.ScanAsync();
+            startupEntries = await startup.ScanAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

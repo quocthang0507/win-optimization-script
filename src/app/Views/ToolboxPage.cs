@@ -285,7 +285,7 @@ public sealed partial class ToolboxPage : BasePage
                     _registryResultsPanel.Children.Add(CreateRegistryIssueRow(issue));
                 }
 
-                _registryCleanBtn.IsEnabled = true;
+                UpdateRegistryCleanButtonState();
             }
         }
         catch (Exception ex)
@@ -382,9 +382,21 @@ public sealed partial class ToolboxPage : BasePage
         }
 
         MainWindow.SetStatusText(T("registry.cleaning"));
+        var started = DateTimeOffset.Now;
         try
         {
             var success = await MainWindow.RegistryCleaner.CleanAsync(selected);
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                "registry.cleanup",
+                "Registry Cleanup",
+                started,
+                DateTimeOffset.Now,
+                success,
+                0,
+                success ? selected.Count : 0,
+                success ? 0 : selected.Count,
+                success ? selected.Select(issue => issue.Id).ToList() : [],
+                success ? [] : ["One or more registry entries were not changed; backups were retained."]));
             if (success)
             {
                 var completeDialog = new ContentDialog
@@ -399,12 +411,33 @@ public sealed partial class ToolboxPage : BasePage
             }
             else
             {
-                MainWindow.SetStatusText(T("network.actionFailed"));
+                var failedDialog = new ContentDialog
+                {
+                    Title = T("registry.failedTitle"),
+                    Content = new TextBlock { Text = T("registry.failed"), TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = T("common.close"),
+                    XamlRoot = XamlRoot
+                };
+                await failedDialog.ShowAsync();
             }
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText($"Error: {ex.Message}");
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                "registry.cleanup",
+                "Registry Cleanup",
+                started,
+                DateTimeOffset.Now,
+                false,
+                0,
+                0,
+                selected.Count,
+                [],
+                [ex.Message]));
+            await MainWindow.ShowDialogAsync_Internal(
+                T("registry.failedTitle"),
+                InfoBlock(ex.Message),
+                T("common.close"));
         }
         finally
         {
@@ -418,8 +451,30 @@ public sealed partial class ToolboxPage : BasePage
 
     private async Task RunNetworkActionAsync(string actionName)
     {
+        if (actionName is "ResetWinsock" or "RenewIp")
+        {
+            var confirmation = new ContentDialog
+            {
+                Title = T("network.confirmTitle"),
+                Content = new TextBlock
+                {
+                    Text = T(actionName == "ResetWinsock" ? "network.confirmWinsock" : "network.confirmRenewIp"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                PrimaryButtonText = T("common.run"),
+                CloseButtonText = T("common.cancel"),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot
+            };
+            if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+        }
+
         MainWindow.SetStatusText(T("network.runningAction"));
         DisableNetworkButtons(false);
+        var started = DateTimeOffset.Now;
 
         try
         {
@@ -430,6 +485,18 @@ public sealed partial class ToolboxPage : BasePage
                 "RenewIp" => await MainWindow.NetworkOptimizer.RenewIpAsync(),
                 _ => false
             };
+
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                $"network.{actionName.ToLowerInvariant()}",
+                actionName,
+                started,
+                DateTimeOffset.Now,
+                success,
+                0,
+                success ? 1 : 0,
+                success ? 0 : 1,
+                success ? [$"{actionName} completed."] : [],
+                success ? [] : [$"{actionName} failed."]));
 
             if (success)
             {
@@ -464,7 +531,21 @@ public sealed partial class ToolboxPage : BasePage
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText($"Error: {ex.Message}");
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                $"network.{actionName.ToLowerInvariant()}",
+                actionName,
+                started,
+                DateTimeOffset.Now,
+                false,
+                0,
+                0,
+                1,
+                [],
+                [ex.Message]));
+            await MainWindow.ShowDialogAsync_Internal(
+                T("network.actionFailed"),
+                InfoBlock(ex.Message),
+                T("common.close"));
         }
         finally
         {
@@ -748,12 +829,26 @@ public sealed partial class ToolboxPage : BasePage
         }
 
         MainWindow.SetStatusText(F("uninstaller.uninstalling", app.Name));
+        var started = DateTimeOffset.Now;
+        var uninstallCompleted = false;
 
         try
         {
             var success = await MainWindow.Uninstaller.UninstallAppAsync(app);
             if (success)
             {
+                uninstallCompleted = true;
+                await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                    "software.uninstall",
+                    "Software Uninstall",
+                    started,
+                    DateTimeOffset.Now,
+                    true,
+                    0,
+                    1,
+                    0,
+                    [$"{app.Name} ({app.Id}): uninstalled"],
+                    []));
                 // Uninstallation successful, now scan leftovers
                 MainWindow.SetStatusText(T("common.loading"));
                 var leftovers = (await MainWindow.Uninstaller.ScanLeftoversAsync(app)).ToList();
@@ -801,7 +896,19 @@ public sealed partial class ToolboxPage : BasePage
                     if (await leftoversDialog.ShowAsync() == ContentDialogResult.Primary)
                     {
                         MainWindow.SetStatusText(T("storage.cleaning"));
+                        var cleanupStarted = DateTimeOffset.Now;
                         var cleanSuccess = await MainWindow.Uninstaller.DeleteLeftoversAsync(leftovers);
+                        await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                            "software.leftovers.recycle",
+                            "Move Software Leftovers to Recycle Bin",
+                            cleanupStarted,
+                            DateTimeOffset.Now,
+                            cleanSuccess,
+                            0,
+                            cleanSuccess ? leftovers.Count : 0,
+                            cleanSuccess ? 0 : leftovers.Count,
+                            cleanSuccess ? leftovers : [],
+                            cleanSuccess ? [] : ["One or more leftover paths were blocked or could not be moved."]));
                         if (cleanSuccess)
                         {
                             var completeDialog = new ContentDialog
@@ -821,6 +928,17 @@ public sealed partial class ToolboxPage : BasePage
             }
             else
             {
+                await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                    "software.uninstall",
+                    "Software Uninstall",
+                    started,
+                    DateTimeOffset.Now,
+                    false,
+                    0,
+                    0,
+                    1,
+                    [],
+                    [$"{app.Name} ({app.Id}): uninstall failed"]));
                 var failDialog = new ContentDialog
                 {
                     Title = T("uninstaller.uninstallFailed"),
@@ -833,7 +951,21 @@ public sealed partial class ToolboxPage : BasePage
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText($"Error: {ex.Message}");
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                uninstallCompleted ? "software.leftovers.scan" : "software.uninstall",
+                uninstallCompleted ? "Software Leftover Scan" : "Software Uninstall",
+                started,
+                DateTimeOffset.Now,
+                false,
+                0,
+                0,
+                1,
+                [],
+                [$"{app.Name} ({app.Id}): {ex.Message}"]));
+            await MainWindow.ShowDialogAsync_Internal(
+                T(uninstallCompleted ? "uninstaller.leftoversTitle" : "uninstaller.uninstallFailed"),
+                InfoBlock(ex.Message),
+                T("common.close"));
         }
         finally
         {

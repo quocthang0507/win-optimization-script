@@ -5,11 +5,18 @@ namespace WinOptimizationApp.Services;
 
 public sealed class RegistryCleanerService
 {
+    private readonly CommandRunner _commands;
+
+    public RegistryCleanerService(CommandRunner? commands = null)
+    {
+        _commands = commands ?? new CommandRunner();
+    }
+
     public IpcClient? Client { get; set; }
 
     public async Task<IReadOnlyList<RegistryIssue>> ScanAsync()
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var response = await Client.SendRequestAsync("ScanRegistry");
             return System.Text.Json.JsonSerializer.Deserialize<List<RegistryIssue>>(response) ?? [];
@@ -25,16 +32,34 @@ public sealed class RegistryCleanerService
         });
     }
 
-    public async Task<bool> CleanAsync(List<RegistryIssue> issues)
+    public async Task<bool> CleanAsync(List<RegistryIssue> issues, CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(issues);
-            var response = await Client.SendRequestAsync("CleanRegistry", payload);
+            var response = await Client.SendRequestAsync("CleanRegistry", payload, cancellationToken);
             return response == "Success";
         }
 
-        return await Task.Run(() => CleanInternal(issues));
+        var selected = issues.Where(issue => issue.IsSelected).ToList();
+        var detected = await ScanAsync();
+        var trusted = selected
+            .Select(requested => detected.FirstOrDefault(candidate =>
+                candidate.Id.Equals(requested.Id, StringComparison.OrdinalIgnoreCase) &&
+                candidate.Category.Equals(requested.Category, StringComparison.Ordinal) &&
+                candidate.KeyPath.Equals(requested.KeyPath, StringComparison.OrdinalIgnoreCase) &&
+                candidate.ValueName.Equals(requested.ValueName, StringComparison.OrdinalIgnoreCase) &&
+                candidate.ValueData.Equals(requested.ValueData, StringComparison.Ordinal)))
+            .Where(issue => issue is not null)
+            .Cast<RegistryIssue>()
+            .ToList();
+        if (trusted.Count != selected.Count)
+        {
+            return false;
+        }
+
+        foreach (var issue in trusted) issue.IsSelected = true;
+        return await CleanInternalAsync(trusted, cancellationToken);
     }
 
     private static void ScanSharedDlls(List<RegistryIssue> issues)
@@ -214,7 +239,7 @@ public sealed class RegistryCleanerService
         }
     }
 
-    private bool CleanInternal(List<RegistryIssue> issues)
+    private async Task<bool> CleanInternalAsync(List<RegistryIssue> issues, CancellationToken cancellationToken)
     {
         var pathService = new PathService();
         var backupsDir = pathService.BackupsDirectory;
@@ -227,6 +252,7 @@ public sealed class RegistryCleanerService
 
         foreach (var issue in issues)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!issue.IsSelected)
             {
                 continue;
@@ -234,11 +260,10 @@ public sealed class RegistryCleanerService
 
             try
             {
-                CreateRegBackup(issue, backupsDir);
-
                 var parts = issue.KeyPath.Split('\\');
                 if (parts.Length < 2)
                 {
+                    overallSuccess = false;
                     continue;
                 }
 
@@ -254,9 +279,19 @@ public sealed class RegistryCleanerService
 
                 if (hive == null)
                 {
+                    overallSuccess = false;
                     continue;
                 }
 
+                var backupPath = await ExportRegistryBackupAsync(issue, backupsDir, cancellationToken);
+                if (backupPath is null)
+                {
+                    Console.WriteLine($"[RegistryCleanerService] Backup failed; issue was not changed: {issue.Id}");
+                    overallSuccess = false;
+                    continue;
+                }
+
+                var changed = false;
                 if (string.IsNullOrEmpty(issue.ValueName))
                 {
                     if (issue.Category is "Application Paths" or "File Extensions")
@@ -267,19 +302,37 @@ public sealed class RegistryCleanerService
                             var parentPath = subkeyPath.Substring(0, lastBackslash);
                             var subkeyToDelete = subkeyPath.Substring(lastBackslash + 1);
                             using var parentKey = hive.OpenSubKey(parentPath, writable: true);
-                            parentKey?.DeleteSubKeyTree(subkeyToDelete, throwOnMissingSubKey: false);
+                            if (parentKey is not null)
+                            {
+                                parentKey.DeleteSubKeyTree(subkeyToDelete, throwOnMissingSubKey: false);
+                                changed = !parentKey.GetSubKeyNames().Contains(subkeyToDelete, StringComparer.OrdinalIgnoreCase);
+                            }
                         }
                     }
                     else
                     {
                         using var key = hive.OpenSubKey(subkeyPath, writable: true);
-                        key?.DeleteValue("", throwOnMissingValue: false);
+                        if (key is not null)
+                        {
+                            key.DeleteValue("", throwOnMissingValue: false);
+                            changed = !key.GetValueNames().Contains(string.Empty, StringComparer.OrdinalIgnoreCase);
+                        }
                     }
                 }
                 else
                 {
                     using var key = hive.OpenSubKey(subkeyPath, writable: true);
-                    key?.DeleteValue(issue.ValueName, throwOnMissingValue: false);
+                    if (key is not null)
+                    {
+                        key.DeleteValue(issue.ValueName, throwOnMissingValue: false);
+                        changed = !key.GetValueNames().Contains(issue.ValueName, StringComparer.OrdinalIgnoreCase);
+                    }
+                }
+
+                if (!changed)
+                {
+                    Console.WriteLine($"[RegistryCleanerService] Registry change could not be verified: {issue.Id}");
+                    overallSuccess = false;
                 }
             }
             catch (Exception ex)
@@ -292,32 +345,22 @@ public sealed class RegistryCleanerService
         return overallSuccess;
     }
 
-    private static void CreateRegBackup(RegistryIssue issue, string backupsDir)
+    private async Task<string?> ExportRegistryBackupAsync(
+        RegistryIssue issue,
+        string backupsDir,
+        CancellationToken cancellationToken)
     {
-        var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss");
-        var safeCategory = issue.Category.Replace(" ", "_");
-        var filename = $"registry-backup-{safeCategory}-{timestamp}.reg";
+        var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff");
+        var safeId = string.Concat(issue.Id.Select(character => char.IsLetterOrDigit(character) ? character : '-'));
+        var filename = $"registry-backup-{safeId}-{timestamp}.reg";
         var path = Path.Combine(backupsDir, filename);
-
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Windows Registry Editor Version 5.00");
-        sb.AppendLine();
-        sb.AppendLine($"[{issue.KeyPath}]");
-
-        if (issue.ValueName == "(Default)" || string.IsNullOrEmpty(issue.ValueName))
-        {
-            sb.AppendLine($"@={EscapeRegistryValue(issue.ValueData)}");
-        }
-        else
-        {
-            sb.AppendLine($"\"{issue.ValueName}\"={EscapeRegistryValue(issue.ValueData)}");
-        }
-
-        File.WriteAllText(path, sb.ToString(), System.Text.Encoding.Unicode);
-    }
-
-    private static string EscapeRegistryValue(string val)
-    {
-        return "\"" + val.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        var exportKey = issue.KeyPath
+            .Replace("HKEY_LOCAL_MACHINE", "HKLM", StringComparison.OrdinalIgnoreCase)
+            .Replace("HKEY_CURRENT_USER", "HKCU", StringComparison.OrdinalIgnoreCase);
+        var result = await _commands.RunCaptureAsync(
+            "reg.exe",
+            $"export \"{exportKey}\" \"{path}\" /y",
+            cancellationToken);
+        return result.ExitCode == 0 && File.Exists(path) ? path : null;
     }
 }

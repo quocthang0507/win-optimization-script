@@ -7,47 +7,59 @@ public sealed class StartupService
 {
     public IpcClient? Client { get; set; }
 
-    public async Task<IReadOnlyList<StartupEntry>> ScanAsync()
+    public async Task<IReadOnlyList<StartupEntry>> ScanAsync(CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("ScanStartup");
+            var response = await Client.SendRequestAsync("ScanStartup", cancellationToken: cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<List<StartupEntry>>(response) ?? [];
         }
 
         return await Task.Run<IReadOnlyList<StartupEntry>>(() =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var entries = new List<StartupEntry>();
             ReadRunKey(entries, Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKCU Run");
             ReadRunKey(entries, Registry.LocalMachine, @"Software\Microsoft\Windows\CurrentVersion\Run", "HKLM Run");
             ReadStartupFolder(entries, Environment.GetFolderPath(Environment.SpecialFolder.Startup), "User Startup folder");
             ReadStartupFolder(entries, Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), "Common Startup folder");
             return entries;
-        });
+        }, cancellationToken);
     }
 
     public async Task<bool> EnableAsync(StartupEntry entry)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(entry);
             var response = await Client.SendRequestAsync("EnableStartup", payload);
             return response == "Success";
         }
 
-        return await Task.Run(() => EnableInternal(entry));
+        var trustedEntry = await ResolveTrustedEntryAsync(entry);
+        return trustedEntry is not null && await Task.Run(() => EnableInternal(trustedEntry));
     }
 
     public async Task<bool> DisableAsync(StartupEntry entry)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(entry);
             var response = await Client.SendRequestAsync("DisableStartup", payload);
             return response == "Success";
         }
 
-        return await Task.Run(() => DisableInternal(entry));
+        var trustedEntry = await ResolveTrustedEntryAsync(entry);
+        return trustedEntry is not null && await Task.Run(() => DisableInternal(trustedEntry));
+    }
+
+    private async Task<StartupEntry?> ResolveTrustedEntryAsync(StartupEntry requested)
+    {
+        var entries = await ScanAsync();
+        return entries.FirstOrDefault(candidate =>
+            candidate.Name.Equals(requested.Name, StringComparison.OrdinalIgnoreCase) &&
+            candidate.Source.Equals(requested.Source, StringComparison.Ordinal) &&
+            candidate.Command.Equals(requested.Command, StringComparison.OrdinalIgnoreCase));
     }
 
     private bool EnableInternal(StartupEntry entry)

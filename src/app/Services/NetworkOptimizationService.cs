@@ -16,9 +16,9 @@ public sealed class NetworkOptimizationService
 
     public async Task<bool> FlushDnsAsync(CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("RunNetworkRepair", "FlushDns");
+            var response = await Client.SendRequestAsync("RunNetworkRepair", "FlushDns", cancellationToken);
             return response == "Success";
         }
 
@@ -28,9 +28,9 @@ public sealed class NetworkOptimizationService
 
     public async Task<bool> ResetWinsockAsync(CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("RunNetworkRepair", "ResetWinsock");
+            var response = await Client.SendRequestAsync("RunNetworkRepair", "ResetWinsock", cancellationToken);
             return response == "Success";
         }
 
@@ -40,15 +40,15 @@ public sealed class NetworkOptimizationService
 
     public async Task<bool> RenewIpAsync(CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("RunNetworkRepair", "RenewIp");
+            var response = await Client.SendRequestAsync("RunNetworkRepair", "RenewIp", cancellationToken);
             return response == "Success";
         }
 
         var releaseResult = await _commands.RunCaptureAsync("ipconfig", "/release", cancellationToken);
         var renewResult = await _commands.RunCaptureAsync("ipconfig", "/renew", cancellationToken);
-        return renewResult.ExitCode == 0;
+        return releaseResult.ExitCode == 0 && renewResult.ExitCode == 0;
     }
 
     public Task<IReadOnlyList<NetworkAdapterInfo>> GetAdaptersAsync(CancellationToken cancellationToken = default)

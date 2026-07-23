@@ -64,6 +64,24 @@ public sealed class WingetServiceTests
         Assert.Contains("--disable-interactivity", arguments);
     }
 
+    [Theory]
+    [InlineData("Google.Chrome", true)]
+    [InlineData("Vendor.Package-Preview_1", true)]
+    [InlineData("Vendor.Package\" --scope machine", false)]
+    [InlineData("", false)]
+    public void IsValidPackageId_RejectsCommandLineMetacharacters(string packageId, bool expected)
+    {
+        Assert.Equal(expected, WingetService.IsValidPackageId(packageId));
+    }
+
+    [Fact]
+    public void IsSafeDownloadDirectory_BlocksDriveAndWindowsRoots()
+    {
+        Assert.False(WingetService.IsSafeDownloadDirectory(Path.GetPathRoot(Environment.SystemDirectory)!));
+        Assert.False(WingetService.IsSafeDownloadDirectory(Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
+        Assert.True(WingetService.IsSafeDownloadDirectory(Path.Combine(Path.GetTempPath(), "WinOptimizationDownloads")));
+    }
+
     [Fact]
     public void ParseShowOutput_ParsesStandardManifestCorrectly()
     {

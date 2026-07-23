@@ -19,16 +19,14 @@ public sealed class TweakService
             Id = "privacy.telemetry",
             Category = "Privacy",
             Title = "Disable Windows Telemetry",
-            Description = "Stops Windows from sending diagnostic data to Microsoft.",
+            Description = "Requests the minimum diagnostic data level supported by the installed Windows edition.",
             CheckScript = @"(Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Name 'AllowTelemetry' -ErrorAction SilentlyContinue).AllowTelemetry -eq 0",
             EnableScript = @"
                 New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Force | Out-Null
                 Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Name 'AllowTelemetry' -Value 0 -Type DWord -Force
-                Disable-ScheduledTask -TaskName 'Microsoft\Windows\Customer Experience Improvement Program\Consolidator' -ErrorAction SilentlyContinue
             ",
             DisableScript = @"
                 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Name 'AllowTelemetry' -ErrorAction SilentlyContinue
-                Enable-ScheduledTask -TaskName 'Microsoft\Windows\Customer Experience Improvement Program\Consolidator' -ErrorAction SilentlyContinue
             "
         },
         new SystemTweak
@@ -72,13 +70,15 @@ public sealed class TweakService
             Category = "Gaming",
             Title = "Enable Game Mode",
             Description = "Optimizes Windows for gaming by prioritizing game processes.",
+            RiskLevel = RiskLevel.Safe,
+            RequiresAdministrator = false,
             CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\GameBar' -Name 'AllowAutoGameMode' -ErrorAction SilentlyContinue).AllowAutoGameMode -eq 1",
             EnableScript = @"
                 New-Item -Path 'HKCU:\Software\Microsoft\GameBar' -Force | Out-Null
                 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\GameBar' -Name 'AllowAutoGameMode' -Value 1 -Type DWord -Force
             ",
             DisableScript = @"
-                Set-ItemProperty -Path 'HKCU:\Software\Microsoft\GameBar' -Name 'AllowAutoGameMode' -Value 0 -Type DWord -Force
+                Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\GameBar' -Name 'AllowAutoGameMode' -ErrorAction SilentlyContinue
             "
         },
         new SystemTweak
@@ -126,13 +126,14 @@ public sealed class TweakService
             Title = "Hide Taskbar Search",
             Description = "Hides the search box on the taskbar to save space.",
             RequiresAdministrator = false,
+            RiskLevel = RiskLevel.Safe,
             CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -Name 'SearchboxTaskbarMode' -ErrorAction SilentlyContinue).SearchboxTaskbarMode -eq 0",
             EnableScript = @"
                 New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -Force | Out-Null
                 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -Name 'SearchboxTaskbarMode' -Value 0 -Type DWord -Force
             ",
             DisableScript = @"
-                Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -Name 'SearchboxTaskbarMode' -Value 1 -Type DWord -Force
+                Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search' -Name 'SearchboxTaskbarMode' -ErrorAction SilentlyContinue
             "
         },
         new SystemTweak
@@ -142,12 +143,13 @@ public sealed class TweakService
             Title = "Hide Task View Button",
             Description = "Hides the Task View button from the taskbar.",
             RequiresAdministrator = false,
+            RiskLevel = RiskLevel.Safe,
             CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'ShowTaskViewButton' -ErrorAction SilentlyContinue).ShowTaskViewButton -eq 0",
             EnableScript = @"
                 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'ShowTaskViewButton' -Value 0 -Type DWord -Force
             ",
             DisableScript = @"
-                Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'ShowTaskViewButton' -Value 1 -Type DWord -Force
+                Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'ShowTaskViewButton' -ErrorAction SilentlyContinue
             "
         },
         // System
@@ -191,9 +193,9 @@ public sealed class TweakService
 
     public async Task<TweakStateResponse> CheckTweakStateAsync(string id, CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("CheckTweakState", id);
+            var response = await Client.SendRequestAsync("CheckTweakState", id, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<TweakStateResponse>(response)
                 ?? new TweakStateResponse { Id = id, Error = "Deserialization failed." };
         }
@@ -214,10 +216,10 @@ public sealed class TweakService
 
     public async Task<TweakStateResponse> ApplyTweakAsync(string id, bool enable, CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(new { Id = id, Enable = enable });
-            var response = await Client.SendRequestAsync("ApplyTweak", payload);
+            var response = await Client.SendRequestAsync("ApplyTweak", payload, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<TweakStateResponse>(response)
                 ?? new TweakStateResponse { Id = id, Error = "Deserialization failed." };
         }

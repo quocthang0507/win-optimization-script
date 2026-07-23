@@ -26,7 +26,7 @@ public sealed partial class BloatwarePage : BasePage
 
     private void RenderPage()
     {
-        AddHeader("Windows App Remover", "Uninstall pre-installed Windows UWP apps (Bloatware) safely.");
+        AddHeader(T("bloatware.title"), T("bloatware.subtitle"));
 
         _resultPanel = new StackPanel { Spacing = 8 };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
@@ -37,7 +37,7 @@ public sealed partial class BloatwarePage : BasePage
         });
         actions.Children.Add(_scanButton);
 
-        _removeButton = ActionButton("Remove Selected", Symbol.Delete, async (_, _) =>
+        _removeButton = ActionButton(T("bloatware.removeSelected"), Symbol.Delete, async (_, _) =>
         {
             await RemoveSelectedAppsAsync();
         });
@@ -60,7 +60,7 @@ public sealed partial class BloatwarePage : BasePage
     {
         if (_resultPanel == null || _isWorking) return;
 
-        MainWindow.SetStatusText("Scanning Windows Apps...");
+        MainWindow.SetStatusText(T("bloatware.scanning"));
         SetControlsEnabled(false);
         _resultPanel.Children.Clear();
         _selectedIds.Clear();
@@ -69,6 +69,11 @@ public sealed partial class BloatwarePage : BasePage
         {
             _apps = (await MainWindow.Uninstaller.ScanAppxPackagesAsync()).ToList();
             RenderApps();
+        }
+        catch (Exception ex)
+        {
+            _apps = [];
+            _resultPanel.Children.Add(InfoBlock(F("bloatware.scanFailed", ex.Message)));
         }
         finally
         {
@@ -88,7 +93,7 @@ public sealed partial class BloatwarePage : BasePage
             return;
         }
 
-        _resultPanel.Children.Add(SectionTitle($"Detected {_apps.Count} removable Windows Apps"));
+        _resultPanel.Children.Add(SectionTitle(F("bloatware.detected", _apps.Count)));
 
         foreach (var app in _apps)
         {
@@ -143,7 +148,7 @@ public sealed partial class BloatwarePage : BasePage
         if (_removeButton != null)
         {
             _removeButton.IsEnabled = _selectedIds.Count > 0 && !_isWorking;
-            _removeButton.Content = $"Remove Selected ({_selectedIds.Count})";
+            _removeButton.Content = F("bloatware.removeSelectedCount", _selectedIds.Count);
         }
     }
 
@@ -160,9 +165,9 @@ public sealed partial class BloatwarePage : BasePage
         var selectedApps = _apps.Where(a => _selectedIds.Contains(a.Id)).ToList();
         var dialog = new ContentDialog
         {
-            Title = $"Confirm Removal",
-            Content = $"Are you sure you want to completely uninstall {selectedApps.Count} Windows apps?",
-            PrimaryButtonText = "Remove",
+            Title = T("bloatware.confirmTitle"),
+            Content = F("bloatware.confirmBody", selectedApps.Count),
+            PrimaryButtonText = T("bloatware.remove"),
             CloseButtonText = T("common.cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
@@ -172,24 +177,55 @@ public sealed partial class BloatwarePage : BasePage
 
         _isWorking = true;
         SetControlsEnabled(false);
+        var started = DateTimeOffset.Now;
         var succeeded = 0;
         var failed = 0;
+        var reportMessages = new List<string>();
+        var reportErrors = new List<string>();
 
         try
         {
             for (var index = 0; index < selectedApps.Count; index++)
             {
                 var app = selectedApps[index];
-                MainWindow.SetStatusText($"Removing {index + 1}/{selectedApps.Count}: {app.Name}");
-                var ok = await MainWindow.Uninstaller.RemoveAppxPackageAsync(app);
-                if (ok) succeeded++; else failed++;
+                MainWindow.SetStatusText(F("bloatware.removing", index + 1, selectedApps.Count, app.Name));
+                try
+                {
+                    var ok = await MainWindow.Uninstaller.RemoveAppxPackageAsync(app);
+                    if (ok)
+                    {
+                        succeeded++;
+                        reportMessages.Add($"{app.Name} ({app.Id}): removed");
+                    }
+                    else
+                    {
+                        failed++;
+                        reportErrors.Add($"{app.Name} ({app.Id}): Windows rejected removal");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    reportErrors.Add($"{app.Name} ({app.Id}): {ex.Message}");
+                }
             }
         }
         finally
         {
             _isWorking = false;
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                "software.appx.remove",
+                "Windows App Removal",
+                started,
+                DateTimeOffset.Now,
+                failed == 0,
+                0,
+                succeeded,
+                failed,
+                reportMessages,
+                reportErrors));
             await ScanAppsAsync(); // Rescan
-            MainWindow.SetStatusText($"Removed: {succeeded}, Failed: {failed}");
+            MainWindow.SetStatusText(F("bloatware.summary", succeeded, failed));
         }
     }
 }

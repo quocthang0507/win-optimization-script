@@ -60,7 +60,7 @@ public static class Program
         var winget = new WingetService(commands);
         var startup = new StartupService();
         var execution = new MaintenanceExecutionService(cleanup, commands, paths, reports, new RestorePointService(commands));
-        var registryCleaner = new RegistryCleanerService();
+        var registryCleaner = new RegistryCleanerService(commands);
         var networkOptimizer = new NetworkOptimizationService(commands);
         var uninstaller = new UninstallerService(commands);
 

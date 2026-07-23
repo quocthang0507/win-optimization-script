@@ -6,6 +6,42 @@ namespace WinOptimizationApp.Tests.Unit;
 public sealed class StorageCleanupServiceTests
 {
     [Fact]
+    public void IsSafeCandidate_RejectsDriveRootAndProtectedSystemTrees()
+    {
+        var driveRoot = Path.GetPathRoot(Environment.SystemDirectory)!;
+        var rootCandidate = new StorageCleanupCandidate(
+            "root", "root", driveRoot, 0, RiskLevel.High,
+            StorageCleanupMode.MoveToRecycleBin, "test", true);
+        var windowsCandidate = new StorageCleanupCandidate(
+            "windows", "windows", Environment.GetFolderPath(Environment.SpecialFolder.Windows), 0, RiskLevel.High,
+            StorageCleanupMode.MoveToRecycleBin, "test", true);
+
+        Assert.False(StorageCleanupService.IsSafeCandidate(rootCandidate, out _));
+        Assert.False(StorageCleanupService.IsSafeCandidate(windowsCandidate, out _));
+    }
+
+    [Fact]
+    public void IsSafeCandidate_AllowsOrdinaryFileOutsideProtectedTrees()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "WinOptimizationApp.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "cleanup.tmp");
+        File.WriteAllText(path, "test");
+        try
+        {
+            var candidate = new StorageCleanupCandidate(
+                "file", "cleanup.tmp", path, 4, RiskLevel.Safe,
+                StorageCleanupMode.MoveToRecycleBin, "test", false);
+
+            Assert.True(StorageCleanupService.IsSafeCandidate(candidate, out var reason), reason);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CreateCandidates_IncludesTempLogDumpBackupFilesAndCacheFolders()
     {
         var result = CreateScanResult(

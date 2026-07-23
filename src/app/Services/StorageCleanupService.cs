@@ -68,6 +68,13 @@ public sealed class StorageCleanupService(ReportService reports)
                 continue;
             }
 
+            if (!IsSafeCandidate(candidate, out var safetyReason))
+            {
+                skipped++;
+                errors.Add($"Blocked unsafe cleanup target: {candidate.SourcePath}. {safetyReason}");
+                continue;
+            }
+
             try
             {
                 if (candidate.CleanupMode == StorageCleanupMode.MoveToRecycleBin)
@@ -104,6 +111,92 @@ public sealed class StorageCleanupService(ReportService reports)
 
         await _reports.SaveAsync(result, cancellationToken);
         return result;
+    }
+
+    public static bool IsSafeCandidate(StorageCleanupCandidate candidate, out string reason)
+    {
+        reason = string.Empty;
+        if (string.IsNullOrWhiteSpace(candidate.SourcePath))
+        {
+            reason = "The target path is empty.";
+            return false;
+        }
+
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(candidate.SourcePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            reason = "The target path is invalid.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(fullPath) || fullPath.Equals(Path.GetPathRoot(fullPath)?.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+        {
+            reason = "Drive roots cannot be cleaned.";
+            return false;
+        }
+
+        var protectedTrees = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
+        }.Where(path => !string.IsNullOrWhiteSpace(path));
+
+        if (protectedTrees.Any(root => PathSafetyService.IsPathWithinOrEqual(fullPath, root)))
+        {
+            reason = "Windows, Program Files, and ProgramData are protected from manual cleanup.";
+            return false;
+        }
+
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var usersRoot = Path.GetDirectoryName(userProfile);
+        if (fullPath.Equals(userProfile.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(usersRoot) && fullPath.Equals(usersRoot.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)))
+        {
+            reason = "User profile roots cannot be cleaned.";
+            return false;
+        }
+
+        if (candidate.IsDirectory != Directory.Exists(fullPath) || (!candidate.IsDirectory && !File.Exists(fullPath)))
+        {
+            reason = "The target type changed after the scan.";
+            return false;
+        }
+
+        if (ContainsReparsePoint(fullPath))
+        {
+            reason = "Linked or cloud-backed paths require manual review in File Explorer.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ContainsReparsePoint(string path)
+    {
+        FileSystemInfo? current = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+        while (current is not null && current.Exists)
+        {
+            if ((current.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                return true;
+            }
+
+            current = current switch
+            {
+                DirectoryInfo directory => directory.Parent,
+                FileInfo file => file.Directory,
+                _ => null
+            };
+        }
+
+        return false;
     }
 
     private static void MoveToRecycleBin(StorageCleanupCandidate candidate)

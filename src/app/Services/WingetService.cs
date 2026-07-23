@@ -17,26 +17,40 @@ public sealed class WingetService
 
     public async Task<IReadOnlyList<WingetPackage>> ScanAsync(CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("ScanWinget");
+            var response = await Client.SendRequestAsync("ScanWinget", cancellationToken: cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<List<WingetPackage>>(response) ?? [];
         }
         if (!_commands.Exists("winget"))
         {
-            return [];
+            throw new InvalidOperationException("WinGet is not installed or is not available on PATH.");
         }
 
         var result = await _commands.RunCaptureAsync("winget.exe", $"upgrade {SourceAgreementArguments}", cancellationToken);
-        return result.ExitCode != 0 ? [] : Parse(result.StandardOutput);
+        if (result.ExitCode != 0)
+        {
+            var detail = string.IsNullOrWhiteSpace(result.StandardError)
+                ? result.StandardOutput.Trim()
+                : result.StandardError.Trim();
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                ? $"WinGet scan failed with exit code {result.ExitCode}."
+                : detail);
+        }
+
+        return Parse(result.StandardOutput);
     }
 
     public async Task<WingetPackageUpgradeResult> UpgradePackageAsync(WingetPackage package, CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (!IsValidPackageId(package.Id))
+        {
+            return new WingetPackageUpgradeResult(package, false, -1, string.Empty, "Invalid WinGet package ID.");
+        }
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(package);
-            var response = await Client.SendRequestAsync("UpgradeWingetPackage", payload);
+            var response = await Client.SendRequestAsync("UpgradeWingetPackage", payload, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<WingetPackageUpgradeResult>(response)
                 ?? new WingetPackageUpgradeResult(package, false, -1, string.Empty, "Failed to deserialize winget upgrade result.");
         }
@@ -49,7 +63,7 @@ public sealed class WingetService
         var result = await _commands.RunCaptureAsync("winget.exe", BuildUpgradeArguments(package), cancellationToken);
         return new WingetPackageUpgradeResult(
             package,
-            result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardError),
+            result.ExitCode == 0,
             result.ExitCode,
             result.StandardOutput.Trim(),
             result.StandardError.Trim());
@@ -60,10 +74,19 @@ public sealed class WingetService
         string downloadDirectory,
         CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (!IsValidPackageId(package.Id))
+        {
+            return new WingetPackageUpgradeResult(package, false, -1, string.Empty, "Invalid WinGet package ID.");
+        }
+        if (!IsSafeDownloadDirectory(downloadDirectory))
+        {
+            return new WingetPackageUpgradeResult(package, false, -1, string.Empty, "The selected download directory is protected or invalid.");
+        }
+
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(new WingetPackageDownloadRequest(package, downloadDirectory));
-            var response = await Client.SendRequestAsync("DownloadWingetPackage", payload);
+            var response = await Client.SendRequestAsync("DownloadWingetPackage", payload, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<WingetPackageUpgradeResult>(response)
                 ?? new WingetPackageUpgradeResult(package, false, -1, string.Empty, "Failed to deserialize winget download result.");
         }
@@ -77,7 +100,7 @@ public sealed class WingetService
         var result = await _commands.RunCaptureAsync("winget.exe", BuildDownloadArguments(package, downloadDirectory), cancellationToken);
         return new WingetPackageUpgradeResult(
             package,
-            result.ExitCode == 0 && string.IsNullOrWhiteSpace(result.StandardError),
+            result.ExitCode == 0,
             result.ExitCode,
             result.StandardOutput.Trim(),
             result.StandardError.Trim());
@@ -85,9 +108,19 @@ public sealed class WingetService
 
     public async Task<WingetPackageUpgradeResult> InstallPackageAsync(string packageId, CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (!IsValidPackageId(packageId))
         {
-            var response = await Client.SendRequestAsync("InstallWingetPackage", packageId);
+            return new WingetPackageUpgradeResult(
+                new WingetPackage(packageId, packageId, "", "", ""),
+                false,
+                -1,
+                string.Empty,
+                "Invalid WinGet package ID.");
+        }
+
+        if (Client?.IsConnected == true)
+        {
+            var response = await Client.SendRequestAsync("InstallWingetPackage", packageId, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<WingetPackageUpgradeResult>(response)
                 ?? new WingetPackageUpgradeResult(new WingetPackage(packageId, packageId, "", "", ""), false, -1, string.Empty, "Failed to deserialize winget install result.");
         }
@@ -132,6 +165,38 @@ public sealed class WingetService
     public static string BuildInstallArguments(string packageId)
     {
         return $"install --id {QuoteArgument(packageId)} --exact --silent {AgreementArguments}";
+    }
+
+    public static bool IsValidPackageId(string packageId)
+    {
+        return !string.IsNullOrWhiteSpace(packageId) &&
+               packageId.Length <= 255 &&
+               packageId.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_' or '+');
+    }
+
+    public static bool IsSafeDownloadDirectory(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory)) return false;
+        try
+        {
+            var fullPath = Path.GetFullPath(directory).TrimEnd('\\', '/');
+            var root = Path.GetPathRoot(fullPath)?.TrimEnd('\\', '/');
+            if (string.IsNullOrWhiteSpace(fullPath) || fullPath.Equals(root, StringComparison.OrdinalIgnoreCase)) return false;
+
+            string[] protectedTrees =
+            [
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
+            ];
+            return !protectedTrees.Where(path => !string.IsNullOrWhiteSpace(path))
+                .Any(path => PathSafetyService.IsPathWithinOrEqual(fullPath, path));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     private static IReadOnlyList<WingetPackage> Parse(string output)

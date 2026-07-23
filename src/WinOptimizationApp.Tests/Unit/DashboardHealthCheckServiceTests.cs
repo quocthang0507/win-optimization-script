@@ -80,6 +80,18 @@ public sealed class DashboardHealthCheckServiceTests
         Assert.True(result.Score < 100);
     }
 
+    [Fact]
+    public void Analyze_DeepScanReportsPartialDataSources()
+    {
+        var status = CreateStatus(isAdministrator: true, lastReportPath: @"D:\logs\maintenance.json");
+        var metrics = new HealthCheckScanMetrics(0, 0, 0, 0, ["updates: unavailable"]);
+
+        var result = DashboardHealthCheckService.Analyze(status, metrics);
+
+        Assert.Contains(result.Findings, finding => finding.Id == "scan.partial");
+        Assert.Equal(98, result.Score);
+    }
+
     private static DashboardStatus CreateStatus(
         long systemDriveFreeBytes = 80L * 1024 * 1024 * 1024,
         long systemDriveTotalBytes = 200L * 1024 * 1024 * 1024,

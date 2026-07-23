@@ -19,7 +19,7 @@ public sealed class MaintenanceExecutionService(
 
     public async Task<TaskRunResult> RunAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(new RunTaskRequestPayload
             {
@@ -28,7 +28,7 @@ public sealed class MaintenanceExecutionService(
                 TaskGroup = task.Group,
                 CanRollback = task.CanRollback
             });
-            var response = await Client.SendRequestAsync("RunTask", payload);
+            var response = await Client.SendRequestAsync("RunTask", payload, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<TaskRunResult>(response) ?? throw new InvalidOperationException("Failed to deserialize TaskRunResult");
         }
         var started = DateTimeOffset.Now;
@@ -79,9 +79,15 @@ public sealed class MaintenanceExecutionService(
         {
             var result = await _commands.RunCaptureAsync(command.File, command.Args, cancellationToken);
             messages.Add(result.StandardOutput.Trim());
-            if (result.ExitCode != 0 || !string.IsNullOrWhiteSpace(result.StandardError))
+            if (result.ExitCode != 0)
             {
-                errors.Add(result.StandardError.Trim());
+                errors.Add(string.IsNullOrWhiteSpace(result.StandardError)
+                    ? $"{command.File} exited with code {result.ExitCode}."
+                    : result.StandardError.Trim());
+            }
+            else if (!string.IsNullOrWhiteSpace(result.StandardError))
+            {
+                messages.Add(result.StandardError.Trim());
             }
         }
 
@@ -105,9 +111,15 @@ public sealed class MaintenanceExecutionService(
         {
             var result = await _commands.RunCaptureAsync(command.File, command.Args, cancellationToken);
             messages.Add(result.StandardOutput.Trim());
-            if (result.ExitCode != 0 || !string.IsNullOrWhiteSpace(result.StandardError))
+            if (result.ExitCode != 0)
             {
-                errors.Add(result.StandardError.Trim());
+                errors.Add(string.IsNullOrWhiteSpace(result.StandardError)
+                    ? $"{command.File} exited with code {result.ExitCode}."
+                    : result.StandardError.Trim());
+            }
+            else if (!string.IsNullOrWhiteSpace(result.StandardError))
+            {
+                messages.Add(result.StandardError.Trim());
             }
         }
 
@@ -118,8 +130,14 @@ public sealed class MaintenanceExecutionService(
     {
         if (task.Id == "settings.storage")
         {
-            await CommandRunner.StartShellAsync("ms-settings:storagesense", string.Empty);
-            messages.Add("Opened Storage Sense settings.");
+            if (await CommandRunner.StartShellAsync("ms-settings:storagesense", string.Empty))
+            {
+                messages.Add("Opened Storage Sense settings.");
+            }
+            else
+            {
+                errors.Add("Windows Storage Sense settings could not be opened.");
+            }
         }
         else if (task.Id == "cli.launch")
         {
@@ -129,8 +147,14 @@ public sealed class MaintenanceExecutionService(
             }
             else
             {
-                await CommandRunner.StartShellAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{_paths.CliScriptPath}\"");
-                messages.Add($"Started CLI script: {_paths.CliScriptPath}");
+                if (await CommandRunner.StartShellAsync("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{_paths.CliScriptPath}\""))
+                {
+                    messages.Add($"Started CLI script: {_paths.CliScriptPath}");
+                }
+                else
+                {
+                    errors.Add($"CLI script could not be started: {_paths.CliScriptPath}");
+                }
             }
         }
         else
@@ -151,9 +175,15 @@ public sealed class MaintenanceExecutionService(
         {
             var result = await _commands.RunCaptureAsync("winget.exe", WingetService.BuildUpgradeAllArguments(), cancellationToken);
             messages.Add(result.StandardOutput.Trim());
-            if (result.ExitCode != 0 || !string.IsNullOrWhiteSpace(result.StandardError))
+            if (result.ExitCode != 0)
             {
-                errors.Add(result.StandardError.Trim());
+                errors.Add(string.IsNullOrWhiteSpace(result.StandardError)
+                    ? $"winget exited with code {result.ExitCode}."
+                    : result.StandardError.Trim());
+            }
+            else if (!string.IsNullOrWhiteSpace(result.StandardError))
+            {
+                messages.Add(result.StandardError.Trim());
             }
         }
 

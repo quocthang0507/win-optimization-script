@@ -771,7 +771,9 @@ public sealed partial class StoragePage : BasePage
         var panel = new StackPanel { Spacing = 14, Padding = new Thickness(0, 12, 0, 0) };
 
         var candidatePanel = new StackPanel { Spacing = 8 };
-        var candidates = StorageCleanupService.CreateCandidates(result);
+        var candidates = StorageCleanupService.CreateCandidates(result)
+            .Where(candidate => StorageCleanupService.IsSafeCandidate(candidate, out _))
+            .ToList();
         if (candidates.Count > 0)
         {
             var selected = new List<(CheckBox Box, StorageCleanupCandidate Candidate)>();
@@ -982,11 +984,12 @@ public sealed partial class StoragePage : BasePage
         {
             actions.Children.Add(IconButton(Symbol.Find, T("storage.analyzeThisFolder"), async (_, _) => await AnalyzeDiskItemAsync(item)));
         }
-        if (item.FullPath != root.FullPath)
+        var manualCandidate = CreateManualCandidate(item);
+        if (item.FullPath != root.FullPath && StorageCleanupService.IsSafeCandidate(manualCandidate, out _))
         {
             actions.Children.Add(IconButton(Symbol.Add, T("common.addCleanupReview"), async (_, _) =>
             {
-                await ReviewStorageCandidatesAsync([CreateManualCandidate(item)]);
+                await ReviewStorageCandidatesAsync([manualCandidate]);
             }));
         }
         Grid.SetColumn(actions, 5);
@@ -1022,14 +1025,15 @@ public sealed partial class StoragePage : BasePage
             flyout.Items.Add(analyzeItem);
         }
 
-        if (item.FullPath != root.FullPath)
+        var manualCandidate = CreateManualCandidate(item);
+        if (item.FullPath != root.FullPath && StorageCleanupService.IsSafeCandidate(manualCandidate, out _))
         {
             var cleanupItem = new MenuFlyoutItem
             {
                 Text = T("common.addCleanupReview"),
                 Icon = new SymbolIcon(Symbol.Add)
             };
-            cleanupItem.Click += async (_, _) => await ReviewStorageCandidatesAsync([CreateManualCandidate(item)]);
+            cleanupItem.Click += async (_, _) => await ReviewStorageCandidatesAsync([manualCandidate]);
             flyout.Items.Add(cleanupItem);
         }
 

@@ -38,14 +38,17 @@ public sealed class IpcClient
         }
     }
 
-    public async Task<string> SendRequestAsync(string type, string? payload = null)
+    public async Task<string> SendRequestAsync(
+        string type,
+        string? payload = null,
+        CancellationToken cancellationToken = default)
     {
         if (_pipeClient == null || !_pipeClient.IsConnected || _writer == null)
         {
             throw new InvalidOperationException("IPC Client is not connected to Runner.");
         }
 
-        await _sendLock.WaitAsync();
+        await _sendLock.WaitAsync(cancellationToken);
         try
         {
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -54,12 +57,23 @@ public sealed class IpcClient
             var message = new IpcMessage(type, payload);
             var json = JsonSerializer.Serialize(message);
 
-            await _writer.WriteLineAsync(json);
+            await _writer.WriteLineAsync(json.AsMemory(), cancellationToken);
 
-            return await tcs.Task;
+            try
+            {
+                return await tcs.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // The protocol is sequential and has no request IDs. Closing the pipe prevents
+                // a late response from being mistaken for the next request after cancellation.
+                Disconnect();
+                throw;
+            }
         }
         finally
         {
+            _activeResponseTcs = null;
             _sendLock.Release();
         }
     }
@@ -67,6 +81,8 @@ public sealed class IpcClient
     public void Disconnect()
     {
         _cts.Cancel();
+        _activeResponseTcs?.TrySetException(new IOException("IPC connection was closed."));
+        _activeResponseTcs = null;
         _writer?.Dispose();
         _pipeClient?.Dispose();
     }
@@ -106,7 +122,7 @@ public sealed class IpcClient
                     if (tcs != null)
                     {
                         _activeResponseTcs = null;
-                        tcs.SetResult(message.Payload ?? string.Empty);
+                        tcs.TrySetResult(message.Payload ?? string.Empty);
                     }
                 }
                 else if (message.Type == "Error")
@@ -115,7 +131,7 @@ public sealed class IpcClient
                     if (tcs != null)
                     {
                         _activeResponseTcs = null;
-                        tcs.SetException(new Exception(message.Payload ?? "Unknown server error."));
+                        tcs.TrySetException(new Exception(message.Payload ?? "Unknown server error."));
                     }
                 }
             }
@@ -125,6 +141,8 @@ public sealed class IpcClient
             }
         }
 
+        _activeResponseTcs?.TrySetException(new IOException("IPC runner disconnected before responding."));
+        _activeResponseTcs = null;
         OnDisconnected?.Invoke();
     }
 }

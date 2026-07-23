@@ -16,10 +16,10 @@ public sealed class CleanupService(CommandRunner commands)
 
     public async Task<TaskPreview> PreviewAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(new PreviewTaskRequestPayload { TaskId = task.Id });
-            var response = await Client.SendRequestAsync("PreviewTask", payload);
+            var response = await Client.SendRequestAsync("PreviewTask", payload, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<TaskPreview>(response) ?? throw new InvalidOperationException("Failed to deserialize TaskPreview");
         }
 
@@ -135,8 +135,14 @@ public sealed class CleanupService(CommandRunner commands)
                     }
 
                 case "settings.storage":
-                    await CommandRunner.StartShellAsync("ms-settings:storagesense", string.Empty);
-                    messages.Add("Opened Storage Sense settings.");
+                    if (await CommandRunner.StartShellAsync("ms-settings:storagesense", string.Empty))
+                    {
+                        messages.Add("Opened Storage Sense settings.");
+                    }
+                    else
+                    {
+                        errors.Add("Windows Storage Sense settings could not be opened.");
+                    }
                     break;
 
                 default:

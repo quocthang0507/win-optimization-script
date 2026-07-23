@@ -20,6 +20,8 @@ public sealed class AppSettingsService
 
     public string SettingsPath { get; }
 
+    public string? RecoveredCorruptSettingsPath { get; private set; }
+
     public AppSettings Load()
     {
         try
@@ -42,6 +44,7 @@ public sealed class AppSettingsService
         }
         catch (JsonException)
         {
+            RecoveredCorruptSettingsPath = PreserveCorruptSettings();
             return new AppSettings();
         }
     }
@@ -72,6 +75,26 @@ public sealed class AppSettingsService
         catch (UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    private string? PreserveCorruptSettings()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath)) return null;
+            var directory = Path.GetDirectoryName(SettingsPath) ?? string.Empty;
+            var fileName = Path.GetFileNameWithoutExtension(SettingsPath);
+            var extension = Path.GetExtension(SettingsPath);
+            var recoveryPath = Path.Combine(
+                directory,
+                $"{fileName}.corrupt-{DateTimeOffset.Now:yyyyMMdd-HHmmss-fff}{extension}");
+            File.Move(SettingsPath, recoveryPath);
+            return recoveryPath;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 }

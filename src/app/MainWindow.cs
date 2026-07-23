@@ -59,7 +59,7 @@ public sealed class MainWindow : Window
         Winget = new WingetService(Commands);
         Execution = new MaintenanceExecutionService(Cleanup, Commands, Paths, Reports, new RestorePointService(Commands));
         StorageCleanup = new StorageCleanupService(Reports);
-        RegistryCleaner = new RegistryCleanerService();
+        RegistryCleaner = new RegistryCleanerService(Commands);
         NetworkOptimizer = new NetworkOptimizationService(Commands);
         Uninstaller = new UninstallerService(Commands);
         TweakSnapshots = new TweakSnapshotService(Paths);
@@ -543,6 +543,18 @@ public sealed class MainWindow : Window
         SetStatus(text);
     }
 
+    internal async Task SaveOperationReportAsync(TaskRunResult result)
+    {
+        try
+        {
+            await Reports.SaveAsync(result, _shutdownCts.Token);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+        {
+            Debug.WriteLine($"Operation report could not be saved: {ex.Message}");
+        }
+    }
+
     internal async Task PreviewTaskAsync(MaintenanceTask task)
     {
         SetStatus(F("status.scanningTask", TaskLabel(task)));
@@ -741,13 +753,28 @@ public sealed class MainWindow : Window
     {
         SetStatus(T("updates.scanning"));
         resultPanel.Children.Clear();
-        var packages = await Winget.ScanAsync();
-        resultPanel.Children.Add(SectionTitle(F("updates.packageUpdates", packages.Count)));
-        foreach (var package in packages)
+        try
         {
-            resultPanel.Children.Add(PackageRow(package));
+            var packages = await Winget.ScanAsync();
+            resultPanel.Children.Add(SectionTitle(F("updates.packageUpdates", packages.Count)));
+            foreach (var package in packages)
+            {
+                resultPanel.Children.Add(PackageRow(package));
+            }
         }
-        SetStatus(T("common.ready"));
+        catch (Exception ex)
+        {
+            resultPanel.Children.Add(new TextBlock
+            {
+                Text = F("updates.scanFailed", ex.Message),
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = new SolidColorBrush(Colors.IndianRed)
+            });
+        }
+        finally
+        {
+            SetStatus(T("common.ready"));
+        }
     }
 
     private Border PackageRow(WingetPackage package)

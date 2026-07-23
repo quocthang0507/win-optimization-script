@@ -13,6 +13,13 @@ public sealed partial class SettingsPage : BasePage
     {
         AddHeader(T("settings.title"), T("settings.subtitle"));
 
+        if (!string.IsNullOrWhiteSpace(MainWindow.SettingsService.RecoveredCorruptSettingsPath))
+        {
+            MainContent.Children.Add(InfoBlock(F(
+                "settings.corruptRecovered",
+                MainWindow.SettingsService.RecoveredCorruptSettingsPath)));
+        }
+
         MainContent.Children.Add(LanguageCard());
         MainContent.Children.Add(ThemeCard());
         MainContent.Children.Add(WinUiStyleCard());

@@ -271,8 +271,11 @@ public sealed partial class SoftwareInstallerPage : BasePage
 
         _isInstalling = true;
         SetControlsEnabled(false);
+        var started = DateTimeOffset.Now;
         var succeeded = 0;
         var failed = 0;
+        var reportMessages = new List<string>();
+        var reportErrors = new List<string>();
 
         try
         {
@@ -280,8 +283,30 @@ public sealed partial class SoftwareInstallerPage : BasePage
             {
                 var app = selectedApps[index];
                 MainWindow.SetStatusText(F("software.installProgress", index + 1, selectedApps.Count, app.Name));
-                var result = await MainWindow.Winget.InstallPackageAsync(app.Id);
-                if (result.Success) succeeded++; else failed++;
+                WingetPackageUpgradeResult result;
+                try
+                {
+                    result = await MainWindow.Winget.InstallPackageAsync(app.Id);
+                }
+                catch (Exception ex)
+                {
+                    result = new WingetPackageUpgradeResult(
+                        new WingetPackage(app.Name, app.Id, string.Empty, string.Empty, "winget"),
+                        false,
+                        -1,
+                        string.Empty,
+                        ex.Message);
+                }
+                if (result.Success)
+                {
+                    succeeded++;
+                    reportMessages.Add($"{app.Name} ({app.Id}): installed");
+                }
+                else
+                {
+                    failed++;
+                    reportErrors.Add($"{app.Name} ({app.Id}): {result.StandardError}");
+                }
             }
         }
         finally
@@ -291,6 +316,17 @@ public sealed partial class SoftwareInstallerPage : BasePage
             RenderApps();
             UpdateInstallButton();
             SetControlsEnabled(true);
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                "software.install",
+                "Software Installation",
+                started,
+                DateTimeOffset.Now,
+                failed == 0,
+                0,
+                succeeded,
+                failed,
+                reportMessages,
+                reportErrors));
             MainWindow.SetStatusText(F("software.installSummary", succeeded, failed));
         }
     }

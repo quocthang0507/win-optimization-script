@@ -68,7 +68,7 @@ public sealed class CommandRunner
         }
     }
 
-    public static Task StartShellAsync(string fileName, string arguments)
+    public static Task<bool> StartShellAsync(string fileName, string arguments)
     {
         try
         {
@@ -78,13 +78,12 @@ public sealed class CommandRunner
                 Arguments = arguments,
                 UseShellExecute = true
             });
+            return Task.FromResult(true);
         }
         catch
         {
-            // Best-effort shell start
+            return Task.FromResult(false);
         }
-
-        return Task.CompletedTask;
     }
 
     public bool Exists(string command)

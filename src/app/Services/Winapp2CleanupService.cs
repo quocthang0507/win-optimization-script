@@ -39,8 +39,23 @@ public sealed class Winapp2CleanupService(ReportService reports)
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
+                    if (!File.Exists(candidate.Path))
+                    {
+                        filesSkipped++;
+                        continue;
+                    }
+
+                    var parent = Path.GetDirectoryName(candidate.Path);
+                    if (string.IsNullOrWhiteSpace(parent) || !IsSafeCleanupFile(candidate.Path, parent))
+                    {
+                        filesSkipped++;
+                        errors.Add($"{candidate.Entry}: blocked unsafe target {candidate.Path}");
+                        continue;
+                    }
+
+                    var actualBytes = new FileInfo(candidate.Path).Length;
                     File.Delete(candidate.Path);
-                    freedBytes += candidate.Bytes;
+                    freedBytes += actualBytes;
                     filesRemoved++;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -101,6 +116,12 @@ public sealed class Winapp2CleanupService(ReportService reports)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
                             var fullPath = Path.GetFullPath(file);
+                            if (!IsSafeCleanupFile(fullPath, directory))
+                            {
+                                warnings.Add($"{entry.Name}: blocked unsafe cleanup target {fullPath}");
+                                continue;
+                            }
+
                             if (!IsExcluded(fullPath, entry.ExcludeKeys) && seen.Add(fullPath))
                             {
                                 candidates.Add(new Winapp2CleanupCandidate(entry.Name, fullPath, new FileInfo(fullPath).Length));
@@ -116,6 +137,41 @@ public sealed class Winapp2CleanupService(ReportService reports)
         }
 
         return new Winapp2CleanupPreview(candidates, warnings.Distinct().ToList());
+    }
+
+    private static bool IsSafeCleanupFile(string filePath, string sourceDirectory)
+    {
+        if (!PathSafetyService.IsPathWithinOrEqual(filePath, sourceDirectory)) return false;
+
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        if (!string.IsNullOrWhiteSpace(windows) && PathSafetyService.IsPathWithinOrEqual(filePath, windows))
+        {
+            return false;
+        }
+
+        string[] protectedRoots =
+        [
+            Path.GetPathRoot(filePath) ?? string.Empty,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
+        ];
+        var normalizedSource = Path.GetFullPath(sourceDirectory).TrimEnd('\\', '/');
+        if (protectedRoots.Where(root => !string.IsNullOrWhiteSpace(root)).Any(root =>
+                normalizedSource.Equals(Path.GetFullPath(root).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        try
+        {
+            return (File.GetAttributes(filePath) & FileAttributes.ReparsePoint) == 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static IEnumerable<string> ExpandDirectories(string path)

@@ -37,6 +37,17 @@ public static class DashboardHealthCheckService
             return;
         }
 
+        if (metrics.Errors.Count > 0)
+        {
+            findings.Add(new HealthCheckFinding(
+                "scan.partial",
+                RiskLevel.Safe,
+                "Health scan completed partially",
+                $"{metrics.Errors.Count:N0} data source(s) could not be checked.",
+                "Diagnostics"));
+            score -= 2;
+        }
+
         if (metrics.CleanupBytes >= 500L * 1024 * 1024)
         {
             findings.Add(new HealthCheckFinding(

@@ -165,10 +165,21 @@ public sealed partial class StartupPage : BasePage
 
         MainWindow.SetStatusText(T("startup.scanning"));
         _resultPanel.Children.Clear();
-        var entries = await MainWindow.Startup.ScanAsync();
-        _startupEntries = entries.ToList();
-        RenderStartupEntries();
-        MainWindow.SetStatusText(T("common.ready"));
+        try
+        {
+            var entries = await MainWindow.Startup.ScanAsync();
+            _startupEntries = entries.ToList();
+            RenderStartupEntries();
+        }
+        catch (Exception ex)
+        {
+            _startupEntries = [];
+            _resultPanel.Children.Add(InfoBlock(F("startup.scanFailed", ex.Message)));
+        }
+        finally
+        {
+            MainWindow.SetStatusText(T("common.ready"));
+        }
     }
 
     private void RenderStartupEntries()
@@ -391,7 +402,9 @@ public sealed partial class StartupPage : BasePage
                 }
 
                 MainWindow.SetStatusText(T("common.loading"));
+                var started = DateTimeOffset.Now;
                 var ok = await MainWindow.Startup.DisableAsync(entry);
+                await SaveStartupChangeReportAsync(entry, enabled: false, ok, started);
                 if (ok)
                 {
                     await RefreshListAsync();
@@ -399,12 +412,18 @@ public sealed partial class StartupPage : BasePage
                 else
                 {
                     MainWindow.SetStatusText(T("common.ready"));
+                    await MainWindow.ShowDialogAsync_Internal(
+                        T("startup.actionFailedTitle"),
+                        InfoBlock(T("startup.actionFailed")),
+                        T("common.close"));
                 }
             }
             else
             {
                 MainWindow.SetStatusText(T("common.loading"));
+                var started = DateTimeOffset.Now;
                 var ok = await MainWindow.Startup.EnableAsync(entry);
+                await SaveStartupChangeReportAsync(entry, enabled: true, ok, started);
                 if (ok)
                 {
                     await RefreshListAsync();
@@ -412,6 +431,10 @@ public sealed partial class StartupPage : BasePage
                 else
                 {
                     MainWindow.SetStatusText(T("common.ready"));
+                    await MainWindow.ShowDialogAsync_Internal(
+                        T("startup.actionFailedTitle"),
+                        InfoBlock(T("startup.actionFailed")),
+                        T("common.close"));
                 }
             }
         };
@@ -439,6 +462,22 @@ public sealed partial class StartupPage : BasePage
             Background = ThemeCardBackground(),
             Child = row
         };
+    }
+
+    private Task SaveStartupChangeReportAsync(StartupEntry entry, bool enabled, bool success, DateTimeOffset started)
+    {
+        var action = enabled ? "enabled" : "disabled";
+        return MainWindow.SaveOperationReportAsync(new TaskRunResult(
+            "startup.change",
+            "Startup Change",
+            started,
+            DateTimeOffset.Now,
+            success,
+            0,
+            success ? 1 : 0,
+            success ? 0 : 1,
+            success ? [$"{entry.Name}: {action}"] : [],
+            success ? [] : [$"{entry.Name}: could not be {action}"]));
     }
 
     private string LocalizedStartupRecommendation(string recommendation)

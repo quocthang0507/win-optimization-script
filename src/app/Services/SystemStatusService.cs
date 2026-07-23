@@ -44,7 +44,7 @@ public sealed class SystemStatusService
 
     public async Task<DashboardStatus> GetAsync()
     {
-        if (Client != null)
+        if (Client?.IsConnected == true)
         {
             var response = await Client.SendRequestAsync("GetStatus");
             return System.Text.Json.JsonSerializer.Deserialize<DashboardStatus>(response) ?? throw new InvalidOperationException("Failed to deserialize DashboardStatus");

@@ -139,6 +139,11 @@ public sealed partial class UpdatesPage : BasePage
             _packages = (await MainWindow.Winget.ScanAsync()).ToList();
             RenderPackages();
         }
+        catch (Exception ex)
+        {
+            _packages = [];
+            _resultPanel.Children.Add(InfoBlock(F("updates.scanFailed", ex.Message)));
+        }
         finally
         {
             SetUpdateControlsEnabled(true);
@@ -464,8 +469,11 @@ public sealed partial class UpdatesPage : BasePage
         _isUpgrading = true;
         SetUpdateControlsEnabled(false);
 
+        var started = DateTimeOffset.Now;
         var succeeded = 0;
         var failed = 0;
+        var reportMessages = new List<string>();
+        var reportErrors = new List<string>();
 
         try
         {
@@ -503,12 +511,15 @@ public sealed partial class UpdatesPage : BasePage
                 if (result.Success)
                 {
                     succeeded++;
+                    reportMessages.Add($"{package.Name} ({package.Id}): {package.InstalledVersion} -> {package.AvailableVersion}");
                     SetPackageStatus(package, T("updates.upgradeSucceeded"), Colors.MediumSeaGreen);
                 }
                 else
                 {
                     failed++;
-                    SetPackageStatus(package, F("updates.upgradeFailed", SummarizeFailure(result)), Colors.IndianRed);
+                    var failure = SummarizeFailure(result);
+                    reportErrors.Add($"{package.Name} ({package.Id}): {failure}");
+                    SetPackageStatus(package, F("updates.upgradeFailed", failure), Colors.IndianRed);
                 }
             }
         }
@@ -518,6 +529,17 @@ public sealed partial class UpdatesPage : BasePage
             SetUpdateControlsEnabled(true);
         }
 
+        await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+            downloadDirectory is null ? "software.update" : "software.update.download",
+            downloadDirectory is null ? "Application Updates" : "Download and Update Applications",
+            started,
+            DateTimeOffset.Now,
+            failed == 0,
+            0,
+            succeeded,
+            failed,
+            reportMessages,
+            reportErrors));
         MainWindow.SetStatusText(F("updates.upgradeSummary", succeeded, failed));
     }
 
