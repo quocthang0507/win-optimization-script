@@ -41,7 +41,9 @@ public sealed class StartupServiceTests : IDisposable
     public async Task ScanAsync_DetectsRegistryStartupEntriesAndCorrectlyChecksStatus()
     {
         // 1. Create a test registry startup entry (default: enabled)
-        using (var runKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true))
+        using (var runKey = Registry.CurrentUser.CreateSubKey(
+            @"Software\Microsoft\Windows\CurrentVersion\Run",
+            RegistryKeyPermissionCheck.ReadWriteSubTree))
         {
             Assert.NotNull(runKey);
             runKey.SetValue(TestEntryName, TestCommand);
