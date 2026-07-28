@@ -48,6 +48,7 @@ public sealed class StorageCleanupService(ReportService reports)
 
     public async Task<TaskRunResult> CleanupAsync(
         IReadOnlyList<StorageCleanupCandidate> candidates,
+        IReadOnlyList<string>? protectedPaths = null,
         CancellationToken cancellationToken = default)
     {
         var started = DateTimeOffset.Now;
@@ -68,7 +69,7 @@ public sealed class StorageCleanupService(ReportService reports)
                 continue;
             }
 
-            if (!IsSafeCandidate(candidate, out var safetyReason))
+            if (!IsSafeCandidate(candidate, out var safetyReason, protectedPaths))
             {
                 skipped++;
                 errors.Add($"Blocked unsafe cleanup target: {candidate.SourcePath}. {safetyReason}");
@@ -113,7 +114,10 @@ public sealed class StorageCleanupService(ReportService reports)
         return result;
     }
 
-    public static bool IsSafeCandidate(StorageCleanupCandidate candidate, out string reason)
+    public static bool IsSafeCandidate(
+        StorageCleanupCandidate candidate,
+        out string reason,
+        IReadOnlyList<string>? protectedPaths = null)
     {
         reason = string.Empty;
         if (string.IsNullOrWhiteSpace(candidate.SourcePath))
@@ -151,6 +155,12 @@ public sealed class StorageCleanupService(ReportService reports)
         if (protectedTrees.Any(root => PathSafetyService.IsPathWithinOrEqual(fullPath, root)))
         {
             reason = "Windows, Program Files, and ProgramData are protected from manual cleanup.";
+            return false;
+        }
+
+        if (ProtectedPathService.IntersectsProtectedTree(fullPath, protectedPaths))
+        {
+            reason = "The target intersects a user-protected path.";
             return false;
         }
 

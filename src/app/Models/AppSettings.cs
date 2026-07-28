@@ -23,4 +23,8 @@ public sealed class AppSettings
     public int WindowHeight { get; set; } = 760;
 
     public bool IsNavigationPaneOpen { get; set; } = true;
+
+    public List<string> ProtectedPaths { get; set; } = [];
+
+    public string? CustomWinapp2DatabasePath { get; set; }
 }

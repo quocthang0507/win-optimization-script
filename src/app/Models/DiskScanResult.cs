@@ -11,4 +11,10 @@ public sealed record DiskScanResult(
     IReadOnlyList<string> Errors,
     IReadOnlyList<DiskItem> LargestFiles,
     IReadOnlyList<FileTypeSummary> FileTypes,
-    bool IsPartial = false);
+    bool IsPartial = false)
+{
+    public IReadOnlyList<DiskItem> NewestFiles { get; init; } = [];
+    public IReadOnlyList<DiskItem> OldestFiles { get; init; } = [];
+    public IReadOnlyList<FileAgeSummary> FileAgeSummaries { get; init; } = [];
+    public IReadOnlyList<DiskItem> DeveloperArtifacts { get; init; } = [];
+}

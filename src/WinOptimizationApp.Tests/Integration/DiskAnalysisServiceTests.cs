@@ -72,6 +72,57 @@ public sealed class DiskAnalysisServiceTests
     }
 
     [Fact]
+    public async Task ScanAsync_TracksNewestOldestAndFileAgeDistribution()
+    {
+        using var fixture = TempDirectory.Create();
+        var now = DateTime.UtcNow;
+        var files = new[]
+        {
+            (Name: "recent.bin", Size: 10, Modified: now.AddDays(-2)),
+            (Name: "month.bin", Size: 20, Modified: now.AddDays(-14)),
+            (Name: "year.bin", Size: 30, Modified: now.AddDays(-100)),
+            (Name: "archive.bin", Size: 40, Modified: now.AddDays(-500))
+        };
+
+        foreach (var file in files)
+        {
+            var path = Path.Combine(fixture.Path, file.Name);
+            await File.WriteAllBytesAsync(path, new byte[file.Size]);
+            File.SetLastWriteTimeUtc(path, file.Modified);
+        }
+
+        var result = await new DiskAnalysisService().ScanAsync(new DiskScanOptions(fixture.Path));
+
+        Assert.Equal("recent.bin", result.NewestFiles[0].Name);
+        Assert.Equal("archive.bin", result.OldestFiles[0].Name);
+        Assert.Equal(4, result.FileAgeSummaries.Sum(summary => summary.Count));
+        Assert.Equal(100, result.FileAgeSummaries.Sum(summary => summary.TotalBytes));
+        Assert.Contains(result.FileAgeSummaries, summary => summary.Range == FileAgeRange.Last7Days && summary.Count == 1);
+        Assert.Contains(result.FileAgeSummaries, summary => summary.Range == FileAgeRange.Last30Days && summary.Count == 1);
+        Assert.Contains(result.FileAgeSummaries, summary => summary.Range == FileAgeRange.LastYear && summary.Count == 1);
+        Assert.Contains(result.FileAgeSummaries, summary => summary.Range == FileAgeRange.Older && summary.Count == 1);
+    }
+
+    [Fact]
+    public async Task ScanAsync_DetectsDeveloperArtifactsOnlyWhenProjectMarkerExists()
+    {
+        using var fixture = TempDirectory.Create();
+        var project = Directory.CreateDirectory(Path.Combine(fixture.Path, "web-project"));
+        await File.WriteAllTextAsync(Path.Combine(project.FullName, "package.json"), "{}");
+        var artifact = Directory.CreateDirectory(Path.Combine(project.FullName, "node_modules"));
+        await File.WriteAllBytesAsync(Path.Combine(artifact.FullName, "package.bin"), new byte[128]);
+
+        var ordinary = Directory.CreateDirectory(Path.Combine(fixture.Path, "ordinary", "node_modules"));
+        await File.WriteAllBytesAsync(Path.Combine(ordinary.FullName, "keep.bin"), new byte[64]);
+
+        var result = await new DiskAnalysisService().ScanAsync(new DiskScanOptions(fixture.Path));
+
+        var detected = Assert.Single(result.DeveloperArtifacts);
+        Assert.Equal(artifact.FullName, detected.FullPath);
+        Assert.Equal(128, detected.Size);
+    }
+
+    [Fact]
     public async Task FlattenVisibleTree_ReturnsOnlyDirectChildrenAndExcludesRoot()
     {
         using var fixture = TempDirectory.Create();

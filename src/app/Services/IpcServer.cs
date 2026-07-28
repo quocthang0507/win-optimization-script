@@ -212,6 +212,13 @@ public sealed class IpcServer
                         return new IpcMessage("Response", JsonSerializer.Serialize(result));
                     }
 
+                case "CheckAllTweakStates":
+                    {
+                        var service = new TweakService(new CommandRunner());
+                        var result = await service.CheckAllTweakStatesAsync();
+                        return new IpcMessage("Response", JsonSerializer.Serialize(result));
+                    }
+
                 case "ApplyTweak":
                     {
                         var jsonElement = JsonSerializer.Deserialize<JsonElement>(request.Payload ?? "{}");

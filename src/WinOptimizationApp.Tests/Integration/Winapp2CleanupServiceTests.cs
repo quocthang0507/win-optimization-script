@@ -43,6 +43,24 @@ public sealed class Winapp2CleanupServiceTests : IDisposable
         Assert.Single(Directory.GetFiles(Path.Combine(_root, "logs"), "maintenance-*.json"));
     }
 
+    [Fact]
+    public async Task PreviewAsync_SkipsUserProtectedPaths()
+    {
+        var cache = Path.Combine(_root, "App", "cache");
+        Directory.CreateDirectory(cache);
+        var protectedFile = Path.Combine(cache, "keep.tmp");
+        await File.WriteAllBytesAsync(protectedFile, new byte[32]);
+        var entry = new CleanerEntry { Name = "Protected Example" };
+        entry.FileKeys.Add(new FileKeyEntry { Path = cache, Extension = "*.tmp" });
+        var service = new Winapp2CleanupService(new ReportService(new PathService(_root)));
+
+        var preview = await service.PreviewAsync([entry], [cache]);
+
+        Assert.Empty(preview.Candidates);
+        Assert.Contains(preview.Warnings, warning => warning.Contains("user-protected", StringComparison.OrdinalIgnoreCase));
+        Assert.True(File.Exists(protectedFile));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);

@@ -91,6 +91,58 @@ public sealed class NetworkOptimizationService
         }, cancellationToken);
     }
 
+    public async Task<NetworkLatencyResult> MeasureLatencyAsync(
+        string host,
+        int attempts = 4,
+        CancellationToken cancellationToken = default)
+    {
+        host = host.Trim();
+        if (!IsValidPingHost(host))
+        {
+            throw new ArgumentException("Enter a valid DNS host name or IP address.", nameof(host));
+        }
+
+        attempts = Math.Clamp(attempts, 1, 10);
+        var successfulRoundTrips = new List<long>(attempts);
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var ping = new Ping();
+            try
+            {
+                var reply = await ping.SendPingAsync(host, 2500).WaitAsync(cancellationToken);
+                if (reply.Status == IPStatus.Success)
+                {
+                    successfulRoundTrips.Add(reply.RoundtripTime);
+                }
+            }
+            catch (PingException)
+            {
+                // A failed probe is represented as packet loss; later probes still run.
+            }
+        }
+
+        return new NetworkLatencyResult(
+            host,
+            attempts,
+            successfulRoundTrips.Count,
+            successfulRoundTrips.Count == 0 ? 0 : successfulRoundTrips.Min(),
+            successfulRoundTrips.Count == 0 ? 0 : successfulRoundTrips.Max(),
+            successfulRoundTrips.Count == 0 ? 0 : successfulRoundTrips.Average());
+    }
+
+    public static bool IsValidPingHost(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host) || host.Length > 253 || host.Any(char.IsWhiteSpace))
+        {
+            return false;
+        }
+
+        return Uri.CheckHostName(host) is UriHostNameType.Dns
+            or UriHostNameType.IPv4
+            or UriHostNameType.IPv6;
+    }
+
     private static string GetIpAddress(NetworkInterface nInterface)
     {
         try

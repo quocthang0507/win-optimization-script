@@ -32,7 +32,9 @@ public sealed class AppSettingsService
             }
 
             using var stream = File.OpenRead(SettingsPath);
-            return JsonSerializer.Deserialize<AppSettings>(stream, JsonOptions) ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(stream, JsonOptions) ?? new AppSettings();
+            settings.ProtectedPaths = ProtectedPathService.NormalizePaths(settings.ProtectedPaths).ToList();
+            return settings;
         }
         catch (IOException)
         {
@@ -53,6 +55,7 @@ public sealed class AppSettingsService
     {
         try
         {
+            settings.ProtectedPaths = ProtectedPathService.NormalizePaths(settings.ProtectedPaths).ToList();
             var directory = Path.GetDirectoryName(SettingsPath);
             if (!string.IsNullOrWhiteSpace(directory))
             {

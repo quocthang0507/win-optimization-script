@@ -28,13 +28,24 @@ public sealed partial class OptimizePage : BasePage
     private Button? _applyProfileButton;
     private CheckBox? _technicalDetailsBox;
     private bool _isLoadingState;
+    private int _appliedRevision = -1;
 
     public OptimizePage(MainWindow mainWindow) : base(mainWindow)
     {
-        _tweakService = new TweakService(new CommandRunner());
-        _tweakService.Client = MainWindow.IpcClient;
+        _tweakService = MainWindow.Tweaks;
         RenderPage();
-        _ = LoadTweakStatesAsync();
+    }
+
+    public override async Task OnNavigatedToAsync()
+    {
+        if (!MainWindow.SessionState.TweakStatesLoaded)
+        {
+            await LoadTweakStatesAsync();
+        }
+        else if (_appliedRevision != MainWindow.SessionState.TweakStatesRevision)
+        {
+            ApplyCachedTweakStates();
+        }
     }
 
     private void RenderPage()
@@ -183,6 +194,8 @@ public sealed partial class OptimizePage : BasePage
                 }
 
                 _knownStates[tweak.Id] = response.IsEnabled;
+                MainWindow.SetCachedTweakState(response);
+                _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
                 toggle.IsOn = response.IsEnabled;
                 MainWindow.SetStatusText(F("optimize.applied", tweak.Title));
             }
@@ -254,30 +267,43 @@ public sealed partial class OptimizePage : BasePage
     private async Task LoadTweakStatesAsync()
     {
         _isLoadingState = true;
-        MainWindow.SetStatusText("Loading tweak states...");
+        MainWindow.SetStatusText(T("optimize.loadingStates"));
         try
         {
-            var tweaks = _tweakService.GetAllTweaks();
-            foreach (var tweak in tweaks)
-            {
-                var state = await _tweakService.CheckTweakStateAsync(tweak.Id);
-                if (_toggles.TryGetValue(tweak.Id, out var toggle))
-                {
-                    _knownStates[tweak.Id] = state.IsEnabled;
-                    toggle.IsOn = state.IsEnabled;
-                    toggle.IsEnabled = true;
-                }
-            }
-            MainWindow.SetStatusText("Tweak states loaded.");
+            await MainWindow.RefreshTweakStatesAsync();
+            ApplyCachedTweakStates();
+            MainWindow.SetStatusText(T("optimize.statesLoaded"));
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText($"Failed to load tweak states: {ex.Message}");
+            MainWindow.SetStatusText(F("optimize.statesLoadFailed", ex.Message));
         }
         finally
         {
             _isLoadingState = false;
         }
+    }
+
+    private void ApplyCachedTweakStates()
+    {
+        _isLoadingState = true;
+        _knownStates.Clear();
+        foreach (var state in MainWindow.SessionState.TweakStates.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(state.Error))
+            {
+                continue;
+            }
+
+            _knownStates[state.Id] = state.IsEnabled;
+            if (_toggles.TryGetValue(state.Id, out var toggle))
+            {
+                toggle.IsOn = state.IsEnabled;
+                toggle.IsEnabled = true;
+            }
+        }
+        _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
+        _isLoadingState = false;
     }
 
     private async Task ApplySelectedProfileAsync()
@@ -325,6 +351,8 @@ public sealed partial class OptimizePage : BasePage
                 }
 
                 _knownStates[change.Key] = response.IsEnabled;
+                MainWindow.SetCachedTweakState(response);
+                _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
             }
         }
         finally
@@ -418,6 +446,8 @@ public sealed partial class OptimizePage : BasePage
                     }
 
                     _knownStates[kvp.Key] = response.IsEnabled;
+                    MainWindow.SetCachedTweakState(response);
+                    _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
                 }
             }
 

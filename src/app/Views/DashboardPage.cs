@@ -6,6 +6,7 @@ namespace WinOptimizationApp.Views;
 public sealed partial class DashboardPage : BasePage
 {
     private readonly StackPanel _wingetResultPanel;
+    private int _renderedRevision = -1;
 
     public DashboardPage(MainWindow mainWindow) : base(mainWindow)
     {
@@ -14,56 +15,52 @@ public sealed partial class DashboardPage : BasePage
 
     public override Task OnNavigatedToAsync()
     {
+        if (_renderedRevision == MainWindow.SessionState.DashboardRevision && MainContent.Children.Count > 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        RenderCachedDashboard();
+        return Task.CompletedTask;
+    }
+
+    private void RenderCachedDashboard()
+    {
         MainContent.Children.Clear();
         _wingetResultPanel.Children.Clear();
-
         AddHeader(T("dashboard.title"), T("dashboard.subtitle"));
 
-        var loadingRing = new ProgressRing
+        var state = MainWindow.SessionState;
+        if (state.SystemOverview is not null && state.HealthMetrics is not null)
         {
-            IsActive = true,
-            Width = 40,
-            Height = 40,
-            Margin = new Thickness(0, 48, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        MainContent.Children.Add(loadingRing);
-
-        _ = Task.Run(async () =>
+            var health = DashboardHealthCheckService.Analyze(state.SystemOverview, state.HealthMetrics);
+            RenderDashboardData(state.SystemOverview, health);
+        }
+        else
         {
-            try
+            var error = state.SystemOverviewError ?? state.HealthMetricsError ?? T("dashboard.loadUnavailable");
+            MainContent.Children.Add(new TextBlock
             {
-                var status = await MainWindow.Status.GetAsync();
-                var metrics = await HealthCheckScanService.ScanAsync(
-                    MainWindow.Cleanup,
-                    MainWindow.Catalog,
-                    MainWindow.Winget,
-                    MainWindow.Startup);
-                var health = DashboardHealthCheckService.Analyze(status, metrics);
+                Text = F("dashboard.loadFailed", error),
+                Foreground = Brush(Colors.OrangeRed),
+                Margin = new Thickness(0, 16, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+            MainContent.Children.Add(ActionButton(
+                T("dashboard.healthCheck"),
+                Symbol.Refresh,
+                async (_, _) => await RefreshDashboardAsync()));
+        }
 
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    MainContent.Children.Remove(loadingRing);
-                    RenderDashboardData(status, health);
-                });
-            }
-            catch (Exception ex)
-            {
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    MainContent.Children.Remove(loadingRing);
-                    var errorBlock = new TextBlock
-                    {
-                        Text = $"Error loading dashboard: {ex.Message}",
-                        Foreground = Brush(Colors.OrangeRed),
-                        Margin = new Thickness(0, 16, 0, 0)
-                    };
-                    MainContent.Children.Add(errorBlock);
-                });
-            }
-        });
+        _renderedRevision = state.DashboardRevision;
+    }
 
-        return Task.CompletedTask;
+    private async Task RefreshDashboardAsync()
+    {
+        MainWindow.SetStatusText(T("common.loading"));
+        await MainWindow.RefreshDashboardStateAsync();
+        RenderCachedDashboard();
+        MainWindow.SetStatusText(T("common.ready"));
     }
 
     private void RenderDashboardData(DashboardStatus status, HealthCheckResult health)
@@ -243,7 +240,7 @@ public sealed partial class DashboardPage : BasePage
 
         // Quick Actions
         var quick = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        quick.Children.Add(ActionButton(T("dashboard.healthCheck"), Symbol.Refresh, async (_, _) => await MainWindow.NavigateAsync("dashboard")));
+        quick.Children.Add(ActionButton(T("dashboard.healthCheck"), Symbol.Refresh, async (_, _) => await RefreshDashboardAsync()));
         quick.Children.Add(ActionButton(T("dashboard.scanCleanup"), Symbol.Find, async (_, _) => await MainWindow.NavigateToTagAsync("cleanup")));
         quick.Children.Add(ActionButton(T("dashboard.analyzeStorage"), Symbol.View, async (_, _) => await MainWindow.NavigateToTagAsync("storage")));
         quick.Children.Add(ActionButton(T("dashboard.scanUpdates"), Symbol.Download, async (_, _) => await MainWindow.ScanWingetAsync(_wingetResultPanel)));
@@ -308,7 +305,7 @@ public sealed partial class DashboardPage : BasePage
                             File.Delete(logFile);
                         }
                         MainWindow.SetStatusText(T("settings.saved"));
-                        await MainWindow.NavigateAsync("dashboard");
+                        await RefreshDashboardAsync();
                     }
                     catch (Exception ex)
                     {

@@ -16,11 +16,14 @@ public static class HealthCheckScanService
         MaintenanceCatalog catalog,
         WingetService winget,
         StartupService startup,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<WingetPackage>? knownUpdates = null,
+        IReadOnlyList<StartupEntry>? knownStartupEntries = null,
+        IReadOnlyList<string>? knownErrors = null)
     {
         long cleanupBytes = 0;
         var cleanupFiles = 0;
-        var errors = new List<string>();
+        var errors = knownErrors?.ToList() ?? [];
 
         foreach (var taskId in SafeCleanupTaskIds)
         {
@@ -37,24 +40,30 @@ public static class HealthCheckScanService
             }
         }
 
-        IReadOnlyList<WingetPackage> updates = [];
-        try
+        IReadOnlyList<WingetPackage> updates = knownUpdates ?? [];
+        if (knownUpdates is null)
         {
-            updates = await winget.ScanAsync(cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            errors.Add($"updates: {ex.Message}");
+            try
+            {
+                updates = await winget.ScanAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                errors.Add($"updates: {ex.Message}");
+            }
         }
 
-        IReadOnlyList<StartupEntry> startupEntries = [];
-        try
+        IReadOnlyList<StartupEntry> startupEntries = knownStartupEntries ?? [];
+        if (knownStartupEntries is null)
         {
-            startupEntries = await startup.ScanAsync(cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            errors.Add($"startup: {ex.Message}");
+            try
+            {
+                startupEntries = await startup.ScanAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                errors.Add($"startup: {ex.Message}");
+            }
         }
 
         return new HealthCheckScanMetrics(

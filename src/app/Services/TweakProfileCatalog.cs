@@ -19,8 +19,12 @@ public static class TweakProfileCatalog
                 ["privacy.telemetry"] = true,
                 ["privacy.activityHistory"] = true,
                 ["privacy.appDiagnostics"] = true,
+                ["privacy.windowsSuggestions"] = true,
+                ["privacy.webSearch"] = true,
                 ["ui.hideSearch"] = true,
-                ["ui.hideTaskView"] = true
+                ["ui.hideTaskView"] = true,
+                ["ui.showFileExtensions"] = true,
+                ["ui.endTaskTaskbar"] = true
             }),
         new(
             "gaming",

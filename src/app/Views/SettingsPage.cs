@@ -1,4 +1,5 @@
 using WinOptimizationApp.Models;
+using WinOptimizationApp.Services;
 
 namespace WinOptimizationApp.Views;
 
@@ -24,6 +25,8 @@ public sealed partial class SettingsPage : BasePage
         MainContent.Children.Add(ThemeCard());
         MainContent.Children.Add(WinUiStyleCard());
         MainContent.Children.Add(WidgetCard());
+        MainContent.Children.Add(ProtectedPathsCard());
+        MainContent.Children.Add(Winapp2DatabaseCard());
 
         MainContent.Children.Add(Card(
             T("settings.cliScript"),
@@ -228,6 +231,160 @@ public sealed partial class SettingsPage : BasePage
         return border;
     }
 
+    private Border ProtectedPathsCard()
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
+        };
+
+        var stack = new StackPanel { Spacing = 10 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = T("settings.protectedPaths"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = T("settings.protectedPathsDescription"),
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.7
+        });
+
+        var pathList = new StackPanel { Spacing = 6 };
+        void RenderPaths()
+        {
+            pathList.Children.Clear();
+            if (MainWindow.Settings.ProtectedPaths.Count == 0)
+            {
+                pathList.Children.Add(new TextBlock { Text = T("settings.noProtectedPaths"), Opacity = 0.65 });
+                return;
+            }
+
+            foreach (var path in MainWindow.Settings.ProtectedPaths.ToList())
+            {
+                var row = new Grid { ColumnSpacing = 10 };
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var label = new TextBlock
+                {
+                    Text = path,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    TextWrapping = TextWrapping.NoWrap,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                ToolTipService.SetToolTip(label, path);
+                row.Children.Add(label);
+
+                var remove = IconButton(Symbol.Delete, T("settings.removeProtectedPath"), (_, _) =>
+                {
+                    MainWindow.Settings.ProtectedPaths.RemoveAll(item => item.Equals(path, StringComparison.OrdinalIgnoreCase));
+                    var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+                    MainWindow.SetStatusText(saved ? T("settings.saved") : F("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+                    RenderPaths();
+                });
+                Grid.SetColumn(remove, 1);
+                row.Children.Add(remove);
+                pathList.Children.Add(row);
+            }
+        }
+
+        stack.Children.Add(pathList);
+        stack.Children.Add(ActionButton(T("settings.addProtectedPath"), Symbol.Add, (_, _) =>
+        {
+            var path = FolderPickerHelper.PickFolder(MainWindow.WindowHandle);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            MainWindow.Settings.ProtectedPaths = ProtectedPathService.NormalizePaths(
+                MainWindow.Settings.ProtectedPaths.Append(path)).ToList();
+            var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+            MainWindow.SetStatusText(saved ? T("settings.saved") : F("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+            RenderPaths();
+        }));
+
+        RenderPaths();
+        border.Child = stack;
+        return border;
+    }
+
+    private Border Winapp2DatabaseCard()
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
+        };
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = T("settings.winapp2Database"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = T("settings.winapp2DatabaseDescription"),
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.7
+        });
+        var source = new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(MainWindow.Settings.CustomWinapp2DatabasePath)
+                ? T("settings.winapp2Bundled")
+                : MainWindow.Settings.CustomWinapp2DatabasePath,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap,
+            Opacity = 0.78
+        };
+        ToolTipService.SetToolTip(source, source.Text);
+        stack.Children.Add(source);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        actions.Children.Add(ActionButton(T("settings.selectWinapp2Database"), Symbol.OpenFile, async (_, _) =>
+        {
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
+            picker.FileTypeFilter.Add(".ini");
+            InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            MainWindow.Settings.CustomWinapp2DatabasePath = file.Path;
+            var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+            source.Text = file.Path;
+            ToolTipService.SetToolTip(source, file.Path);
+            MainWindow.SessionState.Winapp2Loaded = false;
+            await MainWindow.RefreshWinapp2StateAsync();
+            MainWindow.SetStatusText(!string.IsNullOrWhiteSpace(MainWindow.SessionState.Winapp2Error)
+                ? MainWindow.SessionState.Winapp2Error
+                : saved ? T("settings.saved") : F("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+        }));
+        actions.Children.Add(ActionButton(T("settings.useBundledWinapp2"), Symbol.Refresh, async (_, _) =>
+        {
+            MainWindow.Settings.CustomWinapp2DatabasePath = null;
+            var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+            source.Text = T("settings.winapp2Bundled");
+            ToolTipService.SetToolTip(source, source.Text);
+            MainWindow.SessionState.Winapp2Loaded = false;
+            await MainWindow.RefreshWinapp2StateAsync();
+            MainWindow.SetStatusText(saved ? T("settings.saved") : F("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+        }));
+        stack.Children.Add(actions);
+        border.Child = stack;
+        return border;
+    }
+
     private Border AcknowledgmentsCard()
     {
         var border = new Border
@@ -241,7 +398,17 @@ public sealed partial class SettingsPage : BasePage
         };
 
         var stack = new StackPanel { Spacing = 8 };
-        stack.Children.Add(new TextBlock { Text = T("settings.acknowledgments"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 18 });
+        stack.Children.Add(new TextBlock { Text = T("settings.about"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 18 });
+        stack.Children.Add(new TextBlock { Text = T("settings.aboutDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+        var version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "Unknown";
+        stack.Children.Add(new TextBlock { Text = F("settings.version", version), Opacity = 0.68 });
+        stack.Children.Add(new TextBlock
+        {
+            Text = T("settings.acknowledgments"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontSize = 16,
+            Margin = new Thickness(0, 8, 0, 0)
+        });
         stack.Children.Add(new TextBlock { Text = T("settings.acknowledgmentsDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
         
         var list = new StackPanel { Spacing = 4, Margin = new Thickness(8, 4, 0, 0) };
@@ -255,6 +422,26 @@ public sealed partial class SettingsPage : BasePage
         var winhanceDesc = new TextBlock { Text = T("settings.winhanceCredit"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
         list.Children.Add(winhance);
         list.Children.Add(winhanceDesc);
+
+        var win11Debloat = new HyperlinkButton { Content = "Win11Debloat (Raphire)", NavigateUri = new Uri("https://github.com/Raphire/Win11Debloat"), Margin = new Thickness(0, 8, 0, 0) };
+        var win11DebloatDesc = new TextBlock { Text = T("settings.win11DebloatCredit"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        list.Children.Add(win11Debloat);
+        list.Children.Add(win11DebloatDesc);
+
+        var optimizer = new HyperlinkButton { Content = "Optimizer (hellzerg)", NavigateUri = new Uri("https://github.com/hellzerg/optimizer"), Margin = new Thickness(0, 8, 0, 0) };
+        var optimizerDesc = new TextBlock { Text = T("settings.optimizerCredit"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        list.Children.Add(optimizer);
+        list.Children.Add(optimizerDesc);
+
+        var qDirStat = new HyperlinkButton { Content = "QDirStat (shundhammer)", NavigateUri = new Uri("https://github.com/shundhammer/qdirstat"), Margin = new Thickness(0, 8, 0, 0) };
+        var qDirStatDesc = new TextBlock { Text = T("settings.qDirStatCredit"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        list.Children.Add(qDirStat);
+        list.Children.Add(qDirStatDesc);
+
+        var winMole = new HyperlinkButton { Content = "WinMole (bhadraagada)", NavigateUri = new Uri("https://github.com/bhadraagada/winmole"), Margin = new Thickness(0, 8, 0, 0) };
+        var winMoleDesc = new TextBlock { Text = T("settings.winMoleCredit"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+        list.Children.Add(winMole);
+        list.Children.Add(winMoleDesc);
 
         stack.Children.Add(list);
         border.Child = stack;

@@ -31,16 +31,17 @@ public sealed partial class App : Application
     {
         try
         {
-            var startupTheme = ResolveStartupTheme(new AppSettingsService().Load().Theme);
+            var initialSettings = new AppSettingsService().Load();
+            var startupLocalization = new LocalizationService(initialSettings.Language);
+            var startupTheme = ResolveStartupTheme(initialSettings.Theme);
             _splashWindow = new SplashScreenWindow(startupTheme);
             _splashWindow.Activate();
             await _splashWindow.WaitUntilReadyAsync();
 
-            _splashWindow.SetStatus("Loading settings...");
+            _splashWindow.SetStatus(startupLocalization.Get("splash.loadingSettings"));
 
-            var mainWindow = new MainWindow();
-            _splashWindow.SetStatus("Preparing dashboard...");
-            await mainWindow.CompleteStartupAsync();
+            var mainWindow = new MainWindow(initialSettings);
+            await mainWindow.CompleteStartupAsync(status => _splashWindow?.SetStatus(status));
 
             _window = mainWindow;
             _window.Activate();

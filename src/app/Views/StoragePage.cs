@@ -360,7 +360,8 @@ public sealed partial class StoragePage : BasePage
             rootPath,
             _includeHiddenBox?.IsChecked == true,
             _includeSystemBox?.IsChecked == true,
-            _followLinksBox?.IsChecked == true);
+            _followLinksBox?.IsChecked == true,
+            ExcludedPaths: MainWindow.Settings.ProtectedPaths);
 
         var scanFinished = false;
         var scanProgress = new Progress<DiskScanProgress>(value =>
@@ -462,6 +463,13 @@ public sealed partial class StoragePage : BasePage
             Header = T("storage.details"),
             IsClosable = false,
             Content = StorageDetailsTab(result)
+        });
+
+        tabs.TabItems.Add(new TabViewItem
+        {
+            Header = T("storage.discover"),
+            IsClosable = false,
+            Content = StorageDiscoverTab(result)
         });
 
         return tabs;
@@ -772,7 +780,7 @@ public sealed partial class StoragePage : BasePage
 
         var candidatePanel = new StackPanel { Spacing = 8 };
         var candidates = StorageCleanupService.CreateCandidates(result)
-            .Where(candidate => StorageCleanupService.IsSafeCandidate(candidate, out _))
+            .Where(candidate => StorageCleanupService.IsSafeCandidate(candidate, out _, MainWindow.Settings.ProtectedPaths))
             .ToList();
         if (candidates.Count > 0)
         {
@@ -831,6 +839,151 @@ public sealed partial class StoragePage : BasePage
         }
 
         return panel;
+    }
+
+    private StackPanel StorageDiscoverTab(DiskScanResult result)
+    {
+        var panel = new StackPanel { Spacing = 14, Padding = new Thickness(0, 12, 0, 0) };
+        panel.Children.Add(InfoBlock(T("storage.discoverDescription")));
+
+        panel.Children.Add(SectionTitle(T("storage.fileAge")));
+        var ageTotalBytes = Math.Max(1L, result.FileAgeSummaries.Sum(summary => summary.TotalBytes));
+        foreach (var summary in result.FileAgeSummaries)
+        {
+            panel.Children.Add(StorageFileAgeRow(summary, ageTotalBytes));
+        }
+
+        if (result.FileAgeSummaries.Count == 0)
+        {
+            panel.Children.Add(InfoBlock(T("storage.noDiscoveryData")));
+        }
+
+        var discoveries = new TabView
+        {
+            IsAddTabButtonVisible = false,
+            CanDragTabs = false,
+            TabWidthMode = TabViewWidthMode.SizeToContent,
+            MinHeight = 360
+        };
+        discoveries.TabItems.Add(DiscoveryTab(T("storage.largestFiles"), result.LargestFiles, result));
+        discoveries.TabItems.Add(DiscoveryTab(T("storage.newestFiles"), result.NewestFiles, result));
+        discoveries.TabItems.Add(DiscoveryTab(T("storage.oldestFiles"), result.OldestFiles, result));
+        discoveries.TabItems.Add(DiscoveryTab(T("storage.developerArtifacts"), result.DeveloperArtifacts, result));
+        panel.Children.Add(discoveries);
+        return panel;
+    }
+
+    private TabViewItem DiscoveryTab(string header, IReadOnlyList<DiskItem> source, DiskScanResult result)
+    {
+        var content = new StackPanel { Spacing = 4, Padding = new Thickness(0, 10, 0, 0) };
+        var filtered = FilterDiskItems(source).Take(40).ToList();
+        content.Children.Add(StorageDiscoveryHeaderRow());
+        foreach (var item in filtered)
+        {
+            content.Children.Add(StorageDiscoveryRow(item, result.Root));
+        }
+
+        if (filtered.Count == 0)
+        {
+            content.Children.Add(InfoBlock(T("common.noMatches")));
+        }
+
+        return new TabViewItem
+        {
+            Header = header,
+            IsClosable = false,
+            Content = content
+        };
+    }
+
+    private Grid StorageFileAgeRow(FileAgeSummary summary, long totalBytes)
+    {
+        var row = new Grid
+        {
+            ColumnSpacing = 12,
+            Padding = new Thickness(8, 7, 8, 7),
+            Background = ThemeCardBackground()
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+
+        row.Children.Add(CellText(FileAgeLabel(summary.Range), 0));
+        var percentage = Math.Max(0, Math.Min(100, summary.TotalBytes * 100d / totalBytes));
+        var bar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = percentage,
+            Height = 10,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
+        Grid.SetColumn(bar, 1);
+        row.Children.Add(bar);
+        row.Children.Add(CellText(Formatters.FormatBytes(summary.TotalBytes), 2));
+        row.Children.Add(CellText(F("storage.fileCount", summary.Count), 3));
+        return row;
+    }
+
+    private string FileAgeLabel(FileAgeRange range)
+    {
+        return range switch
+        {
+            FileAgeRange.Last7Days => T("storage.ageLast7Days"),
+            FileAgeRange.Last30Days => T("storage.ageLast30Days"),
+            FileAgeRange.LastYear => T("storage.ageLastYear"),
+            FileAgeRange.Older => T("storage.ageOlder"),
+            _ => T("storage.ageUnknown")
+        };
+    }
+
+    private Grid StorageDiscoveryHeaderRow()
+    {
+        var row = StorageDiscoveryGrid();
+        row.Children.Add(DiscoveryHeaderText(T("storage.name"), 0));
+        row.Children.Add(DiscoveryHeaderText(T("storage.size"), 1));
+        row.Children.Add(DiscoveryHeaderText(T("storage.modified"), 2));
+        row.Children.Add(DiscoveryHeaderText(T("storage.action"), 3));
+        return row;
+    }
+
+    private Grid StorageDiscoveryRow(DiskItem item, DiskItem root)
+    {
+        var row = StorageDiscoveryGrid();
+        row.Children.Add(CellText(item.Name, 0, item.FullPath));
+        row.Children.Add(CellText(Formatters.FormatBytes(item.Size), 1));
+        row.Children.Add(CellText(FormatStorageDate(item.LastModified), 2));
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        actions.Children.Add(IconButton(Symbol.OpenFile, T("storage.openInExplorer"), (_, _) => OpenDiskItemInExplorer(item)));
+        var manualCandidate = CreateManualCandidate(item);
+        if (StorageCleanupService.IsSafeCandidate(manualCandidate, out _, MainWindow.Settings.ProtectedPaths))
+        {
+            actions.Children.Add(IconButton(Symbol.Add, T("common.addCleanupReview"), async (_, _) =>
+            {
+                await ReviewStorageCandidatesAsync([manualCandidate]);
+            }));
+        }
+
+        Grid.SetColumn(actions, 3);
+        row.Children.Add(actions);
+        row.ContextFlyout = CreateDiskItemContextMenu(item, root);
+        return row;
+    }
+
+    private static TextBlock DiscoveryHeaderText(string text, int column)
+    {
+        var block = new TextBlock
+        {
+            Text = text,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Opacity = 0.75,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(block, column);
+        return block;
     }
 
     private Grid StorageDiskItemHeaderRow()
@@ -972,9 +1125,16 @@ public sealed partial class StoragePage : BasePage
     private Grid StorageDiskItemRow(DiskItem item, DiskItem root)
     {
         var row = StorageDiskItemGrid();
-        row.Children.Add(CellText($"{(item.IsDirectory ? "[D]" : "[F]")} {item.Name}", 0, item.FullPath));
+        var percentOfParent = GetPercentOfParent(item, root);
+        var nameCell = CellText($"{(item.IsDirectory ? "[D]" : "[F]")} {item.Name}", 0, item.FullPath);
+        if (item.FullPath != root.FullPath && percentOfParent >= 50)
+        {
+            nameCell.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+            ToolTipService.SetToolTip(nameCell, $"{item.FullPath}\n{T("storage.dominantItem")}");
+        }
+        row.Children.Add(nameCell);
         row.Children.Add(CellText(Formatters.FormatBytes(item.Size), 1));
-        row.Children.Add(PercentOfParentCell(GetPercentOfParent(item, root), 2));
+        row.Children.Add(PercentOfParentCell(percentOfParent, 2));
         row.Children.Add(CellText(item.FileCount.ToString("N0"), 3));
         row.Children.Add(CellText(FormatStorageDate(item.LastModified), 4));
 
@@ -985,7 +1145,7 @@ public sealed partial class StoragePage : BasePage
             actions.Children.Add(IconButton(Symbol.Find, T("storage.analyzeThisFolder"), async (_, _) => await AnalyzeDiskItemAsync(item)));
         }
         var manualCandidate = CreateManualCandidate(item);
-        if (item.FullPath != root.FullPath && StorageCleanupService.IsSafeCandidate(manualCandidate, out _))
+        if (item.FullPath != root.FullPath && StorageCleanupService.IsSafeCandidate(manualCandidate, out _, MainWindow.Settings.ProtectedPaths))
         {
             actions.Children.Add(IconButton(Symbol.Add, T("common.addCleanupReview"), async (_, _) =>
             {
@@ -1026,7 +1186,7 @@ public sealed partial class StoragePage : BasePage
         }
 
         var manualCandidate = CreateManualCandidate(item);
-        if (item.FullPath != root.FullPath && StorageCleanupService.IsSafeCandidate(manualCandidate, out _))
+        if (item.FullPath != root.FullPath && StorageCleanupService.IsSafeCandidate(manualCandidate, out _, MainWindow.Settings.ProtectedPaths))
         {
             var cleanupItem = new MenuFlyoutItem
             {
@@ -1201,7 +1361,7 @@ public sealed partial class StoragePage : BasePage
         }
 
         MainWindow.SetStatusText(T("storage.cleaning"));
-        var result = await MainWindow.StorageCleanup.CleanupAsync(candidates);
+        var result = await MainWindow.StorageCleanup.CleanupAsync(candidates, MainWindow.Settings.ProtectedPaths);
         await MainWindow.ShowRunResultAsync_Internal(result);
         MainWindow.SetStatusText(T("common.ready"));
     }
@@ -1259,6 +1419,21 @@ public sealed partial class StoragePage : BasePage
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(174) });
+        return grid;
+    }
+
+    private static Grid StorageDiscoveryGrid()
+    {
+        var grid = new Grid
+        {
+            ColumnSpacing = 10,
+            Padding = new Thickness(8, 7, 8, 7),
+            Background = ThemeCardBackground()
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
         return grid;
     }
 

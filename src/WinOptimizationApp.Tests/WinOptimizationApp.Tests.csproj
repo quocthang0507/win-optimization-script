@@ -28,6 +28,7 @@
     <Compile Include="..\app\Services\AppSettingsService.cs" Link="Production\Services\AppSettingsService.cs" />
     <Compile Include="..\app\Services\PathExpander.cs" Link="Production\Services\PathExpander.cs" />
     <Compile Include="..\app\Services\Winapp2Parser.cs" Link="Production\Services\Winapp2Parser.cs" />
+    <Compile Include="..\app\Services\Winapp2Service.cs" Link="Production\Services\Winapp2Service.cs" />
     <Compile Include="..\app\Services\Winapp2CleanupService.cs" Link="Production\Services\Winapp2CleanupService.cs" />
     <Compile Include="..\app\Models\AppUpdateInfo.cs" Link="Production\Models\AppUpdateInfo.cs" />
     <Compile Include="..\app\Models\CleanupTargetPreview.cs" Link="Production\Models\CleanupTargetPreview.cs" />
@@ -44,6 +45,7 @@
     <Compile Include="..\app\Models\DiskScanProgress.cs" Link="Production\Models\DiskScanProgress.cs" />
     <Compile Include="..\app\Models\DiskScanResult.cs" Link="Production\Models\DiskScanResult.cs" />
     <Compile Include="..\app\Models\FileTypeSummary.cs" Link="Production\Models\FileTypeSummary.cs" />
+    <Compile Include="..\app\Models\FileAgeSummary.cs" Link="Production\Models\FileAgeSummary.cs" />
     <Compile Include="..\app\Models\MaintenanceTask.cs" Link="Production\Models\MaintenanceTask.cs" />
     <Compile Include="..\app\Models\PrivacyCleanupItem.cs" Link="Production\Models\PrivacyCleanupItem.cs" />
     <Compile Include="..\app\Models\RiskLevel.cs" Link="Production\Models\RiskLevel.cs" />
@@ -66,19 +68,23 @@
     <Compile Include="..\app\Services\CommandRunner.cs" Link="Production\Services\CommandRunner.cs" />
     <Compile Include="..\app\Services\DashboardExportService.cs" Link="Production\Services\DashboardExportService.cs" />
     <Compile Include="..\app\Services\DashboardHealthCheckService.cs" Link="Production\Services\DashboardHealthCheckService.cs" />
+    <Compile Include="..\app\Services\HealthCheckScanService.cs" Link="Production\Services\HealthCheckScanService.cs" />
     <Compile Include="..\app\Services\DiskAnalysisService.cs" Link="Production\Services\DiskAnalysisService.cs" />
+    <Compile Include="..\app\Services\DeveloperArtifactService.cs" Link="Production\Services\DeveloperArtifactService.cs" />
     <Compile Include="..\app\Services\Formatters.cs" Link="Production\Services\Formatters.cs" />
     <Compile Include="..\app\Services\GitHubUpdateService.cs" Link="Production\Services\GitHubUpdateService.cs" />
     <Compile Include="..\app\Services\LocalizationService.cs" Link="Production\Services\LocalizationService.cs" />
     <Compile Include="..\app\Services\MaintenanceCatalog.cs" Link="Production\Services\MaintenanceCatalog.cs" />
     <Compile Include="..\app\Services\PathService.cs" Link="Production\Services\PathService.cs" />
     <Compile Include="..\app\Services\PathSafetyService.cs" Link="Production\Services\PathSafetyService.cs" />
+    <Compile Include="..\app\Services\ProtectedPathService.cs" Link="Production\Services\ProtectedPathService.cs" />
     <Compile Include="..\app\Services\PrivacyCleanerCatalog.cs" Link="Production\Services\PrivacyCleanerCatalog.cs" />
     <Compile Include="..\app\Services\ReportService.cs" Link="Production\Services\ReportService.cs" />
     <Compile Include="..\app\Services\StartupImpactClassifier.cs" Link="Production\Services\StartupImpactClassifier.cs" />
     <Compile Include="..\app\Services\StorageCleanupService.cs" Link="Production\Services\StorageCleanupService.cs" />
     <Compile Include="..\app\Services\StartupService.cs" Link="Production\Services\StartupService.cs" />
     <Compile Include="..\app\Models\NetworkAdapterInfo.cs" Link="Production\Models\NetworkAdapterInfo.cs" />
+    <Compile Include="..\app\Models\NetworkLatencyResult.cs" Link="Production\Models\NetworkLatencyResult.cs" />
     <Compile Include="..\app\Services\PerformanceMonitoringService.cs" Link="Production\Services\PerformanceMonitoringService.cs" />
     <Compile Include="..\app\Services\RegistryCleanerService.cs" Link="Production\Services\RegistryCleanerService.cs" />
     <Compile Include="..\app\Services\NetworkOptimizationService.cs" Link="Production\Services\NetworkOptimizationService.cs" />

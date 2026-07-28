@@ -11,7 +11,7 @@ Windows System Maintenance Tool là bộ công cụ dọn dẹp, tối ưu và s
 
 - Dashboard hiển thị trạng thái hệ thống: Thông tin Windows version, trạng thái Administrator, Uptime, dung lượng trống ổ đĩa, Pending Reboot và các bản cập nhật WinGet khả dụng.
 - Chế độ dọn dẹp (Cleanup) hỗ trợ Scan / Preview trước khi thực thi thực tế.
-- Bộ phân tích dung lượng (Storage Analyzer) giống TreeSize: Quét thư mục/ổ đĩa bất kỳ trực quan, hiển thị các thư mục/file dung lượng lớn nhất, biểu đồ phân bổ loại file, và đề xuất dọn dẹp.
+- Bộ phân tích dung lượng (Storage Analyzer): Quét thư mục/ổ đĩa trực quan, tìm file lớn nhất/mới nhất/cũ nhất và build artifact theo loại project, xem phân bố tuổi/loại file, hỗ trợ đường dẫn được bảo vệ, rồi đưa đề xuất qua quy trình dọn dẹp an toàn.
 - Giao tiếp đa tiến trình (IPC) qua Windows Named Pipes (`WinOptimizationApp_Runner`) để đồng bộ trạng thái và gửi lệnh an toàn.
 - Mô hình Runner-Module: Tiến trình Runner quản lý ứng dụng, có thể khởi động lại UI Module nếu gặp sự cố, đồng thời xử lý các tác vụ nền.
 - Cảnh báo chạy dưới quyền Administrator (Admin Warning Banner) và hỗ trợ tự động yêu cầu nâng quyền (UAC elevation) khi thực hiện các chức năng phân tích/dọn dẹp hệ thống sâu.
@@ -20,6 +20,9 @@ Windows System Maintenance Tool là bộ công cụ dọn dẹp, tối ưu và s
 - Startup Inventory cho phép xem thông tin các chương trình khởi động cùng Windows.
 - Xem trước và cập nhật ứng dụng qua WinGet Update Preview.
 - Hỗ trợ đa ngôn ngữ hoàn chỉnh (tiếng Anh và tiếng Việt) chuyển đổi tức thì trong Settings.
+- Splash screen tải trước tổng quan hệ thống, Startup, cập nhật, Appx, trạng thái tweak và card mạng; dữ liệu được giữ trong cache theo phiên khi chuyển trang.
+- Optimize có thêm các tinh chỉnh an toàn, có thể hoàn tác: giảm gợi ý Windows, tắt web suggestion trong Search, hiện phần mở rộng tệp và bật End Task trên taskbar; tùy chọn UTC clock được đánh dấu Medium/Admin cho máy dual-boot.
+- Advanced Toolbox cung cấp dọn Registry có sao lưu, sửa mạng, clean uninstaller và kiểm tra độ trễ ICMP bằng API an toàn, không truyền dữ liệu người dùng vào shell.
 
 ### PowerShell CLI
 
@@ -257,8 +260,12 @@ Chi tiết kế hoạch triển khai và tiến trình hiện tại có thể xe
 ## Lời cảm ơn (Acknowledgments)
 
 - Xin gửi lời cảm ơn đến đội ngũ phát triển [Microsoft WinUI 3](https://github.com/microsoft/microsoft-ui-xaml) và .NET.
-- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)** đã truyền cảm hứng cho việc tích hợp cơ sở dữ liệu dọn dẹp Winapp2, quy trình xem trước minh bạch và trải nghiệm WinUI tối giản.
+- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)** đã truyền cảm hứng cho việc tích hợp cơ sở dữ liệu dọn dẹp Winapp2 tùy chỉnh, quy trình xem trước minh bạch và trải nghiệm WinUI tối giản.
 - **[Winhance](https://github.com/memstechtips/Winhance)** đã truyền cảm hứng cho các chức năng tối ưu hệ thống, tinh chỉnh có thể khôi phục, quản lý phần mềm và cấu hình tái sử dụng.
+- **[Win11Debloat](https://github.com/Raphire/Win11Debloat)** của Raphire đã truyền cảm hứng cho các tinh chỉnh Windows an toàn, có thể hoàn tác như hiển thị phần mở rộng tệp, giảm nội dung gợi ý, tìm kiếm cục bộ và tùy chỉnh taskbar.
+- **[Optimizer](https://github.com/hellzerg/optimizer)** của hellzerg đã truyền cảm hứng cho bộ công cụ chẩn đoán mạng, cách tổ chức các tùy chọn tối ưu nâng cao và tùy chọn đồng hồ UTC cho máy dual-boot. Repository gốc hiện đã được lưu trữ và được thay thế bởi OptimizerNXT.
+- **[QDirStat](https://github.com/shundhammer/qdirstat)** của Stefan Hundhammer đã truyền cảm hứng cho chế độ khám phá file lớn nhất, mới nhất và cũ nhất, phân bố tuổi file và cách làm nổi bật mục chiếm ưu thế trong Phân tích lưu trữ.
+- **[WinMole](https://github.com/bhadraagada/winmole)** của bhadraagada đã truyền cảm hứng cho danh sách đường dẫn được bảo vệ, phát hiện build artifact theo dấu hiệu project và quy trình bảo trì tất cả trong một.
 - Cảm ơn cộng đồng mã nguồn mở và những người dùng đã đóng góp ý tưởng để cải thiện và hoàn thiện công cụ này.
 
 ---

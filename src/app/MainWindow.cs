@@ -12,6 +12,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
     private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly Task _runnerConnectionTask;
     private bool _updateCheckStarted;
     private bool _isClosing;
     private bool _isHidden;
@@ -42,16 +43,18 @@ public sealed class MainWindow : Window
     internal NetworkOptimizationService NetworkOptimizer { get; }
     internal UninstallerService Uninstaller { get; }
     internal Winapp2Service Winapp2 { get; } = new();
+    internal TweakService Tweaks { get; }
     internal TweakSnapshotService TweakSnapshots { get; }
     internal Winapp2CleanupService Winapp2Cleanup { get; }
+    internal AppSessionState SessionState { get; } = new();
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
     internal IpcClient IpcClient => _ipcClient;
     internal IntPtr WindowHandle => WinRT.Interop.WindowNative.GetWindowHandle(this);
 
-    public MainWindow()
+    public MainWindow(AppSettings? initialSettings = null)
     {
-        Settings = SettingsService.Load();
+        Settings = initialSettings ?? SettingsService.Load();
         Localization = new LocalizationService(Settings.Language);
         Reports = new ReportService(Paths);
         Cleanup = new CleanupService(Commands);
@@ -62,6 +65,7 @@ public sealed class MainWindow : Window
         RegistryCleaner = new RegistryCleanerService(Commands);
         NetworkOptimizer = new NetworkOptimizationService(Commands);
         Uninstaller = new UninstallerService(Commands);
+        Tweaks = new TweakService(Commands);
         TweakSnapshots = new TweakSnapshotService(Paths);
         Winapp2Cleanup = new Winapp2CleanupService(Reports);
 
@@ -89,9 +93,10 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         };
 
+        _runnerConnectionTask = Task.CompletedTask;
         if (ShouldConnectToRunner())
         {
-            _ = Task.Run(async () =>
+            _runnerConnectionTask = Task.Run(async () =>
             {
                 try
                 {
@@ -106,6 +111,7 @@ public sealed class MainWindow : Window
                         RegistryCleaner.Client = _ipcClient;
                         NetworkOptimizer.Client = _ipcClient;
                         Uninstaller.Client = _ipcClient;
+                        Tweaks.Client = _ipcClient;
 
                         DispatcherQueue.TryEnqueue(() =>
                         {
@@ -271,10 +277,31 @@ public sealed class MainWindow : Window
         SettingsService.Save(Settings);
     }
 
-    internal async Task CompleteStartupAsync()
+    internal async Task CompleteStartupAsync(Action<string>? reportStartupStatus = null)
     {
         SetStatus(T("common.loading"));
-        await Task.Yield();
+        reportStartupStatus?.Invoke(T("splash.connectingServices"));
+        await _runnerConnectionTask;
+
+        reportStartupStatus?.Invoke(T("splash.loadingOverview"));
+        await Task.WhenAll(
+            RefreshSystemOverviewStateAsync(_shutdownCts.Token),
+            RefreshNetworkAdaptersStateAsync(_shutdownCts.Token));
+
+        reportStartupStatus?.Invoke(T("splash.loadingStartupApps"));
+        await Task.WhenAll(
+            RefreshStartupStateAsync(_shutdownCts.Token),
+            RefreshUpdatesStateAsync(_shutdownCts.Token),
+            RefreshAppxStateAsync(_shutdownCts.Token));
+
+        reportStartupStatus?.Invoke(T("splash.loadingMachineSettings"));
+        await Task.WhenAll(
+            RefreshTweakStatesAsync(_shutdownCts.Token),
+            RefreshWinapp2StateAsync());
+
+        reportStartupStatus?.Invoke(T("splash.preparingDashboard"));
+        await RefreshHealthMetricsStateAsync(_shutdownCts.Token);
+        SessionState.WarmedUpAt = DateTimeOffset.Now;
 
         if (_navItems.TryGetValue("dashboard", out var dashboardItem))
         {
@@ -292,6 +319,255 @@ public sealed class MainWindow : Window
         }
 
         _ = RunDeferredUpdateCheckAsync();
+    }
+
+    internal async Task RefreshDashboardStateAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.WhenAll(
+            RefreshSystemOverviewStateAsync(cancellationToken),
+            RefreshStartupStateAsync(cancellationToken),
+            RefreshUpdatesStateAsync(cancellationToken));
+        await RefreshHealthMetricsStateAsync(cancellationToken);
+    }
+
+    internal async Task RefreshSystemOverviewStateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SessionState.SystemOverview = await Status.GetAsync();
+            SessionState.SystemOverviewError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            SessionState.SystemOverviewError = ex.Message;
+        }
+        finally
+        {
+            SessionState.SystemOverviewLoaded = true;
+        }
+    }
+
+    internal async Task RefreshStartupStateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            SessionState.StartupEntries = (await Startup.ScanAsync(cancellationToken)).ToArray();
+            SessionState.StartupError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            SessionState.StartupEntries = [];
+            SessionState.StartupError = ex.Message;
+        }
+        finally
+        {
+            SessionState.StartupLoaded = true;
+            SessionState.StartupRevision++;
+            SynchronizeCachedHealthDependencies();
+        }
+    }
+
+    internal async Task RefreshUpdatesStateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            SessionState.UpdatePackages = (await Winget.ScanAsync(cancellationToken)).ToArray();
+            SessionState.UpdatesError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            SessionState.UpdatePackages = [];
+            SessionState.UpdatesError = ex.Message;
+        }
+        finally
+        {
+            SessionState.UpdatesLoaded = true;
+            SessionState.UpdatesRevision++;
+            SynchronizeCachedHealthDependencies();
+        }
+    }
+
+    internal async Task RefreshAppxStateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SessionState.AppxPackages = (await Uninstaller.ScanAppxPackagesAsync(cancellationToken)).ToArray();
+            SessionState.AppxError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            SessionState.AppxPackages = [];
+            SessionState.AppxError = ex.Message;
+        }
+        finally
+        {
+            SessionState.AppxLoaded = true;
+            SessionState.AppxRevision++;
+        }
+    }
+
+    internal async Task RefreshTweakStatesAsync(CancellationToken cancellationToken = default)
+    {
+        var states = new Dictionary<string, TweakStateResponse>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var state in await Tweaks.CheckAllTweakStatesAsync(cancellationToken))
+            {
+                states[state.Id] = state;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            foreach (var tweak in Tweaks.GetAllTweaks())
+            {
+                states[tweak.Id] = new TweakStateResponse { Id = tweak.Id, Error = ex.Message };
+            }
+        }
+
+        SessionState.TweakStates = states;
+        SessionState.TweakStatesLoaded = true;
+        SessionState.TweakStatesRevision++;
+    }
+
+    internal void SetCachedTweakState(TweakStateResponse state)
+    {
+        var states = SessionState.TweakStates.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase);
+        states[state.Id] = state;
+        SessionState.TweakStates = states;
+        SessionState.TweakStatesLoaded = true;
+        SessionState.TweakStatesRevision++;
+    }
+
+    internal async Task RefreshNetworkAdaptersStateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            SessionState.NetworkAdapters = (await NetworkOptimizer.GetAdaptersAsync(cancellationToken)).ToArray();
+            SessionState.NetworkAdaptersError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            SessionState.NetworkAdapters = [];
+            SessionState.NetworkAdaptersError = ex.Message;
+        }
+        finally
+        {
+            SessionState.NetworkAdaptersLoaded = true;
+            SessionState.NetworkAdaptersRevision++;
+        }
+    }
+
+    internal async Task RefreshWinapp2StateAsync()
+    {
+        try
+        {
+            SessionState.Winapp2Entries = (await Winapp2.GetDetectedEntriesAsync(Settings.CustomWinapp2DatabasePath)).ToArray();
+            SessionState.Winapp2Error = null;
+        }
+        catch (Exception ex)
+        {
+            SessionState.Winapp2Entries = [];
+            SessionState.Winapp2Error = ex.Message;
+        }
+        finally
+        {
+            SessionState.Winapp2Loaded = true;
+        }
+    }
+
+    private async Task RefreshHealthMetricsStateAsync(CancellationToken cancellationToken)
+    {
+        var dependencyErrors = new List<string>();
+        if (!string.IsNullOrWhiteSpace(SessionState.UpdatesError))
+        {
+            dependencyErrors.Add($"updates: {SessionState.UpdatesError}");
+        }
+        if (!string.IsNullOrWhiteSpace(SessionState.StartupError))
+        {
+            dependencyErrors.Add($"startup: {SessionState.StartupError}");
+        }
+
+        try
+        {
+            SessionState.HealthMetrics = await HealthCheckScanService.ScanAsync(
+                Cleanup,
+                Catalog,
+                Winget,
+                Startup,
+                cancellationToken,
+                SessionState.UpdatePackages,
+                SessionState.StartupEntries,
+                dependencyErrors);
+            SessionState.HealthMetricsError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            SessionState.HealthMetricsError = ex.Message;
+        }
+        finally
+        {
+            SessionState.HealthMetricsLoaded = true;
+            SessionState.DashboardRevision++;
+        }
+    }
+
+    private void SynchronizeCachedHealthDependencies()
+    {
+        if (SessionState.HealthMetrics is not { } metrics)
+        {
+            return;
+        }
+
+        var errors = metrics.Errors
+            .Where(error => !error.StartsWith("updates:", StringComparison.OrdinalIgnoreCase)
+                && !error.StartsWith("startup:", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(SessionState.UpdatesError))
+        {
+            errors.Add($"updates: {SessionState.UpdatesError}");
+        }
+        if (!string.IsNullOrWhiteSpace(SessionState.StartupError))
+        {
+            errors.Add($"startup: {SessionState.StartupError}");
+        }
+
+        SessionState.HealthMetrics = metrics with
+        {
+            AvailableUpdates = SessionState.UpdatePackages.Count,
+            HighImpactStartupItems = SessionState.StartupEntries.Count(
+                entry => entry.Enabled && entry.Impact == StartupImpactLevel.High),
+            Errors = errors
+        };
+        SessionState.DashboardRevision++;
     }
 
     private async Task RunDeferredUpdateCheckAsync()
@@ -425,20 +701,6 @@ public sealed class MainWindow : Window
 
     internal async Task NavigateAsync(string tag)
     {
-        if (tag.Equals("toolbox", StringComparison.OrdinalIgnoreCase))
-        {
-            Settings.WidgetEnabled = true;
-            SettingsService.Save(Settings);
-            ToggleWidget(true);
-            SetStatus(T("common.ready"));
-
-            if (_navItems.TryGetValue(_currentPageTag, out var currentItem))
-            {
-                DispatcherQueue.TryEnqueue(() => Navigation_Internal.SelectedItem = currentItem);
-            }
-            return;
-        }
-
         _currentPageTag = tag;
         _scrollViewer.Content = null;
         SetStatus(T("common.loading"));
@@ -755,7 +1017,13 @@ public sealed class MainWindow : Window
         resultPanel.Children.Clear();
         try
         {
-            var packages = await Winget.ScanAsync();
+            await RefreshUpdatesStateAsync();
+            if (!string.IsNullOrWhiteSpace(SessionState.UpdatesError))
+            {
+                throw new InvalidOperationException(SessionState.UpdatesError);
+            }
+
+            var packages = SessionState.UpdatePackages;
             resultPanel.Children.Add(SectionTitle(F("updates.packageUpdates", packages.Count)));
             foreach (var package in packages)
             {

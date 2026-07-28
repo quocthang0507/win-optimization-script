@@ -42,6 +42,26 @@ public sealed class StorageCleanupServiceTests
     }
 
     [Fact]
+    public void IsSafeCandidate_RejectsCandidateContainingUserProtectedPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "WinOptimizationApp.Tests", Guid.NewGuid().ToString("N"));
+        var protectedChild = Directory.CreateDirectory(Path.Combine(root, "important"));
+        try
+        {
+            var candidate = new StorageCleanupCandidate(
+                "folder", "workspace", root, 0, RiskLevel.Medium,
+                StorageCleanupMode.MoveToRecycleBin, "test", true);
+
+            Assert.False(StorageCleanupService.IsSafeCandidate(candidate, out var reason, [protectedChild.FullName]));
+            Assert.Contains("user-protected", reason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CreateCandidates_IncludesTempLogDumpBackupFilesAndCacheFolders()
     {
         var result = CreateScanResult(

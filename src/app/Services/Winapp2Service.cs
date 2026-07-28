@@ -11,20 +11,25 @@ public class Winapp2Service
 {
     private readonly Winapp2Parser _parser;
     private List<CleanerEntry>? _cachedEntries;
+    private string? _cachedDatabasePath;
 
     public Winapp2Service()
     {
         _parser = new Winapp2Parser();
     }
 
-    public async Task<List<CleanerEntry>> GetDetectedEntriesAsync()
+    public async Task<List<CleanerEntry>> GetDetectedEntriesAsync(string? customDatabasePath = null)
     {
-        if (_cachedEntries != null)
+        var bundledPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Database", "Winapp2.ini");
+        var dbPath = !string.IsNullOrWhiteSpace(customDatabasePath) && File.Exists(customDatabasePath)
+            ? Path.GetFullPath(customDatabasePath)
+            : bundledPath;
+
+        if (_cachedEntries != null && string.Equals(_cachedDatabasePath, dbPath, StringComparison.OrdinalIgnoreCase))
         {
             return _cachedEntries;
         }
 
-        var dbPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Database", "Winapp2.ini");
         var allEntries = await _parser.ParseFileAsync(dbPath);
 
         var detected = new List<CleanerEntry>();
@@ -41,6 +46,7 @@ public class Winapp2Service
         });
 
         _cachedEntries = detected.OrderBy(e => e.Name).ToList();
+        _cachedDatabasePath = dbPath;
         return _cachedEntries;
     }
 

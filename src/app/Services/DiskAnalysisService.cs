@@ -6,6 +6,7 @@ public sealed class DiskAnalysisService
 {
     private const int ProgressInterval = 250;
     private const int LargestFileLimit = 60;
+    private const int DiscoveryFileLimit = 60;
     private const int ProgressUpdateIntervalMilliseconds = 150;
     private const int SnapshotIntervalMilliseconds = 500;
 
@@ -23,6 +24,11 @@ public sealed class DiskAnalysisService
         var errors = new List<string>();
         var fileTypes = new Dictionary<string, FileTypeAccumulator>(StringComparer.Ordinal);
         var largestFiles = new List<DiskItem>();
+        var newestFiles = new List<DiskItem>();
+        var oldestFiles = new List<DiskItem>();
+        var developerArtifacts = new List<DiskItem>();
+        var fileAgeBytes = new long[Enum.GetValues<FileAgeRange>().Length];
+        var fileAgeCounts = new int[fileAgeBytes.Length];
         var skipped = 0;
         var filesScanned = 0;
         var foldersScanned = 0;
@@ -125,6 +131,10 @@ public sealed class DiskAnalysisService
             {
                 item.Children.Sort((left, right) => right.Size.CompareTo(left.Size));
             }
+            if (item.Size > 0 && DeveloperArtifactService.IsArtifactDirectory(directory))
+            {
+                TrackLargestItem(item, developerArtifacts, DiscoveryFileLimit);
+            }
             ReportProgress(directory.FullName);
             return item;
         }
@@ -189,6 +199,9 @@ public sealed class DiskAnalysisService
 
             totalBytes += item.Size;
             TrackLargestFile(item, largestFiles);
+            TrackFileByAge(item, newestFiles, newestFirst: true);
+            TrackFileByAge(item, oldestFiles, newestFirst: false);
+            TrackFileAgeSummary(item, started, fileAgeBytes, fileAgeCounts);
             TrackFileType(item, fileTypes);
 
             return item;
@@ -246,7 +259,19 @@ public sealed class DiskAnalysisService
                     .Select(pair => pair.Value.ToSummary(pair.Key))
                     .OrderByDescending(summary => summary.TotalBytes)
                     .ToList(),
-                isPartial);
+                isPartial)
+            {
+                NewestFiles = newestFiles.Select(CloneDiskItem).ToList(),
+                OldestFiles = oldestFiles.Select(CloneDiskItem).ToList(),
+                FileAgeSummaries = Enum.GetValues<FileAgeRange>()
+                    .Select(range => new FileAgeSummary(range, fileAgeBytes[(int)range], fileAgeCounts[(int)range]))
+                    .Where(summary => summary.Count > 0)
+                    .ToList(),
+                DeveloperArtifacts = developerArtifacts
+                    .OrderByDescending(item => item.Size)
+                    .Select(CloneDiskItem)
+                    .ToList()
+            };
         }
     }
 
@@ -359,27 +384,86 @@ public sealed class DiskAnalysisService
 
     private static void TrackLargestFile(DiskItem item, List<DiskItem> largestFiles)
     {
-        if (largestFiles.Count < LargestFileLimit)
+        TrackLargestItem(item, largestFiles, LargestFileLimit);
+    }
+
+    private static void TrackLargestItem(DiskItem item, List<DiskItem> items, int limit)
+    {
+        if (items.Count < limit)
         {
-            largestFiles.Add(item);
-            if (largestFiles.Count == LargestFileLimit)
+            items.Add(item);
+            if (items.Count == limit)
             {
-                largestFiles.Sort((left, right) => right.Size.CompareTo(left.Size));
+                items.Sort((left, right) => right.Size.CompareTo(left.Size));
             }
             return;
         }
 
-        if (item.Size <= largestFiles[^1].Size)
+        if (item.Size <= items[^1].Size)
         {
             return;
         }
 
-        int index = largestFiles.FindIndex(x => x.Size < item.Size);
+        int index = items.FindIndex(x => x.Size < item.Size);
         if (index >= 0)
         {
-            largestFiles.Insert(index, item);
-            largestFiles.RemoveAt(largestFiles.Count - 1);
+            items.Insert(index, item);
+            items.RemoveAt(items.Count - 1);
         }
+    }
+
+    private static void TrackFileByAge(DiskItem item, List<DiskItem> files, bool newestFirst)
+    {
+        if (item.LastModified == DateTimeOffset.MinValue)
+        {
+            return;
+        }
+
+        files.Add(item);
+        files.Sort((left, right) => newestFirst
+            ? right.LastModified.CompareTo(left.LastModified)
+            : left.LastModified.CompareTo(right.LastModified));
+        if (files.Count > DiscoveryFileLimit)
+        {
+            files.RemoveAt(files.Count - 1);
+        }
+    }
+
+    private static void TrackFileAgeSummary(
+        DiskItem item,
+        DateTimeOffset scanStartedAt,
+        long[] bytes,
+        int[] counts)
+    {
+        var range = ClassifyFileAge(item.LastModified, scanStartedAt);
+        bytes[(int)range] += item.Size;
+        counts[(int)range]++;
+    }
+
+    internal static FileAgeRange ClassifyFileAge(DateTimeOffset lastModified, DateTimeOffset referenceTime)
+    {
+        if (lastModified == DateTimeOffset.MinValue)
+        {
+            return FileAgeRange.Unknown;
+        }
+
+        var age = referenceTime - lastModified;
+        if (age <= TimeSpan.FromDays(7))
+        {
+            return FileAgeRange.Last7Days;
+        }
+
+        if (age <= TimeSpan.FromDays(30))
+        {
+            return FileAgeRange.Last30Days;
+        }
+
+        if (age <= TimeSpan.FromDays(365))
+        {
+            return FileAgeRange.LastYear;
+        }
+
+        return FileAgeRange.Older;
     }
 
     private static void TrackFileType(DiskItem item, Dictionary<string, FileTypeAccumulator> fileTypes)

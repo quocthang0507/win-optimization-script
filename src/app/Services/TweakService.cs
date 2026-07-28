@@ -63,6 +63,50 @@ public sealed class TweakService
                 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' -Name 'LetAppsGetDiagnosticInfo' -ErrorAction SilentlyContinue
             "
         },
+        new SystemTweak
+        {
+            Id = "privacy.windowsSuggestions",
+            Category = "Privacy",
+            Title = "Reduce Windows Tips and Suggestions",
+            Description = "Disables common welcome, Start menu, Settings, and usage suggestions without removing Windows components.",
+            RequiresAdministrator = false,
+            RiskLevel = RiskLevel.Safe,
+            CheckScript = @"$cdm = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' -ErrorAction SilentlyContinue; $advanced = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue; $cdm.'SubscribedContent-310093Enabled' -eq 0 -and $cdm.'SubscribedContent-338388Enabled' -eq 0 -and $cdm.'SubscribedContent-338389Enabled' -eq 0 -and $cdm.SoftLandingEnabled -eq 0 -and $advanced.Start_IrisRecommendations -eq 0",
+            EnableScript = @"
+                $cdm = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
+                $advanced = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+                New-Item -Path $cdm -Force | Out-Null
+                New-Item -Path $advanced -Force | Out-Null
+                @('SubscribedContent-310093Enabled','SubscribedContent-338388Enabled','SubscribedContent-338389Enabled','SoftLandingEnabled','SystemPaneSuggestionsEnabled') | ForEach-Object {
+                    Set-ItemProperty -Path $cdm -Name $_ -Value 0 -Type DWord -Force
+                }
+                Set-ItemProperty -Path $advanced -Name 'Start_IrisRecommendations' -Value 0 -Type DWord -Force
+            ",
+            DisableScript = @"
+                $cdm = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
+                @('SubscribedContent-310093Enabled','SubscribedContent-338388Enabled','SubscribedContent-338389Enabled','SoftLandingEnabled','SystemPaneSuggestionsEnabled') | ForEach-Object {
+                    Remove-ItemProperty -Path $cdm -Name $_ -ErrorAction SilentlyContinue
+                }
+                Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'Start_IrisRecommendations' -ErrorAction SilentlyContinue
+            "
+        },
+        new SystemTweak
+        {
+            Id = "privacy.webSearch",
+            Category = "Privacy",
+            Title = "Disable Web Suggestions in Windows Search",
+            Description = "Keeps Start and taskbar searches focused on local apps, settings, and files.",
+            RequiresAdministrator = false,
+            RiskLevel = RiskLevel.Safe,
+            CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Policies\Microsoft\Windows\Explorer' -Name 'DisableSearchBoxSuggestions' -ErrorAction SilentlyContinue).DisableSearchBoxSuggestions -eq 1",
+            EnableScript = @"
+                New-Item -Path 'HKCU:\Software\Policies\Microsoft\Windows\Explorer' -Force | Out-Null
+                Set-ItemProperty -Path 'HKCU:\Software\Policies\Microsoft\Windows\Explorer' -Name 'DisableSearchBoxSuggestions' -Value 1 -Type DWord -Force
+            ",
+            DisableScript = @"
+                Remove-ItemProperty -Path 'HKCU:\Software\Policies\Microsoft\Windows\Explorer' -Name 'DisableSearchBoxSuggestions' -ErrorAction SilentlyContinue
+            "
+        },
         // Gaming
         new SystemTweak
         {
@@ -152,6 +196,42 @@ public sealed class TweakService
                 Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'ShowTaskViewButton' -ErrorAction SilentlyContinue
             "
         },
+        new SystemTweak
+        {
+            Id = "ui.showFileExtensions",
+            Category = "UI/Explorer",
+            Title = "Show File Name Extensions",
+            Description = "Shows extensions for known file types in File Explorer, making executable and script files easier to identify.",
+            RequiresAdministrator = false,
+            RiskLevel = RiskLevel.Safe,
+            RestartRequirement = "New Explorer window",
+            CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'HideFileExt' -ErrorAction SilentlyContinue).HideFileExt -eq 0",
+            EnableScript = @"
+                New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Force | Out-Null
+                Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'HideFileExt' -Value 0 -Type DWord -Force
+            ",
+            DisableScript = @"
+                Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'HideFileExt' -Value 1 -Type DWord -Force
+            "
+        },
+        new SystemTweak
+        {
+            Id = "ui.endTaskTaskbar",
+            Category = "UI/Taskbar",
+            Title = "Enable End Task on the Taskbar",
+            Description = "Adds End Task to an app's taskbar context menu on supported Windows 11 versions.",
+            RequiresAdministrator = false,
+            RiskLevel = RiskLevel.Safe,
+            SupportedWindows = "Windows 11",
+            CheckScript = @"(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings' -Name 'TaskbarEndTask' -ErrorAction SilentlyContinue).TaskbarEndTask -eq 1",
+            EnableScript = @"
+                New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings' -Force | Out-Null
+                Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings' -Name 'TaskbarEndTask' -Value 1 -Type DWord -Force
+            ",
+            DisableScript = @"
+                Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings' -Name 'TaskbarEndTask' -ErrorAction SilentlyContinue
+            "
+        },
         // System
         new SystemTweak
         {
@@ -181,6 +261,23 @@ public sealed class TweakService
             DisableScript = @"
                 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' -Name 'AllowCortana' -ErrorAction SilentlyContinue
             "
+        },
+        new SystemTweak
+        {
+            Id = "system.utcClock",
+            Category = "System",
+            Title = "Use UTC for the Hardware Clock",
+            Description = "Useful for Windows and Linux dual-boot systems. Do not enable this on a normal Windows-only setup.",
+            RequiresAdministrator = true,
+            RiskLevel = RiskLevel.Medium,
+            RestartRequirement = "Restart required",
+            CheckScript = @"(Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\TimeZoneInformation' -Name 'RealTimeIsUniversal' -ErrorAction SilentlyContinue).RealTimeIsUniversal -eq 1",
+            EnableScript = @"
+                Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\TimeZoneInformation' -Name 'RealTimeIsUniversal' -Value 1 -Type DWord -Force
+            ",
+            DisableScript = @"
+                Remove-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\TimeZoneInformation' -Name 'RealTimeIsUniversal' -ErrorAction SilentlyContinue
+            "
         }
     };
 
@@ -190,6 +287,41 @@ public sealed class TweakService
     }
 
     public IReadOnlyList<SystemTweak> GetAllTweaks() => Tweaks;
+
+    public async Task<IReadOnlyList<TweakStateResponse>> CheckAllTweakStatesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (Client?.IsConnected == true)
+        {
+            var response = await Client.SendRequestAsync("CheckAllTweakStates", cancellationToken: cancellationToken);
+            return System.Text.Json.JsonSerializer.Deserialize<List<TweakStateResponse>>(response) ?? [];
+        }
+
+        var checks = Tweaks.Select(tweak =>
+        {
+            var id = tweak.Id.Replace("'", "''", StringComparison.Ordinal);
+            return $@"try {{
+                $enabled = [bool](& {{ {tweak.CheckScript} }})
+                [pscustomobject]@{{ Id = '{id}'; IsEnabled = $enabled; Error = '' }}
+            }} catch {{
+                [pscustomobject]@{{ Id = '{id}'; IsEnabled = $false; Error = $_.Exception.Message }}
+            }}";
+        });
+        var script = $"$results = @({string.Join(Environment.NewLine, checks)}); ConvertTo-Json -InputObject $results -Depth 3 -Compress";
+        var result = await _commands.RunCaptureAsync(
+            "powershell.exe",
+            $"-NoProfile -Command \"{script}\"",
+            cancellationToken);
+        if (result.ExitCode != 0)
+        {
+            var error = string.IsNullOrWhiteSpace(result.StandardError)
+                ? $"PowerShell exited with code {result.ExitCode}."
+                : result.StandardError.Trim();
+            throw new InvalidOperationException(error);
+        }
+
+        return System.Text.Json.JsonSerializer.Deserialize<List<TweakStateResponse>>(result.StandardOutput) ?? [];
+    }
 
     public async Task<TweakStateResponse> CheckTweakStateAsync(string id, CancellationToken cancellationToken = default)
     {

@@ -16,14 +16,16 @@ public sealed class Winapp2CleanupService(ReportService reports)
 
     public Task<Winapp2CleanupPreview> PreviewAsync(
         IReadOnlyList<CleanerEntry> entries,
+        IReadOnlyList<string>? protectedPaths = null,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => CollectCandidates(entries, cancellationToken), cancellationToken);
+        return Task.Run(() => CollectCandidates(entries, protectedPaths, cancellationToken), cancellationToken);
     }
 
     public async Task<TaskRunResult> RunAsync(
         Winapp2CleanupPreview preview,
         int selectedEntryCount,
+        IReadOnlyList<string>? protectedPaths = null,
         CancellationToken cancellationToken = default)
     {
         var started = DateTimeOffset.Now;
@@ -42,6 +44,13 @@ public sealed class Winapp2CleanupService(ReportService reports)
                     if (!File.Exists(candidate.Path))
                     {
                         filesSkipped++;
+                        continue;
+                    }
+
+                    if (ProtectedPathService.IsProtectedPath(candidate.Path, protectedPaths))
+                    {
+                        filesSkipped++;
+                        errors.Add($"{candidate.Entry}: blocked user-protected target {candidate.Path}");
                         continue;
                     }
 
@@ -83,6 +92,7 @@ public sealed class Winapp2CleanupService(ReportService reports)
 
     private static Winapp2CleanupPreview CollectCandidates(
         IReadOnlyList<CleanerEntry> entries,
+        IReadOnlyList<string>? protectedPaths,
         CancellationToken cancellationToken)
     {
         var candidates = new List<Winapp2CleanupCandidate>();
@@ -119,6 +129,12 @@ public sealed class Winapp2CleanupService(ReportService reports)
                             if (!IsSafeCleanupFile(fullPath, directory))
                             {
                                 warnings.Add($"{entry.Name}: blocked unsafe cleanup target {fullPath}");
+                                continue;
+                            }
+
+                            if (ProtectedPathService.IsProtectedPath(fullPath, protectedPaths))
+                            {
+                                warnings.Add($"{entry.Name}: skipped user-protected target {fullPath}");
                                 continue;
                             }
 

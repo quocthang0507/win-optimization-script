@@ -18,6 +18,7 @@ public sealed partial class BloatwarePage : BasePage
     private List<InstalledApp> _apps = [];
     private bool _isWorking;
     private readonly HashSet<string> _selectedIds = new();
+    private int _appliedRevision = -1;
 
     public BloatwarePage(MainWindow mainWindow) : base(mainWindow)
     {
@@ -50,9 +51,14 @@ public sealed partial class BloatwarePage : BasePage
 
     public override async Task OnNavigatedToAsync()
     {
-        if (_apps.Count == 0)
+        if (!MainWindow.SessionState.AppxLoaded)
         {
-            await ScanAppsAsync();
+            await MainWindow.RefreshAppxStateAsync();
+        }
+
+        if (_appliedRevision != MainWindow.SessionState.AppxRevision)
+        {
+            ApplyCachedAppxState();
         }
     }
 
@@ -65,21 +71,30 @@ public sealed partial class BloatwarePage : BasePage
         _resultPanel.Children.Clear();
         _selectedIds.Clear();
         
-        try
+        await MainWindow.RefreshAppxStateAsync();
+        ApplyCachedAppxState();
+        SetControlsEnabled(true);
+        MainWindow.SetStatusText(T("common.ready"));
+    }
+
+    private void ApplyCachedAppxState()
+    {
+        if (_resultPanel == null)
         {
-            _apps = (await MainWindow.Uninstaller.ScanAppxPackagesAsync()).ToList();
-            RenderApps();
+            return;
         }
-        catch (Exception ex)
+
+        var state = MainWindow.SessionState;
+        _apps = state.AppxPackages.ToList();
+        _appliedRevision = state.AppxRevision;
+        if (!string.IsNullOrWhiteSpace(state.AppxError))
         {
-            _apps = [];
-            _resultPanel.Children.Add(InfoBlock(F("bloatware.scanFailed", ex.Message)));
+            _resultPanel.Children.Clear();
+            _resultPanel.Children.Add(InfoBlock(F("bloatware.scanFailed", state.AppxError)));
+            return;
         }
-        finally
-        {
-            SetControlsEnabled(true);
-            MainWindow.SetStatusText(T("common.ready"));
-        }
+
+        RenderApps();
     }
 
     private void RenderApps()

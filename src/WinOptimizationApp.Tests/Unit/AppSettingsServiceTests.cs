@@ -46,7 +46,9 @@ public class AppSettingsServiceTests : IDisposable
         var settings = new AppSettings
         {
             Theme = AppTheme.Dark,
-            Language = AppLanguage.Vietnamese
+            Language = AppLanguage.Vietnamese,
+            ProtectedPaths = [Path.Combine(Path.GetTempPath(), "important")],
+            CustomWinapp2DatabasePath = Path.Combine(Path.GetTempPath(), "custom-winapp2.ini")
         };
 
         // Act
@@ -57,6 +59,8 @@ public class AppSettingsServiceTests : IDisposable
         Assert.True(saved);
         Assert.Equal(AppTheme.Dark, loaded.Theme);
         Assert.Equal(AppLanguage.Vietnamese, loaded.Language);
+        Assert.Single(loaded.ProtectedPaths);
+        Assert.Equal(settings.CustomWinapp2DatabasePath, loaded.CustomWinapp2DatabasePath);
     }
 
     [Fact]

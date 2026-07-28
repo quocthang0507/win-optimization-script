@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Xunit;
 using WinOptimizationApp.Services;
+using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Tests.Unit;
 
@@ -46,5 +47,32 @@ public class NetworkOptimizationServiceTests
             // MAC addresses can be empty for some virtual adapters, but shouldn't be null
             Assert.NotNull(adapter.MacAddress);
         }
+    }
+
+    [Theory]
+    [InlineData("1.1.1.1")]
+    [InlineData("2606:4700:4700::1111")]
+    [InlineData("example.com")]
+    public void IsValidPingHost_AcceptsDnsNamesAndIpAddresses(string host)
+    {
+        Assert.True(NetworkOptimizationService.IsValidPingHost(host));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("https://example.com")]
+    [InlineData("1.1.1.1 & calc.exe")]
+    [InlineData("host name")]
+    public void IsValidPingHost_RejectsUrlsWhitespaceAndCommandText(string host)
+    {
+        Assert.False(NetworkOptimizationService.IsValidPingHost(host));
+    }
+
+    [Fact]
+    public void NetworkLatencyResult_CalculatesPacketLoss()
+    {
+        var result = new NetworkLatencyResult("example.com", 4, 3, 10, 20, 15);
+
+        Assert.Equal(25, result.PacketLossPercent);
     }
 }

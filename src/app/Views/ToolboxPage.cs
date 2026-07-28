@@ -19,6 +19,10 @@ public sealed partial class ToolboxPage : BasePage
     private Button? _resetWinsockBtn;
     private Button? _renewIpBtn;
     private Button? _refreshAdaptersBtn;
+    private TextBox? _pingHostBox;
+    private Button? _pingButton;
+    private TextBlock? _pingResultText;
+    private int _networkAdaptersRevision = -1;
 
     // Uninstaller controls
     private StackPanel? _appsPanel;
@@ -78,8 +82,15 @@ public sealed partial class ToolboxPage : BasePage
     public override async Task OnNavigatedToAsync()
     {
         await base.OnNavigatedToAsync();
-        // Load network adapters automatically
-        await RefreshNetworkAdaptersAsync();
+        if (!MainWindow.SessionState.NetworkAdaptersLoaded)
+        {
+            await MainWindow.RefreshNetworkAdaptersStateAsync();
+        }
+
+        if (_networkAdaptersRevision != MainWindow.SessionState.NetworkAdaptersRevision)
+        {
+            RenderCachedNetworkAdapters();
+        }
     }
 
     #region Layout Creation Helpers
@@ -121,6 +132,39 @@ public sealed partial class ToolboxPage : BasePage
         actionPanel.Children.Add(_resetWinsockBtn);
         actionPanel.Children.Add(_renewIpBtn);
         panel.Children.Add(actionPanel);
+
+        var latencyCard = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
+        };
+        var latencyStack = new StackPanel { Spacing = 10 };
+        latencyStack.Children.Add(new TextBlock
+        {
+            Text = T("network.latencyTitle"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        latencyStack.Children.Add(InfoBlock(T("network.latencyDescription")));
+        var latencyControls = new Grid { ColumnSpacing = 10 };
+        latencyControls.ColumnDefinitions.Add(new ColumnDefinition());
+        latencyControls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _pingHostBox = new TextBox
+        {
+            Text = "1.1.1.1",
+            PlaceholderText = T("network.latencyHostPlaceholder")
+        };
+        latencyControls.Children.Add(_pingHostBox);
+        _pingButton = ActionButton(T("network.testLatency"), Symbol.Find, async (_, _) => await TestLatencyAsync());
+        Grid.SetColumn(_pingButton, 1);
+        latencyControls.Children.Add(_pingButton);
+        latencyStack.Children.Add(latencyControls);
+        _pingResultText = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
+        latencyStack.Children.Add(_pingResultText);
+        latencyCard.Child = latencyStack;
+        panel.Children.Add(latencyCard);
 
         var adaptersHeader = new Grid();
         adaptersHeader.ColumnDefinitions.Add(new ColumnDefinition());
@@ -561,6 +605,39 @@ public sealed partial class ToolboxPage : BasePage
         _resetWinsockBtn?.IsEnabled = enable;
         _renewIpBtn?.IsEnabled = enable;
         _refreshAdaptersBtn?.IsEnabled = enable;
+        _pingButton?.IsEnabled = enable;
+    }
+
+    private async Task TestLatencyAsync()
+    {
+        if (_pingHostBox == null || _pingButton == null || _pingResultText == null)
+        {
+            return;
+        }
+
+        _pingButton.IsEnabled = false;
+        _pingResultText.Text = T("network.testingLatency");
+        try
+        {
+            var result = await MainWindow.NetworkOptimizer.MeasureLatencyAsync(_pingHostBox.Text);
+            _pingResultText.Text = result.Received == 0
+                ? F("network.latencyNoReply", result.Host, result.PacketLossPercent)
+                : F(
+                    "network.latencyResult",
+                    result.Host,
+                    result.AverageMilliseconds,
+                    result.MinimumMilliseconds,
+                    result.MaximumMilliseconds,
+                    result.PacketLossPercent);
+        }
+        catch (Exception ex)
+        {
+            _pingResultText.Text = F("network.latencyFailed", ex.Message);
+        }
+        finally
+        {
+            _pingButton.IsEnabled = true;
+        }
     }
 
     private async Task RefreshNetworkAdaptersAsync()
@@ -573,20 +650,34 @@ public sealed partial class ToolboxPage : BasePage
         _networkAdaptersPanel.Children.Clear();
         _networkAdaptersPanel.Children.Add(new ProgressRing { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center });
 
-        try
-        {
-            var adapters = await MainWindow.NetworkOptimizer.GetAdaptersAsync();
-            _networkAdaptersPanel.Children.Clear();
+        await MainWindow.RefreshNetworkAdaptersStateAsync();
+        RenderCachedNetworkAdapters();
+    }
 
-            foreach (var adapter in adapters)
-            {
-                _networkAdaptersPanel.Children.Add(CreateNetworkAdapterRow(adapter));
-            }
-        }
-        catch (Exception ex)
+    private void RenderCachedNetworkAdapters()
+    {
+        if (_networkAdaptersPanel == null)
         {
-            _networkAdaptersPanel.Children.Clear();
-            _networkAdaptersPanel.Children.Add(new TextBlock { Text = $"Error loading network cards: {ex.Message}", Foreground = Brush(Colors.IndianRed) });
+            return;
+        }
+
+        var state = MainWindow.SessionState;
+        _networkAdaptersPanel.Children.Clear();
+        _networkAdaptersRevision = state.NetworkAdaptersRevision;
+        if (!string.IsNullOrWhiteSpace(state.NetworkAdaptersError))
+        {
+            _networkAdaptersPanel.Children.Add(new TextBlock
+            {
+                Text = F("network.adaptersLoadFailed", state.NetworkAdaptersError),
+                Foreground = Brush(Colors.IndianRed),
+                TextWrapping = TextWrapping.Wrap
+            });
+            return;
+        }
+
+        foreach (var adapter in state.NetworkAdapters)
+        {
+            _networkAdaptersPanel.Children.Add(CreateNetworkAdapterRow(adapter));
         }
     }
 

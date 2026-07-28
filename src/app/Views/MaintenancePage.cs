@@ -6,6 +6,7 @@ namespace WinOptimizationApp.Views;
 public sealed partial class MaintenancePage : BasePage
 {
     private readonly bool _includeWinapp2;
+    private bool _winapp2PanelRendered;
 
     public MaintenancePage(
         MainWindow mainWindow,
@@ -54,20 +55,19 @@ public sealed partial class MaintenancePage : BasePage
 
     public override async Task OnNavigatedToAsync()
     {
-        if (_includeWinapp2)
+        if (_includeWinapp2 && !_winapp2PanelRendered)
         {
-            try
+            if (!MainWindow.SessionState.Winapp2Loaded)
             {
-                var entries = await MainWindow.Winapp2.GetDetectedEntriesAsync();
-                if (entries.Count > 0)
-                {
-                    MainContent.Children.Add(Winapp2CleanerPanel(entries));
-                }
+                await MainWindow.RefreshWinapp2StateAsync();
             }
-            catch
+
+            if (MainWindow.SessionState.Winapp2Entries.Count > 0)
             {
-                // Ignore parsing errors and skip UI
+                MainContent.Children.Add(Winapp2CleanerPanel(MainWindow.SessionState.Winapp2Entries));
             }
+
+            _winapp2PanelRendered = true;
         }
     }
 
@@ -201,7 +201,7 @@ public sealed partial class MaintenancePage : BasePage
         return value == key ? fallback : value;
     }
 
-    private Border Winapp2CleanerPanel(List<CleanerEntry> entries)
+    private Border Winapp2CleanerPanel(IReadOnlyList<CleanerEntry> entries)
     {
         var stack = new StackPanel { Spacing = 10 };
         stack.Children.Add(SectionTitle(T("winapp2.title")));
@@ -278,7 +278,7 @@ public sealed partial class MaintenancePage : BasePage
     private async Task PreviewAndRunWinapp2CleanupAsync(List<CleanerEntry> selectedEntries)
     {
         MainWindow.SetStatusText(T("winapp2.scanning"));
-        var preview = await MainWindow.Winapp2Cleanup.PreviewAsync(selectedEntries);
+        var preview = await MainWindow.Winapp2Cleanup.PreviewAsync(selectedEntries, MainWindow.Settings.ProtectedPaths);
         if (preview.Candidates.Count == 0)
         {
             MainWindow.SetStatusText(T("common.ready"));
@@ -306,7 +306,7 @@ public sealed partial class MaintenancePage : BasePage
         }
 
         MainWindow.SetStatusText(T("winapp2.cleaning"));
-        var result = await MainWindow.Winapp2Cleanup.RunAsync(preview, selectedEntries.Count);
+        var result = await MainWindow.Winapp2Cleanup.RunAsync(preview, selectedEntries.Count, MainWindow.Settings.ProtectedPaths);
         MainWindow.SetStatusText(T("common.ready"));
         await MainWindow.ShowRunResultAsync_Internal(result);
     }

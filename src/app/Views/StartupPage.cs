@@ -12,6 +12,7 @@ public sealed partial class StartupPage : BasePage
     private ComboBox? _sortBox;
     private CheckBox? _actionableOnlyBox;
     private List<StartupEntry> _startupEntries = [];
+    private int _appliedRevision = -1;
 
     public StartupPage(MainWindow mainWindow) : base(mainWindow)
     {
@@ -32,6 +33,19 @@ public sealed partial class StartupPage : BasePage
         MainContent.Children.Add(StartupOptionsPanel());
         MainContent.Children.Add(InfoBlock(T("startup.previewOnly")));
         MainContent.Children.Add(_resultPanel);
+    }
+
+    public override async Task OnNavigatedToAsync()
+    {
+        if (!MainWindow.SessionState.StartupLoaded)
+        {
+            await MainWindow.RefreshStartupStateAsync();
+        }
+
+        if (_appliedRevision != MainWindow.SessionState.StartupRevision)
+        {
+            ApplyCachedStartupState();
+        }
     }
 
     private StackPanel StartupOptionsPanel()
@@ -165,21 +179,29 @@ public sealed partial class StartupPage : BasePage
 
         MainWindow.SetStatusText(T("startup.scanning"));
         _resultPanel.Children.Clear();
-        try
+        await MainWindow.RefreshStartupStateAsync();
+        ApplyCachedStartupState();
+        MainWindow.SetStatusText(T("common.ready"));
+    }
+
+    private void ApplyCachedStartupState()
+    {
+        if (_resultPanel == null)
         {
-            var entries = await MainWindow.Startup.ScanAsync();
-            _startupEntries = entries.ToList();
-            RenderStartupEntries();
+            return;
         }
-        catch (Exception ex)
+
+        var state = MainWindow.SessionState;
+        _startupEntries = state.StartupEntries.ToList();
+        _appliedRevision = state.StartupRevision;
+        if (!string.IsNullOrWhiteSpace(state.StartupError))
         {
-            _startupEntries = [];
-            _resultPanel.Children.Add(InfoBlock(F("startup.scanFailed", ex.Message)));
+            _resultPanel.Children.Clear();
+            _resultPanel.Children.Add(InfoBlock(F("startup.scanFailed", state.StartupError)));
+            return;
         }
-        finally
-        {
-            MainWindow.SetStatusText(T("common.ready"));
-        }
+
+        RenderStartupEntries();
     }
 
     private void RenderStartupEntries()

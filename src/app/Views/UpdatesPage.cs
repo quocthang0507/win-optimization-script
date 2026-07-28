@@ -15,6 +15,7 @@ public sealed partial class UpdatesPage : BasePage
     private List<WingetPackage> _packages = [];
     private readonly Dictionary<string, TextBlock> _packageStatusLabels = new(StringComparer.OrdinalIgnoreCase);
     private bool _isUpgrading;
+    private int _appliedRevision = -1;
 
     public UpdatesPage(MainWindow mainWindow) : base(mainWindow)
     {
@@ -43,6 +44,19 @@ public sealed partial class UpdatesPage : BasePage
         MainContent.Children.Add(actions);
         MainContent.Children.Add(UpdateOptionsPanel());
         MainContent.Children.Add(_resultPanel);
+    }
+
+    public override async Task OnNavigatedToAsync()
+    {
+        if (!MainWindow.SessionState.UpdatesLoaded)
+        {
+            await MainWindow.RefreshUpdatesStateAsync();
+        }
+
+        if (_appliedRevision != MainWindow.SessionState.UpdatesRevision)
+        {
+            ApplyCachedUpdatesState();
+        }
     }
 
     private StackPanel UpdateOptionsPanel()
@@ -134,21 +148,30 @@ public sealed partial class UpdatesPage : BasePage
         MainWindow.SetStatusText(T("updates.scanning"));
         SetUpdateControlsEnabled(false);
         _resultPanel.Children.Clear();
-        try
+        await MainWindow.RefreshUpdatesStateAsync();
+        ApplyCachedUpdatesState();
+        SetUpdateControlsEnabled(true);
+        MainWindow.SetStatusText(T("common.ready"));
+    }
+
+    private void ApplyCachedUpdatesState()
+    {
+        if (_resultPanel == null)
         {
-            _packages = (await MainWindow.Winget.ScanAsync()).ToList();
-            RenderPackages();
+            return;
         }
-        catch (Exception ex)
+
+        var state = MainWindow.SessionState;
+        _packages = state.UpdatePackages.ToList();
+        _appliedRevision = state.UpdatesRevision;
+        if (!string.IsNullOrWhiteSpace(state.UpdatesError))
         {
-            _packages = [];
-            _resultPanel.Children.Add(InfoBlock(F("updates.scanFailed", ex.Message)));
+            _resultPanel.Children.Clear();
+            _resultPanel.Children.Add(InfoBlock(F("updates.scanFailed", state.UpdatesError)));
+            return;
         }
-        finally
-        {
-            SetUpdateControlsEnabled(true);
-            MainWindow.SetStatusText(T("common.ready"));
-        }
+
+        RenderPackages();
     }
 
     private void RenderPackages()
