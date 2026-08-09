@@ -16,11 +16,11 @@ public sealed partial class HistoryPage : BasePage
         actions.Children.Add(ActionButton(T("history.openLogs"), Symbol.OpenFile, (_, _) => MainWindow.OpenFolder_Internal(logsDir)));
         MainContent.Children.Add(actions);
 
-        var snapshots = MainWindow.TweakSnapshots.GetSnapshots();
+        var snapshots = MainWindow.TweakSnapshots.GetSnapshots(20);
         if (snapshots.Count > 0)
         {
             MainContent.Children.Add(SectionTitle(F("history.undoSnapshots", snapshots.Count)));
-            foreach (var item in snapshots.Take(20))
+            foreach (var item in snapshots)
             {
                 MainContent.Children.Add(TweakSnapshotCard(item.Path, item.Snapshot));
             }
@@ -32,9 +32,11 @@ public sealed partial class HistoryPage : BasePage
             return Task.CompletedTask;
         }
 
-        var reports = Directory.GetFiles(logsDir, "maintenance-*.json")
-            .OrderByDescending(File.GetLastWriteTime)
+        var reports = new DirectoryInfo(logsDir)
+            .EnumerateFiles("maintenance-*.json", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(file => file.LastWriteTimeUtc)
             .Take(30)
+            .Select(file => file.FullName)
             .ToList();
 
         if (reports.Count > 0)

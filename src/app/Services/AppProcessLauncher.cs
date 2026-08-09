@@ -4,13 +4,19 @@ namespace WinOptimizationApp.Services;
 
 internal static class AppProcessLauncher
 {
+    internal const string RunnerPipeNamePrefix = "WinOptimizationApp_Runner_";
     public const string UiArgument = "--ui";
     public const string RunnerArgument = "--runner";
     public const string ConnectRunnerArgument = "--connect-runner";
+    public const string RunnerPipeArgument = "--runner-pipe";
     public const string StandaloneArgument = "--standalone";
     public const string BaseDirectoryArgument = "--base-dir";
 
-    public static Process? StartUi(bool elevated, bool standalone = false, bool connectRunner = false)
+    public static Process? StartUi(
+        bool elevated,
+        bool standalone = false,
+        bool connectRunner = false,
+        string? runnerPipeName = null)
     {
         var exePath = ResolveExecutablePath();
         if (string.IsNullOrWhiteSpace(exePath))
@@ -30,12 +36,36 @@ internal static class AppProcessLauncher
             startInfo.Verb = "runas";
         }
 
-        startInfo.Arguments = BuildArguments(standalone, connectRunner, AppRuntimePaths.OriginalBaseDirectory);
+        startInfo.Arguments = BuildArguments(
+            standalone,
+            connectRunner,
+            AppRuntimePaths.OriginalBaseDirectory,
+            runnerPipeName);
 
         return Process.Start(startInfo);
     }
 
-    private static string BuildArguments(bool standalone, bool connectRunner, string originalBaseDirectory)
+    internal static string? GetRunnerPipeName(IReadOnlyList<string> args)
+    {
+        for (var index = 0; index < args.Count - 1; index++)
+        {
+            if (!args[index].Equals(RunnerPipeArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var candidate = args[index + 1];
+            return IsValidRunnerPipeName(candidate) ? candidate : null;
+        }
+
+        return null;
+    }
+
+    private static string BuildArguments(
+        bool standalone,
+        bool connectRunner,
+        string originalBaseDirectory,
+        string? runnerPipeName)
     {
         var args = new List<string> { UiArgument };
         if (standalone)
@@ -45,11 +75,31 @@ internal static class AppProcessLauncher
         if (connectRunner)
         {
             args.Add(ConnectRunnerArgument);
+            if (IsValidRunnerPipeName(runnerPipeName))
+            {
+                args.Add(RunnerPipeArgument);
+                args.Add(runnerPipeName!);
+            }
         }
 
         args.Add(BaseDirectoryArgument);
         args.Add(originalBaseDirectory);
         return string.Join(" ", args.Select(QuoteArgument));
+    }
+
+    internal static string CreateRunnerPipeName() =>
+        RunnerPipeNamePrefix + Guid.NewGuid().ToString("N");
+
+    internal static bool IsValidRunnerPipeName(string? pipeName)
+    {
+        if (string.IsNullOrWhiteSpace(pipeName) ||
+            !pipeName.StartsWith(RunnerPipeNamePrefix, StringComparison.Ordinal) ||
+            pipeName.Length != RunnerPipeNamePrefix.Length + 32)
+        {
+            return false;
+        }
+
+        return pipeName.AsSpan(RunnerPipeNamePrefix.Length).ToString().All(Uri.IsHexDigit);
     }
 
     private static string? ResolveExecutablePath()

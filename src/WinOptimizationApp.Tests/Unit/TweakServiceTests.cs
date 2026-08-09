@@ -81,6 +81,9 @@ public sealed class TweakServiceTests
         var utcClock = Assert.Single(tweaks, tweak => tweak.Id == "system.utcClock");
         Assert.Equal(RiskLevel.Medium, utcClock.RiskLevel);
         Assert.True(utcClock.RequiresAdministrator);
+
+        var windowsSuggestions = Assert.Single(tweaks, tweak => tweak.Id == "privacy.windowsSuggestions");
+        Assert.Contains("SystemPaneSuggestionsEnabled", windowsSuggestions.CheckScript, StringComparison.Ordinal);
     }
 
     [Fact]

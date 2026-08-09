@@ -4,6 +4,7 @@ namespace WinOptimizationApp.Views;
 
 public sealed partial class StartupPage : BasePage
 {
+    private bool _isRefreshing;
     private StackPanel? _resultPanel;
     private TextBox? _searchBox;
     private ComboBox? _statusFilterBox;
@@ -61,7 +62,7 @@ public sealed partial class StartupPage : BasePage
             PlaceholderText = T("startup.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (_, _) => RenderStartupEntries();
+        _searchBox.TextChanged += (_, _) => DebounceUiAction("startup-search", RenderStartupEntries);
         searchRow.Children.Add(_searchBox);
 
         var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetStartupFilters());
@@ -167,21 +168,30 @@ public sealed partial class StartupPage : BasePage
             _actionableOnlyBox.IsChecked = false;
         }
 
+        CancelDebouncedUiAction("startup-search");
         RenderStartupEntries();
     }
 
     private async Task RefreshListAsync()
     {
-        if (_resultPanel == null)
+        if (_resultPanel == null || _isRefreshing)
         {
             return;
         }
 
+        _isRefreshing = true;
         MainWindow.SetStatusText(T("startup.scanning"));
         _resultPanel.Children.Clear();
-        await MainWindow.RefreshStartupStateAsync();
-        ApplyCachedStartupState();
-        MainWindow.SetStatusText(T("common.ready"));
+        try
+        {
+            await MainWindow.RefreshStartupStateAsync();
+            ApplyCachedStartupState();
+        }
+        finally
+        {
+            _isRefreshing = false;
+            MainWindow.SetStatusText(T("common.ready"));
+        }
     }
 
     private void ApplyCachedStartupState()

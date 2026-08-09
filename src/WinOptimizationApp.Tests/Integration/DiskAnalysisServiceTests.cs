@@ -19,6 +19,8 @@ public sealed class DiskAnalysisServiceTests
         var parentItem = Assert.Single(result.Root.Children, item => item.Name == "parent");
         Assert.Equal(1000, result.TotalBytes);
         Assert.Equal(1000, parentItem.Size);
+        Assert.Equal(result.Root.Children.Sum(item => item.AllocatedSize), result.Root.AllocatedSize);
+        Assert.True(result.Root.AllocatedSize >= 0);
         Assert.Equal(100, parentItem.PercentOfParent);
         Assert.Equal(2, parentItem.FileCount);
         Assert.Equal(1, parentItem.FolderCount);
@@ -45,8 +47,9 @@ public sealed class DiskAnalysisServiceTests
 
             Assert.Equal("Scanned", result.Root.ScanStatus);
             Assert.Equal(128, result.TotalBytes);
+            Assert.Equal(128, result.Root.Size);
             Assert.Contains(result.Root.Children, item => item.Name == "visible.dat" && item.ScanStatus == "Scanned");
-            Assert.Contains(result.Root.Children, item => item.Name == "hidden.dat" && item.ScanStatus == "Skipped");
+            Assert.Contains(result.Root.Children, item => item.Name == "hidden.dat" && item.ScanStatus == "Skipped" && item.Size == 0);
         }
         finally
         {
@@ -101,6 +104,28 @@ public sealed class DiskAnalysisServiceTests
         Assert.Contains(result.FileAgeSummaries, summary => summary.Range == FileAgeRange.Last30Days && summary.Count == 1);
         Assert.Contains(result.FileAgeSummaries, summary => summary.Range == FileAgeRange.LastYear && summary.Count == 1);
         Assert.Contains(result.FileAgeSummaries, summary => summary.Range == FileAgeRange.Older && summary.Count == 1);
+    }
+
+    [Fact]
+    public async Task ScanAsync_KeepsBoundedNewestAndOldestListsInOrder()
+    {
+        using var fixture = TempDirectory.Create();
+        var baseline = DateTime.UtcNow.AddDays(-1);
+        for (var index = 0; index < 80; index++)
+        {
+            var path = Path.Combine(fixture.Path, $"file-{index:000}.bin");
+            await File.WriteAllBytesAsync(path, [1]);
+            File.SetLastWriteTimeUtc(path, baseline.AddMinutes(index));
+        }
+
+        var result = await new DiskAnalysisService().ScanAsync(new DiskScanOptions(fixture.Path));
+
+        Assert.Equal(60, result.NewestFiles.Count);
+        Assert.Equal("file-079.bin", result.NewestFiles[0].Name);
+        Assert.Equal("file-020.bin", result.NewestFiles[^1].Name);
+        Assert.Equal(60, result.OldestFiles.Count);
+        Assert.Equal("file-000.bin", result.OldestFiles[0].Name);
+        Assert.Equal("file-059.bin", result.OldestFiles[^1].Name);
     }
 
     [Fact]

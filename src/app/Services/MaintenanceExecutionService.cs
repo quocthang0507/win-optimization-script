@@ -17,7 +17,10 @@ public sealed class MaintenanceExecutionService(
 
     public IpcClient? Client { get; set; }
 
-    public async Task<TaskRunResult> RunAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
+    public async Task<TaskRunResult> RunAsync(
+        MaintenanceTask task,
+        IReadOnlyList<string>? protectedPaths = null,
+        CancellationToken cancellationToken = default)
     {
         if (Client?.IsConnected == true)
         {
@@ -26,7 +29,8 @@ public sealed class MaintenanceExecutionService(
                 TaskId = task.Id,
                 TaskLabel = task.Label,
                 TaskGroup = task.Group,
-                CanRollback = task.CanRollback
+                CanRollback = task.CanRollback,
+                ProtectedPaths = ProtectedPathService.NormalizePaths(protectedPaths).ToList()
             });
             var response = await Client.SendRequestAsync("RunTask", payload, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<TaskRunResult>(response) ?? throw new InvalidOperationException("Failed to deserialize TaskRunResult");
@@ -42,7 +46,7 @@ public sealed class MaintenanceExecutionService(
 
         TaskRunResult result = task.Group switch
         {
-            "Cleanup" or "Privacy" => await _cleanup.RunAsync(task, cancellationToken),
+            "Cleanup" or "Privacy" => await _cleanup.RunAsync(task, protectedPaths, cancellationToken),
             "Repair" => await RunRepairAsync(task, started, [], [], cancellationToken),
             "Optimization" => await RunOptimizationAsync(task, started, [], [], cancellationToken),
             "Settings" => await RunSettingsAsync(task, started, [], []),

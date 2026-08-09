@@ -1,3 +1,6 @@
+using Microsoft.Win32;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
 using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
@@ -42,15 +45,16 @@ public sealed class SystemStatusService
         _reports = reports;
     }
 
-    public async Task<DashboardStatus> GetAsync()
+    public async Task<DashboardStatus> GetAsync(CancellationToken cancellationToken = default)
     {
         if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("GetStatus");
+            var response = await Client.SendRequestAsync("GetStatus", cancellationToken: cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<DashboardStatus>(response) ?? throw new InvalidOperationException("Failed to deserialize DashboardStatus");
         }
         return await Task.Run(() =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var systemDrivePath = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
             var systemDrive = new DriveInfo(systemDrivePath);
             var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
@@ -86,7 +90,7 @@ public sealed class SystemStatusService
                 // Fallback
             }
 
-            return new DashboardStatus(
+            var result = new DashboardStatus(
                 $"{Environment.OSVersion.VersionString} ({RuntimeInformationHelper.ProcessArchitecture})",
                 Environment.MachineName,
                 Environment.UserName,
@@ -109,7 +113,9 @@ public sealed class SystemStatusService
                 totalPageFile,
                 availPageFile,
                 GetDriveStatuses());
-        });
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }, cancellationToken);
     }
 
     public static bool IsAdministrator()

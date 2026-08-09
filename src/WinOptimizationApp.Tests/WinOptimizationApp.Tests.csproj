@@ -61,6 +61,7 @@
     <Compile Include="..\app\Models\SystemMetrics.cs" Link="Production\Models\SystemMetrics.cs" />
     <Compile Include="..\app\Models\WingetPackage.cs" Link="Production\Models\WingetPackage.cs" />
     <Compile Include="..\app\Models\Winapp2CleanupPreview.cs" Link="Production\Models\Winapp2CleanupPreview.cs" />
+    <Compile Include="..\app\Models\OneClickMaintenance.cs" Link="Production\Models\OneClickMaintenance.cs" />
     <Compile Include="..\app\Services\AppProcessLauncher.cs" Link="Production\Services\AppProcessLauncher.cs" />
     <Compile Include="..\app\Services\AppRuntimePaths.cs" Link="Production\Services\AppRuntimePaths.cs" />
     <Compile Include="..\app\Services\CloudStorageDetector.cs" Link="Production\Services\CloudStorageDetector.cs" />
@@ -75,13 +76,16 @@
     <Compile Include="..\app\Services\GitHubUpdateService.cs" Link="Production\Services\GitHubUpdateService.cs" />
     <Compile Include="..\app\Services\LocalizationService.cs" Link="Production\Services\LocalizationService.cs" />
     <Compile Include="..\app\Services\MaintenanceCatalog.cs" Link="Production\Services\MaintenanceCatalog.cs" />
+    <Compile Include="..\app\Services\MaintenanceExecutionService.cs" Link="Production\Services\MaintenanceExecutionService.cs" />
     <Compile Include="..\app\Services\PathService.cs" Link="Production\Services\PathService.cs" />
     <Compile Include="..\app\Services\PathSafetyService.cs" Link="Production\Services\PathSafetyService.cs" />
     <Compile Include="..\app\Services\ProtectedPathService.cs" Link="Production\Services\ProtectedPathService.cs" />
     <Compile Include="..\app\Services\PrivacyCleanerCatalog.cs" Link="Production\Services\PrivacyCleanerCatalog.cs" />
     <Compile Include="..\app\Services\ReportService.cs" Link="Production\Services\ReportService.cs" />
+    <Compile Include="..\app\Services\RestorePointService.cs" Link="Production\Services\RestorePointService.cs" />
     <Compile Include="..\app\Services\StartupImpactClassifier.cs" Link="Production\Services\StartupImpactClassifier.cs" />
     <Compile Include="..\app\Services\StorageCleanupService.cs" Link="Production\Services\StorageCleanupService.cs" />
+    <Compile Include="..\app\Services\SystemStatusService.cs" Link="Production\Services\SystemStatusService.cs" />
     <Compile Include="..\app\Services\StartupService.cs" Link="Production\Services\StartupService.cs" />
     <Compile Include="..\app\Models\NetworkAdapterInfo.cs" Link="Production\Models\NetworkAdapterInfo.cs" />
     <Compile Include="..\app\Models\NetworkLatencyResult.cs" Link="Production\Models\NetworkLatencyResult.cs" />
@@ -93,6 +97,7 @@
     <Compile Include="..\app\Services\IpcClient.cs" Link="Production\Services\IpcClient.cs" />
     <Compile Include="..\app\Services\IpcMessages.cs" Link="Production\Services\IpcMessages.cs" />
     <Compile Include="..\app\Services\ProcessEfficiencyService.cs" Link="Production\Services\ProcessEfficiencyService.cs" />
+    <Compile Include="..\app\Services\OneClickMaintenanceService.cs" Link="Production\Services\OneClickMaintenanceService.cs" />
     <Compile Include="..\app\Models\SystemTweak.cs" Link="Production\Models\SystemTweak.cs" />
     <Compile Include="..\app\Models\TweakSnapshot.cs" Link="Production\Models\TweakSnapshot.cs" />
     <Compile Include="..\app\Services\TweakService.cs" Link="Production\Services\TweakService.cs" />

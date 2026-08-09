@@ -183,7 +183,7 @@ public sealed partial class StoragePage : BasePage
             Height = 36,
             MinWidth = 300
         };
-        _diskItemSearchBox.TextChanged += (_, _) => RenderLastStorageResults();
+        _diskItemSearchBox.TextChanged += (_, _) => DebounceUiAction("storage-search", RenderLastStorageResults);
         Grid.SetColumn(_diskItemSearchBox, 0);
         grid.Children.Add(_diskItemSearchBox);
 
@@ -434,7 +434,14 @@ public sealed partial class StoragePage : BasePage
         summary.RowDefinitions.Add(new RowDefinition());
         var largestFolders = MainWindow.DiskAnalysis.GetLargestDirectories(result, 1);
         var largestFolder = largestFolders.Count > 0 ? largestFolders[0] : null;
-        AddMetric(summary, 0, 0, T("storage.scanned"), Formatters.FormatBytes(result.TotalBytes), F("storage.filesFolders", result.FileCount, result.FolderCount), Colors.SteelBlue);
+        AddMetric(
+            summary,
+            0,
+            0,
+            T("storage.scanned"),
+            Formatters.FormatBytes(result.TotalBytes),
+            $"{F("storage.filesFolders", result.FileCount, result.FolderCount)}\n{F("storage.allocatedDetail", Formatters.FormatBytes(result.Root.AllocatedSize))}",
+            Colors.SteelBlue);
         AddMetric(summary, 0, 1, T("storage.largestFolder"), largestFolder is null ? T("common.none") : Formatters.FormatBytes(largestFolder.Size), largestFolder?.FullPath ?? result.Root.FullPath, Colors.DarkCyan);
         AddMetric(summary, 0, 2, T("storage.skipped"), $"{result.SkippedCount:N0}", F("storage.errors", result.Errors.Count), result.Errors.Count > 0 ? Colors.DarkOrange : Colors.SeaGreen);
         resultPanel.Children.Add(summary);

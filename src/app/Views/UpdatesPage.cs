@@ -11,10 +11,12 @@ public sealed partial class UpdatesPage : BasePage
     private ComboBox? _sortBox;
     private Button? _scanButton;
     private Button? _upgradeAllButton;
+    private Button? _cancelUpgradeButton;
     private CheckBox? _saveInstallersCheckBox;
     private List<WingetPackage> _packages = [];
     private readonly Dictionary<string, TextBlock> _packageStatusLabels = new(StringComparer.OrdinalIgnoreCase);
     private bool _isUpgrading;
+    private CancellationTokenSource? _upgradeCancellation;
     private int _appliedRevision = -1;
 
     public UpdatesPage(MainWindow mainWindow) : base(mainWindow)
@@ -40,6 +42,13 @@ public sealed partial class UpdatesPage : BasePage
             await UpgradePackagesAsync(null);
         });
         actions.Children.Add(_upgradeAllButton);
+
+        _cancelUpgradeButton = ActionButton(T("updates.cancelUpgrade"), Symbol.Stop, (_, _) =>
+        {
+            _upgradeCancellation?.Cancel();
+        });
+        _cancelUpgradeButton.IsEnabled = false;
+        actions.Children.Add(_cancelUpgradeButton);
 
         MainContent.Children.Add(actions);
         MainContent.Children.Add(UpdateOptionsPanel());
@@ -72,7 +81,7 @@ public sealed partial class UpdatesPage : BasePage
             PlaceholderText = T("updates.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (_, _) => RenderPackages();
+        _searchBox.TextChanged += (_, _) => DebounceUiAction("updates-search", RenderPackages);
         searchRow.Children.Add(_searchBox);
 
         var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetUpdateFilters());
@@ -135,6 +144,7 @@ public sealed partial class UpdatesPage : BasePage
             _sortBox.SelectedIndex = 0;
         }
 
+        CancelDebouncedUiAction("updates-search");
         RenderPackages();
     }
 
@@ -490,11 +500,15 @@ public sealed partial class UpdatesPage : BasePage
         }
 
         _isUpgrading = true;
+        _upgradeCancellation?.Dispose();
+        _upgradeCancellation = new CancellationTokenSource();
+        var cancellationToken = _upgradeCancellation.Token;
         SetUpdateControlsEnabled(false);
 
         var started = DateTimeOffset.Now;
         var succeeded = 0;
         var failed = 0;
+        var cancelled = false;
         var reportMessages = new List<string>();
         var reportErrors = new List<string>();
 
@@ -502,6 +516,7 @@ public sealed partial class UpdatesPage : BasePage
         {
             for (var index = 0; index < packages.Count; index++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var package = packages[index];
                 var progressText = F("updates.upgradeProgress", index + 1, packages.Count, package.Name);
                 MainWindow.SetStatusText(progressText);
@@ -515,7 +530,10 @@ public sealed partial class UpdatesPage : BasePage
                         var downloadProgress = F("updates.downloadProgress", index + 1, packages.Count, package.Name);
                         MainWindow.SetStatusText(downloadProgress);
                         SetPackageStatus(package, downloadProgress, Colors.DeepSkyBlue);
-                        var downloadResult = await MainWindow.Winget.DownloadPackageAsync(package, downloadDirectory);
+                        var downloadResult = await MainWindow.Winget.DownloadPackageAsync(
+                            package,
+                            downloadDirectory,
+                            cancellationToken);
                         if (!downloadResult.Success)
                         {
                             throw new InvalidOperationException(F("updates.downloadFailed", SummarizeFailure(downloadResult)));
@@ -524,7 +542,13 @@ public sealed partial class UpdatesPage : BasePage
 
                     MainWindow.SetStatusText(progressText);
                     SetPackageStatus(package, progressText, Colors.DeepSkyBlue);
-                    result = await MainWindow.Winget.UpgradePackageAsync(package);
+                    result = await MainWindow.Winget.UpgradePackageAsync(package, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    cancelled = true;
+                    SetPackageStatus(package, T("common.cancelled"), Colors.DarkOrange);
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -546,10 +570,22 @@ public sealed partial class UpdatesPage : BasePage
                 }
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            cancelled = true;
+        }
         finally
         {
             _isUpgrading = false;
             SetUpdateControlsEnabled(true);
+            _upgradeCancellation.Dispose();
+            _upgradeCancellation = null;
+        }
+
+        var notProcessed = Math.Max(0, packages.Count - succeeded - failed);
+        if (cancelled)
+        {
+            reportMessages.Add($"Upgrade cancelled with {notProcessed:N0} package(s) not processed.");
         }
 
         await MainWindow.SaveOperationReportAsync(new TaskRunResult(
@@ -557,18 +593,24 @@ public sealed partial class UpdatesPage : BasePage
             downloadDirectory is null ? "Application Updates" : "Download and Update Applications",
             started,
             DateTimeOffset.Now,
-            failed == 0,
+            failed == 0 && !cancelled,
             0,
             succeeded,
-            failed,
+            failed + notProcessed,
             reportMessages,
             reportErrors));
-        MainWindow.SetStatusText(F("updates.upgradeSummary", succeeded, failed));
+        await MainWindow.RefreshUpdatesStateAsync();
+        ApplyCachedUpdatesState();
+        MainWindow.SetStatusText(cancelled
+            ? F("updates.upgradeCancelled", succeeded, failed, notProcessed)
+            : F("updates.upgradeSummary", succeeded, failed));
     }
 
     private Task<string?> PickUpdateDownloadFolderAsync()
     {
-        var path = FolderPickerHelper.PickFolder(MainWindow.WindowHandle);
+        var path = FolderPickerHelper.PickFolder(
+            MainWindow.WindowHandle,
+            FolderPickerHelper.GetDownloadsFolder());
         return Task.FromResult(path);
     }
 
@@ -606,6 +648,11 @@ public sealed partial class UpdatesPage : BasePage
         if (_saveInstallersCheckBox != null)
         {
             _saveInstallersCheckBox.IsEnabled = isEnabled;
+        }
+
+        if (_cancelUpgradeButton != null)
+        {
+            _cancelUpgradeButton.IsEnabled = !isEnabled && _isUpgrading;
         }
     }
 

@@ -27,4 +27,20 @@ public sealed class PerformanceMonitoringTests
         Assert.True(nextSample.DownloadBytesPerSecond >= 0);
         Assert.True(nextSample.UploadBytesPerSecond >= 0);
     }
+
+    [Fact]
+    public void CalculateCpuUsage_UsesConsecutiveSamplesAndRejectsInvalidCounters()
+    {
+        var usage = PerformanceMonitoringService.CalculateCpuUsage(
+            previousIdle: 100,
+            previousKernel: 200,
+            previousUser: 100,
+            currentIdle: 150,
+            currentKernel: 300,
+            currentUser: 200);
+
+        Assert.Equal(75, usage);
+        Assert.Equal(0, PerformanceMonitoringService.CalculateCpuUsage(100, 200, 100, 90, 300, 200));
+        Assert.Equal(0, PerformanceMonitoringService.CalculateCpuUsage(100, 200, 100, 100, 200, 100));
+    }
 }

@@ -1,9 +1,11 @@
 using WinOptimizationApp.Models;
+using System.Runtime.InteropServices;
 
 namespace WinOptimizationApp.Services;
 
 public sealed class DiskAnalysisService
 {
+    private const uint InvalidFileSize = 0xFFFFFFFF;
     private const int ProgressInterval = 250;
     private const int LargestFileLimit = 60;
     private const int DiscoveryFileLimit = 60;
@@ -176,14 +178,15 @@ public sealed class DiskAnalysisService
         DiskItem ScanFile(FileInfo file, DiskItem? parent)
         {
             filesScanned++;
+            var logicalSize = SafeLength(file);
 
             var item = new DiskItem
             {
                 Name = file.Name,
                 FullPath = file.FullName,
                 IsDirectory = false,
-                Size = SafeLength(file),
-                AllocatedSize = SafeLength(file),
+                Size = logicalSize,
+                AllocatedSize = SafeAllocatedSize(file, logicalSize),
                 FileCount = 1,
                 LastModified = SafeLastWrite(file),
                 Extension = string.IsNullOrWhiteSpace(file.Extension) ? "(no extension)" : file.Extension.ToLowerInvariant(),
@@ -194,6 +197,8 @@ public sealed class DiskAnalysisService
             {
                 skipped++;
                 item.ScanStatus = "Skipped";
+                item.Size = 0;
+                item.AllocatedSize = 0;
                 return item;
             }
 
@@ -387,6 +392,35 @@ public sealed class DiskAnalysisService
         TrackLargestItem(item, largestFiles, LargestFileLimit);
     }
 
+    private static long SafeAllocatedSize(FileInfo file, long logicalSize)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return logicalSize;
+        }
+
+        try
+        {
+            var low = GetCompressedFileSize(file.FullName, out var high);
+            if (low == InvalidFileSize && Marshal.GetLastWin32Error() != 0)
+            {
+                return logicalSize;
+            }
+
+            var allocatedSize = ((ulong)high << 32) | low;
+            return allocatedSize <= long.MaxValue ? (long)allocatedSize : logicalSize;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return logicalSize;
+        }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetCompressedFileSize(
+        string fileName,
+        out uint fileSizeHigh);
+
     private static void TrackLargestItem(DiskItem item, List<DiskItem> items, int limit)
     {
         if (items.Count < limit)
@@ -419,10 +453,30 @@ public sealed class DiskAnalysisService
             return;
         }
 
-        files.Add(item);
-        files.Sort((left, right) => newestFirst
-            ? right.LastModified.CompareTo(left.LastModified)
-            : left.LastModified.CompareTo(right.LastModified));
+        var low = 0;
+        var high = files.Count;
+        while (low < high)
+        {
+            var middle = low + ((high - low) / 2);
+            var comparison = newestFirst
+                ? files[middle].LastModified.CompareTo(item.LastModified)
+                : item.LastModified.CompareTo(files[middle].LastModified);
+            if (comparison < 0)
+            {
+                high = middle;
+            }
+            else
+            {
+                low = middle + 1;
+            }
+        }
+
+        if (files.Count >= DiscoveryFileLimit && low >= DiscoveryFileLimit)
+        {
+            return;
+        }
+
+        files.Insert(low, item);
         if (files.Count > DiscoveryFileLimit)
         {
             files.RemoveAt(files.Count - 1);

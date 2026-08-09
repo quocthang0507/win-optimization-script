@@ -12,22 +12,49 @@ namespace WinOptimizationApp.Services;
 /// </summary>
 public static class FolderPickerHelper
 {
-    public static string? PickFolder(IntPtr ownerHwnd)
+    private static readonly Guid DownloadsFolderId = new("374DE290-123F-4565-9164-39C4925E467B");
+
+    public static string? PickFolder(IntPtr ownerHwnd, string? initialFolder = null)
     {
         var dialog = (IFileOpenDialog)new FileOpenDialog();
+        IShellItem? initialItem = null;
+        IShellItem? resultItem = null;
         try
         {
             dialog.SetOptions(FOS.FOS_PICKFOLDERS | FOS.FOS_FORCEFILESYSTEM | FOS.FOS_NOCHANGEDIR);
+            if (!string.IsNullOrWhiteSpace(initialFolder) && Directory.Exists(initialFolder))
+            {
+                try
+                {
+                    var shellItemId = typeof(IShellItem).GUID;
+                    if (SHCreateItemFromParsingName(initialFolder, IntPtr.Zero, ref shellItemId, out initialItem) == 0)
+                    {
+                        dialog.SetDefaultFolder(initialItem);
+                        dialog.SetFolder(initialItem);
+                    }
+                }
+                catch (COMException)
+                {
+                    // The picker can still open normally if the suggested folder is unavailable.
+                }
+            }
+
             var hr = dialog.Show(ownerHwnd);
             if (hr != 0) // User cancelled or error
             {
                 return null;
             }
 
-            dialog.GetResult(out var item);
-            item.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out var path);
-            Marshal.FreeCoTaskMem(path);
-            return Marshal.PtrToStringUni(path);
+            dialog.GetResult(out resultItem);
+            resultItem.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out var pathPointer);
+            try
+            {
+                return Marshal.PtrToStringUni(pathPointer);
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(pathPointer);
+            }
         }
         catch (COMException)
         {
@@ -35,8 +62,38 @@ public static class FolderPickerHelper
         }
         finally
         {
+            if (resultItem != null)
+            {
+                Marshal.ReleaseComObject(resultItem);
+            }
+            if (initialItem != null)
+            {
+                Marshal.ReleaseComObject(initialItem);
+            }
             Marshal.ReleaseComObject(dialog);
         }
+    }
+
+    internal static string GetDownloadsFolder()
+    {
+        var folderId = DownloadsFolderId;
+        if (SHGetKnownFolderPath(ref folderId, 0, IntPtr.Zero, out var pathPointer) == 0)
+        {
+            try
+            {
+                var path = Marshal.PtrToStringUni(pathPointer);
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    return path;
+                }
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(pathPointer);
+            }
+        }
+
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
     }
 
     // --- COM interop declarations ---
@@ -48,32 +105,48 @@ public static class FolderPickerHelper
     private interface IFileOpenDialog
     {
         [PreserveSig] int Show(IntPtr parent);
-        void SetFileTypes();     // unused placeholder
-        void SetFileTypeIndex();  // unused placeholder
-        void GetFileTypeIndex();  // unused placeholder
-        void Advise();            // unused placeholder
-        void Unadvise();          // unused placeholder
+        void SetFileTypes(uint fileTypeCount, IntPtr filterSpecifications);
+        void SetFileTypeIndex(uint fileTypeIndex);
+        void GetFileTypeIndex(out uint fileTypeIndex);
+        void Advise(IntPtr events, out uint cookie);
+        void Unadvise(uint cookie);
         void SetOptions(FOS fos);
-        void GetOptions();       // unused placeholder
-        void SetDefaultFolder(); // unused placeholder
-        void SetFolder();        // unused placeholder
-        void GetFolder();        // unused placeholder
-        void GetCurrentSelection(); // unused placeholder
-        void SetFileName();      // unused placeholder
-        void GetFileName();      // unused placeholder
-        void SetTitle();         // unused placeholder
-        void SetOkButtonLabel(); // unused placeholder
-        void SetFileNameLabel(); // unused placeholder
+        void GetOptions(out FOS fos);
+        void SetDefaultFolder(IShellItem shellItem);
+        void SetFolder(IShellItem shellItem);
+        void GetFolder(out IShellItem shellItem);
+        void GetCurrentSelection(out IShellItem shellItem);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetFileName(out IntPtr name);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
         void GetResult(out IShellItem ppsi);
     }
 
     [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellItem
     {
-        void BindToHandler();
-        void GetParent();
+        void BindToHandler(IntPtr bindContext, ref Guid handlerId, ref Guid interfaceId, out IntPtr result);
+        void GetParent(out IShellItem parent);
         void GetDisplayName(SIGDN sigdnName, out IntPtr ppszName);
+        void GetAttributes(uint mask, out uint attributes);
+        void Compare(IShellItem shellItem, uint hint, out int order);
     }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    private static extern int SHCreateItemFromParsingName(
+        [MarshalAs(UnmanagedType.LPWStr)] string path,
+        IntPtr bindContext,
+        ref Guid interfaceId,
+        out IShellItem shellItem);
+
+    [DllImport("shell32.dll", PreserveSig = true)]
+    private static extern int SHGetKnownFolderPath(
+        ref Guid folderId,
+        uint flags,
+        IntPtr userToken,
+        out IntPtr path);
 
     [Flags]
     private enum FOS : uint

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace WinOptimizationApp.Services;
 
@@ -6,11 +7,15 @@ public sealed record CommandResult(int ExitCode, string StandardOutput, string S
 
 public sealed class CommandRunner
 {
-    public int ExecutionCount { get; private set; }
+    private static readonly ConcurrentDictionary<string, CommandPathCacheEntry> CommandPathCache =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private int _executionCount;
+
+    public int ExecutionCount => Volatile.Read(ref _executionCount);
 
     public async Task<CommandResult> RunCaptureAsync(string fileName, string arguments, CancellationToken cancellationToken = default)
     {
-        ExecutionCount++;
+        Interlocked.Increment(ref _executionCount);
         Process? process = null;
         try
         {
@@ -25,8 +30,16 @@ public sealed class CommandRunner
                 if (ext is ".CMD" or ".BAT")
                 {
                     finalFile = "cmd.exe";
-                    finalArgs = $"/c {fileName} {arguments}";
+                    finalArgs = $"/d /s /c \"\"{resolvedPath}\" {arguments}\"";
                 }
+                else
+                {
+                    finalFile = resolvedPath;
+                }
+            }
+            else if (resolvedPath != null)
+            {
+                finalFile = resolvedPath;
             }
 
             var startInfo = new ProcessStartInfo
@@ -94,14 +107,33 @@ public sealed class CommandRunner
 
     private static string? FindCommandPath(string command)
     {
+        var pathVariable = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var pathExtensions = OperatingSystem.IsWindows()
+            ? Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT"
+            : string.Empty;
+        var environmentSignature = pathVariable + "\0" + pathExtensions;
+        if (CommandPathCache.TryGetValue(command, out var cached) &&
+            cached.EnvironmentSignature.Equals(environmentSignature, StringComparison.Ordinal) &&
+            ((cached.Path != null && File.Exists(cached.Path)) ||
+             (cached.Path == null && DateTimeOffset.UtcNow - cached.CachedAt < TimeSpan.FromSeconds(5))))
+        {
+            return cached.Path;
+        }
+
         try
         {
-            var paths = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+            if (Path.IsPathFullyQualified(command) && File.Exists(command))
+            {
+                var fullPath = Path.GetFullPath(command);
+                CommandPathCache[command] = new CommandPathCacheEntry(environmentSignature, fullPath, DateTimeOffset.UtcNow);
+                return fullPath;
+            }
+
+            var paths = pathVariable
                 .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
 
             var extensions = OperatingSystem.IsWindows()
-                ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
-                    .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                ? pathExtensions.Split(';', StringSplitOptions.RemoveEmptyEntries)
                 : [string.Empty];
 
             foreach (var path in paths)
@@ -111,18 +143,26 @@ public sealed class CommandRunner
                     var candidate = Path.Combine(path, command.EndsWith(extension, StringComparison.OrdinalIgnoreCase) ? command : command + extension);
                     if (File.Exists(candidate))
                     {
-                        return candidate;
+                        var fullPath = Path.GetFullPath(candidate);
+                        CommandPathCache[command] = new CommandPathCacheEntry(environmentSignature, fullPath, DateTimeOffset.UtcNow);
+                        return fullPath;
                     }
                 }
             }
         }
         catch
         {
-            return null;
+            // Cache a short-lived miss below.
         }
 
+        CommandPathCache[command] = new CommandPathCacheEntry(environmentSignature, null, DateTimeOffset.UtcNow);
         return null;
     }
+
+    private sealed record CommandPathCacheEntry(
+        string EnvironmentSignature,
+        string? Path,
+        DateTimeOffset CachedAt);
 
     private static void TryKillProcess(Process? process)
     {

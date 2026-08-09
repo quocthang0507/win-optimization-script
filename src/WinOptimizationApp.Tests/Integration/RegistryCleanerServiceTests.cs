@@ -72,4 +72,14 @@ public sealed class RegistryCleanerServiceTests : IDisposable
         Assert.Contains(TestExtension, fileContent);
         Assert.Contains(TestProgId, fileContent);
     }
+
+    [Fact]
+    public async Task ScanAsync_PropagatesPreCancelledToken()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => new RegistryCleanerService().ScanAsync(cancellation.Token));
+    }
 }

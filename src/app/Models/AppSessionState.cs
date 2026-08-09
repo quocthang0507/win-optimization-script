@@ -8,11 +8,9 @@ public sealed class AppSessionState
 {
     public DashboardStatus? SystemOverview { get; internal set; }
     public string? SystemOverviewError { get; internal set; }
-    public bool SystemOverviewLoaded { get; internal set; }
 
     public HealthCheckScanMetrics? HealthMetrics { get; internal set; }
     public string? HealthMetricsError { get; internal set; }
-    public bool HealthMetricsLoaded { get; internal set; }
     public int DashboardRevision { get; internal set; }
 
     public IReadOnlyList<StartupEntry> StartupEntries { get; internal set; } = [];
@@ -43,6 +41,5 @@ public sealed class AppSessionState
     public IReadOnlyList<CleanerEntry> Winapp2Entries { get; internal set; } = [];
     public string? Winapp2Error { get; internal set; }
     public bool Winapp2Loaded { get; internal set; }
-
-    public DateTimeOffset? WarmedUpAt { get; internal set; }
+    public int Winapp2Revision { get; internal set; }
 }

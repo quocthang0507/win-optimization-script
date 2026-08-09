@@ -74,7 +74,7 @@ public sealed partial class OptimizePage : BasePage
         filters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
 
         _searchBox = new TextBox { PlaceholderText = T("optimize.searchPlaceholder") };
-        _searchBox.TextChanged += (_, _) => RenderTweaks();
+        _searchBox.TextChanged += (_, _) => DebounceUiAction("optimize-search", RenderTweaks);
         filters.Children.Add(_searchBox);
 
         _categoryBox = new ComboBox { Header = T("optimize.category"), MinWidth = 200 };

@@ -85,7 +85,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
             PlaceholderText = T("software.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (_, _) => RenderApps();
+        _searchBox.TextChanged += (_, _) => DebounceUiAction("software-search", RenderApps);
         searchRow.Children.Add(_searchBox);
         panel.Children.Add(searchRow);
 

@@ -49,22 +49,29 @@ public sealed class TweakSnapshotService
         }
     }
 
-    public IReadOnlyList<(string Path, TweakSnapshot Snapshot)> GetSnapshots()
+    public IReadOnlyList<(string Path, TweakSnapshot Snapshot)> GetSnapshots(int maxCount = int.MaxValue)
     {
-        if (!Directory.Exists(_paths.BackupsDirectory))
+        if (maxCount <= 0 || !Directory.Exists(_paths.BackupsDirectory))
         {
             return [];
         }
 
         var snapshots = new List<(string Path, TweakSnapshot Snapshot)>();
-        foreach (var path in Directory.EnumerateFiles(_paths.BackupsDirectory, $"{FilePrefix}*.json", SearchOption.TopDirectoryOnly))
+        var files = new DirectoryInfo(_paths.BackupsDirectory)
+            .EnumerateFiles($"{FilePrefix}*.json", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(file => file.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
         {
             try
             {
-                var snapshot = JsonSerializer.Deserialize<TweakSnapshot>(File.ReadAllText(path));
+                var snapshot = JsonSerializer.Deserialize<TweakSnapshot>(File.ReadAllText(file.FullName));
                 if (snapshot is not null && snapshot.Values.Count > 0)
                 {
-                    snapshots.Add((path, snapshot));
+                    snapshots.Add((file.FullName, snapshot));
+                    if (snapshots.Count >= maxCount)
+                    {
+                        break;
+                    }
                 }
             }
             catch (JsonException)
@@ -77,7 +84,7 @@ public sealed class TweakSnapshotService
             }
         }
 
-        return snapshots.OrderByDescending(item => item.Snapshot.CreatedAt).ToList();
+        return snapshots;
     }
 
     public bool Delete(string path)

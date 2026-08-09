@@ -1,4 +1,6 @@
 using WinOptimizationApp.Models;
+using Microsoft.Win32.SafeHandles;
+using System.Runtime.InteropServices;
 
 namespace WinOptimizationApp.Services;
 
@@ -14,8 +16,13 @@ public sealed class IpcServer
     private readonly RegistryCleanerService _registryCleaner;
     private readonly NetworkOptimizationService _networkOptimizer;
     private readonly UninstallerService _uninstaller;
+    private readonly string _pipeName;
     private readonly MaintenanceCatalog _catalog = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly TaskCompletionSource<int> _expectedClientProcessId =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<bool> _ready =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _listenTask;
 
     public IpcServer(
@@ -28,8 +35,14 @@ public sealed class IpcServer
         WingetService winget,
         RegistryCleanerService registryCleaner,
         NetworkOptimizationService networkOptimizer,
-        UninstallerService uninstaller)
+        UninstallerService uninstaller,
+        string pipeName)
     {
+        if (!AppProcessLauncher.IsValidRunnerPipeName(pipeName))
+        {
+            throw new ArgumentException("The runner pipe name is invalid.", nameof(pipeName));
+        }
+
         _cleanup = cleanup;
         _execution = execution;
         _status = status;
@@ -40,6 +53,17 @@ public sealed class IpcServer
         _registryCleaner = registryCleaner;
         _networkOptimizer = networkOptimizer;
         _uninstaller = uninstaller;
+        _pipeName = pipeName;
+    }
+
+    public void SetExpectedClientProcessId(int processId)
+    {
+        if (processId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(processId));
+        }
+
+        _expectedClientProcessId.TrySetResult(processId);
     }
 
     public void Start()
@@ -47,18 +71,21 @@ public sealed class IpcServer
         _listenTask = Task.Run(ListenLoopAsync);
     }
 
+    public bool WaitUntilReady(TimeSpan timeout)
+    {
+        try
+        {
+            return _ready.Task.Wait(timeout) && _ready.Task.Result;
+        }
+        catch (AggregateException)
+        {
+            return false;
+        }
+    }
+
     public void Stop()
     {
         _cts.Cancel();
-        try
-        {
-            using var client = new NamedPipeClientStream(".", "WinOptimizationApp_Runner", PipeDirection.InOut);
-            client.Connect(100);
-        }
-        catch
-        {
-            // Ignore
-        }
     }
 
     private async Task ListenLoopAsync()
@@ -68,13 +95,22 @@ public sealed class IpcServer
             try
             {
                 using var pipeServer = new NamedPipeServerStream(
-                    "WinOptimizationApp_Runner",
+                    _pipeName,
                     PipeDirection.InOut,
-                    2,
+                    1,
                     PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
+                _ready.TrySetResult(true);
 
                 await pipeServer.WaitForConnectionAsync(_cts.Token);
+
+                var expectedProcessId = await _expectedClientProcessId.Task.WaitAsync(_cts.Token);
+                if (!TryGetNamedPipeClientProcessId(pipeServer.SafePipeHandle, out var clientProcessId) ||
+                    clientProcessId != expectedProcessId)
+                {
+                    pipeServer.Disconnect();
+                    continue;
+                }
 
                 using var reader = new StreamReader(pipeServer, Encoding.UTF8);
                 using var writer = new StreamWriter(pipeServer, Encoding.UTF8) { AutoFlush = true };
@@ -112,6 +148,24 @@ public sealed class IpcServer
             }
         }
     }
+
+    private static bool TryGetNamedPipeClientProcessId(SafePipeHandle pipeHandle, out int processId)
+    {
+        processId = 0;
+        if (!GetNamedPipeClientProcessId(pipeHandle, out var nativeProcessId) || nativeProcessId > int.MaxValue)
+        {
+            return false;
+        }
+
+        processId = (int)nativeProcessId;
+        return processId > 0;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetNamedPipeClientProcessId(
+        SafePipeHandle pipe,
+        out uint clientProcessId);
 
     private async Task<IpcMessage?> HandleRequestAsync(IpcMessage request, StreamWriter writer)
     {
@@ -241,7 +295,7 @@ public sealed class IpcServer
                             return new IpcMessage("Error", $"Unknown task: {payload.TaskId}");
                         }
 
-                        var preview = await _cleanup.PreviewAsync(task);
+                        var preview = await _cleanup.PreviewAsync(task, payload.ProtectedPaths);
                         var json = JsonSerializer.Serialize(preview);
                         return new IpcMessage("Response", json);
                     }
@@ -258,7 +312,7 @@ public sealed class IpcServer
                             return new IpcMessage("Error", $"Unknown task: {payload.TaskId}");
                         }
 
-                        var result = await _execution.RunAsync(taskObj);
+                        var result = await _execution.RunAsync(taskObj, payload.ProtectedPaths);
                         var json = JsonSerializer.Serialize(result);
                         return new IpcMessage("Response", json);
                     }

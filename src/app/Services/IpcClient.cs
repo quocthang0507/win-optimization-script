@@ -19,11 +19,16 @@ public sealed class IpcClient
 
     public bool IsConnected => _pipeClient?.IsConnected == true;
 
-    public async Task<bool> ConnectAsync(int timeoutMs = 2000)
+    public async Task<bool> ConnectAsync(string pipeName, int timeoutMs = 2000)
     {
+        if (!AppProcessLauncher.IsValidRunnerPipeName(pipeName))
+        {
+            return false;
+        }
+
         try
         {
-            _pipeClient = new NamedPipeClientStream(".", "WinOptimizationApp_Runner", PipeDirection.InOut, PipeOptions.Asynchronous);
+            _pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             await _pipeClient.ConnectAsync(timeoutMs, _cts.Token);
             _writer = new StreamWriter(_pipeClient, Encoding.UTF8) { AutoFlush = true };
 

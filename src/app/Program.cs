@@ -64,14 +64,36 @@ public static class Program
         var networkOptimizer = new NetworkOptimizationService(commands);
         var uninstaller = new UninstallerService(commands);
 
-        var server = new IpcServer(cleanup, execution, status, settingsService, reports, startup, winget, registryCleaner, networkOptimizer, uninstaller);
+        var pipeName = AppProcessLauncher.CreateRunnerPipeName();
+        var server = new IpcServer(
+            cleanup,
+            execution,
+            status,
+            settingsService,
+            reports,
+            startup,
+            winget,
+            registryCleaner,
+            networkOptimizer,
+            uninstaller,
+            pipeName);
         server.Start();
+        if (!server.WaitUntilReady(TimeSpan.FromSeconds(3)))
+        {
+            server.Stop();
+            Console.WriteLine("Runner error: unable to initialize the secure IPC channel.");
+            return;
+        }
 
         try
         {
-            using var uiProcess = AppProcessLauncher.StartUi(elevated: false, connectRunner: true);
+            using var uiProcess = AppProcessLauncher.StartUi(
+                elevated: false,
+                connectRunner: true,
+                runnerPipeName: pipeName);
             if (uiProcess != null)
             {
+                server.SetExpectedClientProcessId(uiProcess.Id);
                 uiProcess.WaitForExit();
             }
             else

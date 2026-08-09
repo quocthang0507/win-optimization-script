@@ -6,7 +6,12 @@ namespace WinOptimizationApp.Services;
 
 public sealed class PerformanceMonitoringService
 {
+    private readonly object _cpuLock = new();
     private readonly object _networkLock = new();
+    private ulong _lastIdleTime;
+    private ulong _lastKernelTime;
+    private ulong _lastUserTime;
+    private bool _hasCpuSample;
     private long _lastReceivedBytes;
     private long _lastSentBytes;
     private DateTimeOffset? _lastNetworkSample;
@@ -44,10 +49,11 @@ public sealed class PerformanceMonitoringService
         out System.Runtime.InteropServices.ComTypes.FILETIME lpKernelTime,
         out System.Runtime.InteropServices.ComTypes.FILETIME lpUserTime);
 
-    public Task<SystemMetrics> GetMetricsAsync()
+    public Task<SystemMetrics> GetMetricsAsync(CancellationToken cancellationToken = default)
     {
         return Task.Run(() =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // 1. Measure CPU Usage
             double cpuUsage = GetCpuUsageInternal();
 
@@ -72,6 +78,7 @@ public sealed class PerformanceMonitoringService
             double diskPercent = diskTotal > 0 ? (diskUsed * 100.0 / diskTotal) : 0;
 
             var (downloadBytesPerSecond, uploadBytesPerSecond) = GetNetworkThroughput();
+            cancellationToken.ThrowIfCancellationRequested();
 
             return new SystemMetrics(
                 cpuUsage,
@@ -84,7 +91,7 @@ public sealed class PerformanceMonitoringService
                 downloadBytesPerSecond,
                 uploadBytesPerSecond
             );
-        });
+        }, cancellationToken);
     }
 
     private (double Download, double Upload) GetNetworkThroughput()
@@ -130,42 +137,57 @@ public sealed class PerformanceMonitoringService
         }
     }
 
-    private static double GetCpuUsageInternal()
+    private double GetCpuUsageInternal()
     {
-        if (!GetSystemTimes(out var idleTime1, out var kernelTime1, out var userTime1))
+        if (!GetSystemTimes(out var idleTime, out var kernelTime, out var userTime))
         {
             return 0;
         }
 
-        Thread.Sleep(100); // Sample over 100ms
+        var idle = ConvertFileTime(idleTime);
+        var kernel = ConvertFileTime(kernelTime);
+        var user = ConvertFileTime(userTime);
+        lock (_cpuLock)
+        {
+            var usage = _hasCpuSample
+                ? CalculateCpuUsage(_lastIdleTime, _lastKernelTime, _lastUserTime, idle, kernel, user)
+                : 0;
+            _lastIdleTime = idle;
+            _lastKernelTime = kernel;
+            _lastUserTime = user;
+            _hasCpuSample = true;
+            return usage;
+        }
+    }
 
-        if (!GetSystemTimes(out var idleTime2, out var kernelTime2, out var userTime2))
+    internal static double CalculateCpuUsage(
+        ulong previousIdle,
+        ulong previousKernel,
+        ulong previousUser,
+        ulong currentIdle,
+        ulong currentKernel,
+        ulong currentUser)
+    {
+        if (currentIdle < previousIdle || currentKernel < previousKernel || currentUser < previousUser)
         {
             return 0;
         }
 
-        var idle1 = ConvertFileTime(idleTime1);
-        var kernel1 = ConvertFileTime(kernelTime1);
-        var user1 = ConvertFileTime(userTime1);
-
-        var idle2 = ConvertFileTime(idleTime2);
-        var kernel2 = ConvertFileTime(kernelTime2);
-        var user2 = ConvertFileTime(userTime2);
-
-        var idleDiff = idle2 - idle1;
-        var kernelDiff = kernel2 - kernel1;
-        var userDiff = user2 - user1;
+        var idleDiff = currentIdle - previousIdle;
+        var kernelDiff = currentKernel - previousKernel;
+        var userDiff = currentUser - previousUser;
+        if (ulong.MaxValue - kernelDiff < userDiff)
+        {
+            return 0;
+        }
 
         var systemDiff = kernelDiff + userDiff;
-        if (systemDiff == 0)
+        if (systemDiff == 0 || idleDiff > systemDiff)
         {
             return 0;
         }
 
-        // kernelDiff includes idleTime. So activeTime = (kernelDiff - idleDiff) + userDiff
-        // Wait, simpler: CpuUsage = 1.0 - (idleDiff / systemDiff)
-        var totalCpuUsage = 1.0 - ((double)idleDiff / systemDiff);
-        return Math.Max(0.0, Math.Min(100.0, totalCpuUsage * 100.0));
+        return Math.Clamp((1.0 - ((double)idleDiff / systemDiff)) * 100.0, 0.0, 100.0);
     }
 
     private static ulong ConvertFileTime(System.Runtime.InteropServices.ComTypes.FILETIME filetime)

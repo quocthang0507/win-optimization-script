@@ -65,4 +65,30 @@ public class CommandRunnerTests
         // Assert
         Assert.False(exists);
     }
+
+    [Fact]
+    public async Task RunCaptureAsync_ExecutesFullyQualifiedBatchPathContainingSpaces()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), "Win Optimization App Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var script = Path.Combine(root, "sample script.cmd");
+        await File.WriteAllTextAsync(script, "@echo Batch Path Works");
+
+        try
+        {
+            var result = await new CommandRunner().RunCaptureAsync(script, string.Empty);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("Batch Path Works", result.StandardOutput);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

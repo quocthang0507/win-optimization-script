@@ -19,7 +19,8 @@ public static class HealthCheckScanService
         CancellationToken cancellationToken = default,
         IReadOnlyList<WingetPackage>? knownUpdates = null,
         IReadOnlyList<StartupEntry>? knownStartupEntries = null,
-        IReadOnlyList<string>? knownErrors = null)
+        IReadOnlyList<string>? knownErrors = null,
+        IReadOnlyList<string>? protectedPaths = null)
     {
         long cleanupBytes = 0;
         var cleanupFiles = 0;
@@ -30,7 +31,7 @@ public static class HealthCheckScanService
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var preview = await cleanup.PreviewAsync(catalog.GetById(taskId), cancellationToken);
+                var preview = await cleanup.PreviewAsync(catalog.GetById(taskId), protectedPaths, cancellationToken);
                 cleanupBytes += preview.EstimatedBytes;
                 cleanupFiles += preview.EstimatedFileCount;
             }

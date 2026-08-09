@@ -71,7 +71,7 @@ public sealed class TweakService
             Description = "Disables common welcome, Start menu, Settings, and usage suggestions without removing Windows components.",
             RequiresAdministrator = false,
             RiskLevel = RiskLevel.Safe,
-            CheckScript = @"$cdm = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' -ErrorAction SilentlyContinue; $advanced = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue; $cdm.'SubscribedContent-310093Enabled' -eq 0 -and $cdm.'SubscribedContent-338388Enabled' -eq 0 -and $cdm.'SubscribedContent-338389Enabled' -eq 0 -and $cdm.SoftLandingEnabled -eq 0 -and $advanced.Start_IrisRecommendations -eq 0",
+            CheckScript = @"$cdm = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' -ErrorAction SilentlyContinue; $advanced = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -ErrorAction SilentlyContinue; $cdm.'SubscribedContent-310093Enabled' -eq 0 -and $cdm.'SubscribedContent-338388Enabled' -eq 0 -and $cdm.'SubscribedContent-338389Enabled' -eq 0 -and $cdm.SoftLandingEnabled -eq 0 -and $cdm.SystemPaneSuggestionsEnabled -eq 0 -and $advanced.Start_IrisRecommendations -eq 0",
             EnableScript = @"
                 $cdm = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
                 $advanced = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'

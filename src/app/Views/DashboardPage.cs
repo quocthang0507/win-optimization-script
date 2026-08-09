@@ -7,6 +7,7 @@ public sealed partial class DashboardPage : BasePage
 {
     private readonly StackPanel _wingetResultPanel;
     private int _renderedRevision = -1;
+    private bool _isRefreshing;
 
     public DashboardPage(MainWindow mainWindow) : base(mainWindow)
     {
@@ -57,10 +58,23 @@ public sealed partial class DashboardPage : BasePage
 
     private async Task RefreshDashboardAsync()
     {
+        if (_isRefreshing)
+        {
+            return;
+        }
+
+        _isRefreshing = true;
         MainWindow.SetStatusText(T("common.loading"));
-        await MainWindow.RefreshDashboardStateAsync();
-        RenderCachedDashboard();
-        MainWindow.SetStatusText(T("common.ready"));
+        try
+        {
+            await MainWindow.RefreshDashboardStateAsync();
+            RenderCachedDashboard();
+        }
+        finally
+        {
+            _isRefreshing = false;
+            MainWindow.SetStatusText(T("common.ready"));
+        }
     }
 
     private void RenderDashboardData(DashboardStatus status, HealthCheckResult health)

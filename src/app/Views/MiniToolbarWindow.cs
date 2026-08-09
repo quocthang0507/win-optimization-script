@@ -18,6 +18,7 @@ public sealed class MiniToolbarWindow : Window
     private TextBlock? _networkText;
     private ProgressBar? _cpuProgress;
     private ProgressBar? _ramProgress;
+    private int _metricsUpdateInProgress;
 
     public MiniToolbarWindow(MainWindow mainWindow)
     {
@@ -400,6 +401,11 @@ public sealed class MiniToolbarWindow : Window
 
     private async Task UpdateMetricsAsync()
     {
+        if (Interlocked.CompareExchange(ref _metricsUpdateInProgress, 1, 0) != 0)
+        {
+            return;
+        }
+
         try
         {
             var metrics = await _mainWindow.PerformanceMonitoring.GetMetricsAsync();
@@ -428,6 +434,10 @@ public sealed class MiniToolbarWindow : Window
         catch
         {
             // Background polling must not interrupt widget actions.
+        }
+        finally
+        {
+            Volatile.Write(ref _metricsUpdateInProgress, 0);
         }
     }
 

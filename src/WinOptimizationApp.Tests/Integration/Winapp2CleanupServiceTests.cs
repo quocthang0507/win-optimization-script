@@ -61,6 +61,58 @@ public sealed class Winapp2CleanupServiceTests : IDisposable
         Assert.True(File.Exists(protectedFile));
     }
 
+    [Fact]
+    public async Task PreviewAsync_CustomDatabaseBlocksArbitraryNonDisposableDirectory()
+    {
+        var root = Path.Combine(
+            AppContext.BaseDirectory,
+            "Winapp2SafetyTests",
+            Guid.NewGuid().ToString("N"),
+            "UserContent");
+        Directory.CreateDirectory(root);
+        var importantFile = Path.Combine(root, "important.txt");
+        await File.WriteAllTextAsync(importantFile, "keep");
+        var entry = new CleanerEntry { Name = "Untrusted custom rule" };
+        entry.FileKeys.Add(new FileKeyEntry { Path = root, Extension = "*", Recurse = true });
+        var service = new Winapp2CleanupService(new ReportService(new PathService(_root)));
+
+        try
+        {
+            var preview = await service.PreviewAsync([entry], restrictCustomDatabase: true);
+
+            Assert.Empty(preview.Candidates);
+            Assert.Contains(preview.Warnings, warning => warning.Contains("unsafe", StringComparison.OrdinalIgnoreCase));
+            Assert.True(File.Exists(importantFile));
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(root)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PreviewAsync_CustomDatabaseAllowsRecognizedCacheDirectory()
+    {
+        var cache = Path.Combine(_root, "ExampleApp", "Cache");
+        Directory.CreateDirectory(cache);
+        var cacheFile = Path.Combine(cache, "session.tmp");
+        await File.WriteAllTextAsync(cacheFile, "cache");
+        var entry = new CleanerEntry { Name = "Trusted cache shape" };
+        entry.FileKeys.Add(new FileKeyEntry { Path = cache, Extension = "*.tmp" });
+        var service = new Winapp2CleanupService(new ReportService(new PathService(_root)));
+
+        try
+        {
+            var preview = await service.PreviewAsync([entry], restrictCustomDatabase: true);
+
+            Assert.Equal(cacheFile, Assert.Single(preview.Candidates).Path);
+        }
+        finally
+        {
+            Directory.Delete(Path.Combine(_root, "ExampleApp"), recursive: true);
+        }
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);

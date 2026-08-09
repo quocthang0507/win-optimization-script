@@ -46,6 +46,7 @@ public sealed class MainWindow : Window
     internal TweakService Tweaks { get; }
     internal TweakSnapshotService TweakSnapshots { get; }
     internal Winapp2CleanupService Winapp2Cleanup { get; }
+    internal OneClickMaintenanceService OneClickMaintenance { get; }
     internal AppSessionState SessionState { get; } = new();
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
@@ -68,6 +69,7 @@ public sealed class MainWindow : Window
         Tweaks = new TweakService(Commands);
         TweakSnapshots = new TweakSnapshotService(Paths);
         Winapp2Cleanup = new Winapp2CleanupService(Reports);
+        OneClickMaintenance = new OneClickMaintenanceService(Cleanup, Execution, Catalog);
 
         _statusProgress = new ProgressBar
         {
@@ -94,13 +96,14 @@ public sealed class MainWindow : Window
         };
 
         _runnerConnectionTask = Task.CompletedTask;
-        if (ShouldConnectToRunner())
+        var runnerPipeName = GetRunnerPipeName();
+        if (runnerPipeName != null)
         {
             _runnerConnectionTask = Task.Run(async () =>
             {
                 try
                 {
-                    var connected = await _ipcClient.ConnectAsync(2000);
+                    var connected = await _ipcClient.ConnectAsync(runnerPipeName, 2000);
                     if (connected)
                     {
                         Cleanup.Client = _ipcClient;
@@ -284,24 +287,55 @@ public sealed class MainWindow : Window
         await _runnerConnectionTask;
 
         reportStartupStatus?.Invoke(T("splash.loadingOverview"));
-        await Task.WhenAll(
-            RefreshSystemOverviewStateAsync(_shutdownCts.Token),
-            RefreshNetworkAdaptersStateAsync(_shutdownCts.Token));
+        await RunStartupStageAsync(
+            TimeSpan.FromSeconds(8),
+            () =>
+            {
+                SessionState.SystemOverview = null;
+                SessionState.SystemOverviewError ??= T("splash.stageTimedOut");
+                SessionState.NetworkAdapters = [];
+                SessionState.NetworkAdaptersError ??= T("splash.stageTimedOut");
+            },
+            RefreshSystemOverviewStateAsync,
+            RefreshNetworkAdaptersStateAsync);
 
         reportStartupStatus?.Invoke(T("splash.loadingStartupApps"));
-        await Task.WhenAll(
-            RefreshStartupStateAsync(_shutdownCts.Token),
-            RefreshUpdatesStateAsync(_shutdownCts.Token),
-            RefreshAppxStateAsync(_shutdownCts.Token));
+        await RunStartupStageAsync(
+            TimeSpan.FromSeconds(20),
+            () =>
+            {
+                SessionState.StartupError ??= T("splash.stageTimedOut");
+                SessionState.UpdatesError ??= T("splash.stageTimedOut");
+                SessionState.AppxError ??= T("splash.stageTimedOut");
+            },
+            RefreshStartupStateAsync,
+            RefreshUpdatesStateAsync,
+            RefreshAppxStateAsync);
 
         reportStartupStatus?.Invoke(T("splash.loadingMachineSettings"));
-        await Task.WhenAll(
-            RefreshTweakStatesAsync(_shutdownCts.Token),
-            RefreshWinapp2StateAsync());
+        await RunStartupStageAsync(
+            TimeSpan.FromSeconds(12),
+            () =>
+            {
+                SessionState.TweakStatesLoaded = true;
+                SessionState.TweakStatesRevision++;
+                SessionState.Winapp2Error ??= T("splash.stageTimedOut");
+                SessionState.Winapp2Loaded = true;
+                SessionState.Winapp2Revision++;
+            },
+            RefreshTweakStatesAsync,
+            RefreshWinapp2StateAsync);
 
         reportStartupStatus?.Invoke(T("splash.preparingDashboard"));
-        await RefreshHealthMetricsStateAsync(_shutdownCts.Token);
-        SessionState.WarmedUpAt = DateTimeOffset.Now;
+        await RunStartupStageAsync(
+            TimeSpan.FromSeconds(10),
+            () =>
+            {
+                SessionState.HealthMetrics = null;
+                SessionState.HealthMetricsError ??= T("splash.stageTimedOut");
+                SessionState.DashboardRevision++;
+            },
+            RefreshHealthMetricsStateAsync);
 
         if (_navItems.TryGetValue("dashboard", out var dashboardItem))
         {
@@ -321,6 +355,29 @@ public sealed class MainWindow : Window
         _ = RunDeferredUpdateCheckAsync();
     }
 
+    private async Task RunStartupStageAsync(
+        TimeSpan timeout,
+        Action markTimedOut,
+        params Func<CancellationToken, Task>[] operations)
+    {
+        using var stageCancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token);
+        var stageTask = Task.WhenAll(operations.Select(operation => operation(stageCancellation.Token)));
+        try
+        {
+            await stageTask.WaitAsync(timeout, _shutdownCts.Token);
+        }
+        catch (TimeoutException)
+        {
+            markTimedOut();
+            stageCancellation.Cancel();
+            _ = stageTask.ContinueWith(
+                completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+    }
+
     internal async Task RefreshDashboardStateAsync(CancellationToken cancellationToken = default)
     {
         await Task.WhenAll(
@@ -335,7 +392,7 @@ public sealed class MainWindow : Window
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SessionState.SystemOverview = await Status.GetAsync();
+            SessionState.SystemOverview = await Status.GetAsync(cancellationToken);
             SessionState.SystemOverviewError = null;
         }
         catch (OperationCanceledException)
@@ -344,11 +401,8 @@ public sealed class MainWindow : Window
         }
         catch (Exception ex)
         {
+            SessionState.SystemOverview = null;
             SessionState.SystemOverviewError = ex.Message;
-        }
-        finally
-        {
-            SessionState.SystemOverviewLoaded = true;
         }
     }
 
@@ -482,12 +536,18 @@ public sealed class MainWindow : Window
         }
     }
 
-    internal async Task RefreshWinapp2StateAsync()
+    internal async Task RefreshWinapp2StateAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            SessionState.Winapp2Entries = (await Winapp2.GetDetectedEntriesAsync(Settings.CustomWinapp2DatabasePath)).ToArray();
+            SessionState.Winapp2Entries = (await Winapp2
+                .GetDetectedEntriesAsync(Settings.CustomWinapp2DatabasePath)
+                .WaitAsync(cancellationToken)).ToArray();
             SessionState.Winapp2Error = null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -497,10 +557,11 @@ public sealed class MainWindow : Window
         finally
         {
             SessionState.Winapp2Loaded = true;
+            SessionState.Winapp2Revision++;
         }
     }
 
-    private async Task RefreshHealthMetricsStateAsync(CancellationToken cancellationToken)
+    internal async Task RefreshHealthMetricsStateAsync(CancellationToken cancellationToken)
     {
         var dependencyErrors = new List<string>();
         if (!string.IsNullOrWhiteSpace(SessionState.UpdatesError))
@@ -522,7 +583,8 @@ public sealed class MainWindow : Window
                 cancellationToken,
                 SessionState.UpdatePackages,
                 SessionState.StartupEntries,
-                dependencyErrors);
+                dependencyErrors,
+                Settings.ProtectedPaths);
             SessionState.HealthMetricsError = null;
         }
         catch (OperationCanceledException)
@@ -531,11 +593,11 @@ public sealed class MainWindow : Window
         }
         catch (Exception ex)
         {
+            SessionState.HealthMetrics = null;
             SessionState.HealthMetricsError = ex.Message;
         }
         finally
         {
-            SessionState.HealthMetricsLoaded = true;
             SessionState.DashboardRevision++;
         }
     }
@@ -716,6 +778,7 @@ public sealed class MainWindow : Window
                 "startup" => new StartupPage(this),
                 "updates" => new UpdatesPage(this),
                 "software" => new SoftwareInstallerPage(this),
+                "toolbox" => new ToolboxPage(this),
                 "optimize" => new OptimizePage(this),
                 "repair" => new MaintenancePage(this, T("nav.repair"), "Repair", includeOptimization: true),
                 "history" => new HistoryPage(this),
@@ -820,7 +883,7 @@ public sealed class MainWindow : Window
     internal async Task PreviewTaskAsync(MaintenanceTask task)
     {
         SetStatus(F("status.scanningTask", TaskLabel(task)));
-        var preview = await Cleanup.PreviewAsync(task);
+        var preview = await Cleanup.PreviewAsync(task, Settings.ProtectedPaths);
         var panel = new StackPanel { Spacing = 8, MaxWidth = 720 };
         panel.Children.Add(new TextBlock { Text = preview.Summary, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
 
@@ -886,11 +949,12 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static bool ShouldConnectToRunner()
+    private static string? GetRunnerPipeName()
     {
         var args = Environment.GetCommandLineArgs();
-        return args.Any(arg => arg.Equals(AppProcessLauncher.ConnectRunnerArgument, StringComparison.OrdinalIgnoreCase)) &&
-               !args.Any(arg => arg.Equals(AppProcessLauncher.StandaloneArgument, StringComparison.OrdinalIgnoreCase));
+        var shouldConnect = args.Any(arg => arg.Equals(AppProcessLauncher.ConnectRunnerArgument, StringComparison.OrdinalIgnoreCase)) &&
+                            !args.Any(arg => arg.Equals(AppProcessLauncher.StandaloneArgument, StringComparison.OrdinalIgnoreCase));
+        return shouldConnect ? AppProcessLauncher.GetRunnerPipeName(args) : null;
     }
 
     internal async Task RunTaskAsync(MaintenanceTask task)
@@ -929,7 +993,7 @@ public sealed class MainWindow : Window
         }
 
         SetStatus(F("status.runningTask", TaskLabel(task)));
-        var result = await Execution.RunAsync(task);
+        var result = await Execution.RunAsync(task, Settings.ProtectedPaths);
         SetStatus(T("common.ready"));
         await ShowRunResultAsync(result);
     }

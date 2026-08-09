@@ -12,6 +12,8 @@ public class Winapp2Service
     private readonly Winapp2Parser _parser;
     private List<CleanerEntry>? _cachedEntries;
     private string? _cachedDatabasePath;
+    private DateTime _cachedDatabaseWriteTimeUtc;
+    private long _cachedDatabaseLength;
 
     public Winapp2Service()
     {
@@ -25,7 +27,13 @@ public class Winapp2Service
             ? Path.GetFullPath(customDatabasePath)
             : bundledPath;
 
-        if (_cachedEntries != null && string.Equals(_cachedDatabasePath, dbPath, StringComparison.OrdinalIgnoreCase))
+        var databaseInfo = new FileInfo(dbPath);
+        var databaseWriteTimeUtc = databaseInfo.LastWriteTimeUtc;
+        var databaseLength = databaseInfo.Length;
+        if (_cachedEntries != null &&
+            string.Equals(_cachedDatabasePath, dbPath, StringComparison.OrdinalIgnoreCase) &&
+            _cachedDatabaseWriteTimeUtc == databaseWriteTimeUtc &&
+            _cachedDatabaseLength == databaseLength)
         {
             return _cachedEntries;
         }
@@ -47,6 +55,8 @@ public class Winapp2Service
 
         _cachedEntries = detected.OrderBy(e => e.Name).ToList();
         _cachedDatabasePath = dbPath;
+        _cachedDatabaseWriteTimeUtc = databaseWriteTimeUtc;
+        _cachedDatabaseLength = databaseLength;
         return _cachedEntries;
     }
 

@@ -23,8 +23,10 @@ public sealed class ReportService
             return null;
         }
 
-        return Directory.EnumerateFiles(LogsDirectory, "maintenance-*.json", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(File.GetLastWriteTimeUtc)
+        return new DirectoryInfo(LogsDirectory)
+            .EnumerateFiles("maintenance-*.json", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .Select(file => file.FullName)
             .FirstOrDefault();
     }
 

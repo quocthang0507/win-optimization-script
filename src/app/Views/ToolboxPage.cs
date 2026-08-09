@@ -10,6 +10,7 @@ public sealed partial class ToolboxPage : BasePage
     // Registry controls
     private StackPanel? _registryResultsPanel;
     private Button? _registryScanBtn;
+    private Button? _registryCancelBtn;
     private Button? _registryCleanBtn;
     private List<RegistryIssue> _registryIssues = [];
 
@@ -101,10 +102,13 @@ public sealed partial class ToolboxPage : BasePage
 
         var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         _registryScanBtn = ActionButton(T("registry.scan"), Symbol.Find, async (_, _) => await ScanRegistryAsync());
+        _registryCancelBtn = ActionButton(T("common.stop"), Symbol.Stop, (_, _) => _scanCts?.Cancel());
+        _registryCancelBtn.IsEnabled = false;
         _registryCleanBtn = ActionButton(T("registry.clean"), Symbol.Delete, async (_, _) => await CleanRegistryAsync());
         _registryCleanBtn.IsEnabled = false;
 
         actionPanel.Children.Add(_registryScanBtn);
+        actionPanel.Children.Add(_registryCancelBtn);
         actionPanel.Children.Add(_registryCleanBtn);
         panel.Children.Add(actionPanel);
 
@@ -207,7 +211,7 @@ public sealed partial class ToolboxPage : BasePage
             PlaceholderText = T("uninstaller.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (s, e) => FilterAppsList();
+        _searchBox.TextChanged += (_, _) => DebounceUiAction("uninstaller-search", FilterAppsList);
         Grid.SetColumn(_searchBox, 0);
         searchGrid.Children.Add(_searchBox);
 
@@ -293,6 +297,7 @@ public sealed partial class ToolboxPage : BasePage
             _appsWithLocationOnlyBox.IsChecked = false;
         }
 
+        CancelDebouncedUiAction("uninstaller-search");
         FilterAppsList();
     }
 
@@ -302,19 +307,22 @@ public sealed partial class ToolboxPage : BasePage
 
     private async Task ScanRegistryAsync()
     {
-        if (_registryScanBtn == null || _registryResultsPanel == null || _registryCleanBtn == null)
+        if (_registryScanBtn == null || _registryCancelBtn == null ||
+            _registryResultsPanel == null || _registryCleanBtn == null)
         {
             return;
         }
 
         ResetCts();
+        _registryScanBtn.IsEnabled = false;
+        _registryCancelBtn.IsEnabled = true;
         MainWindow.SetStatusText(T("registry.scanning"));
         _registryResultsPanel.Children.Clear();
         _registryCleanBtn.IsEnabled = false;
 
         try
         {
-            _registryIssues = (await MainWindow.RegistryCleaner.ScanAsync()).ToList();
+            _registryIssues = (await MainWindow.RegistryCleaner.ScanAsync(_scanCts!.Token)).ToList();
 
             if (_registryIssues.Count == 0)
             {
@@ -332,12 +340,18 @@ public sealed partial class ToolboxPage : BasePage
                 UpdateRegistryCleanButtonState();
             }
         }
+        catch (OperationCanceledException)
+        {
+            _registryResultsPanel.Children.Add(InfoBlock(T("common.cancelled")));
+        }
         catch (Exception ex)
         {
             _registryResultsPanel.Children.Add(new TextBlock { Text = $"Error scanning registry: {ex.Message}", Foreground = Brush(Colors.IndianRed) });
         }
         finally
         {
+            _registryScanBtn.IsEnabled = true;
+            _registryCancelBtn.IsEnabled = false;
             MainWindow.SetStatusText(T("common.ready"));
         }
     }

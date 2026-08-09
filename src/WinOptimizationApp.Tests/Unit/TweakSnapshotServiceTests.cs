@@ -29,6 +29,21 @@ public sealed class TweakSnapshotServiceTests : IDisposable
         Assert.False(service.Delete(Path.Combine(Path.GetTempPath(), "tweak-snapshot-outside.json")));
     }
 
+    [Fact]
+    public async Task GetSnapshots_StopsAfterRequestedValidSnapshotCount()
+    {
+        var service = new TweakSnapshotService(new PathService(_root));
+        for (var index = 0; index < 5; index++)
+        {
+            await service.SaveAsync($"Snapshot {index}", new Dictionary<string, bool> { [$"tweak.{index}"] = true });
+        }
+
+        var snapshots = service.GetSnapshots(2);
+
+        Assert.Equal(2, snapshots.Count);
+        Assert.Empty(service.GetSnapshots(0));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);

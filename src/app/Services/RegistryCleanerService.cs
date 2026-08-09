@@ -14,22 +14,22 @@ public sealed class RegistryCleanerService
 
     public IpcClient? Client { get; set; }
 
-    public async Task<IReadOnlyList<RegistryIssue>> ScanAsync()
+    public async Task<IReadOnlyList<RegistryIssue>> ScanAsync(CancellationToken cancellationToken = default)
     {
         if (Client?.IsConnected == true)
         {
-            var response = await Client.SendRequestAsync("ScanRegistry");
+            var response = await Client.SendRequestAsync("ScanRegistry", cancellationToken: cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<List<RegistryIssue>>(response) ?? [];
         }
 
         return await Task.Run<IReadOnlyList<RegistryIssue>>(() =>
         {
             var issues = new List<RegistryIssue>();
-            ScanSharedDlls(issues);
-            ScanAppPaths(issues);
-            ScanFileExtensions(issues);
+            ScanSharedDlls(issues, cancellationToken);
+            ScanAppPaths(issues, cancellationToken);
+            ScanFileExtensions(issues, cancellationToken);
             return issues;
-        });
+        }, cancellationToken);
     }
 
     public async Task<bool> CleanAsync(List<RegistryIssue> issues, CancellationToken cancellationToken = default)
@@ -42,7 +42,7 @@ public sealed class RegistryCleanerService
         }
 
         var selected = issues.Where(issue => issue.IsSelected).ToList();
-        var detected = await ScanAsync();
+        var detected = await ScanAsync(cancellationToken);
         var trusted = selected
             .Select(requested => detected.FirstOrDefault(candidate =>
                 candidate.Id.Equals(requested.Id, StringComparison.OrdinalIgnoreCase) &&
@@ -62,7 +62,7 @@ public sealed class RegistryCleanerService
         return await CleanInternalAsync(trusted, cancellationToken);
     }
 
-    private static void ScanSharedDlls(List<RegistryIssue> issues)
+    private static void ScanSharedDlls(List<RegistryIssue> issues, CancellationToken cancellationToken)
     {
         try
         {
@@ -74,6 +74,7 @@ public sealed class RegistryCleanerService
 
             foreach (var name in key.GetValueNames())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(name))
                 {
                     continue;
@@ -95,19 +96,19 @@ public sealed class RegistryCleanerService
                         });
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     // Ignore parsing errors for single values
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Ignore key-level access errors
         }
     }
 
-    private static void ScanAppPaths(List<RegistryIssue> issues)
+    private static void ScanAppPaths(List<RegistryIssue> issues, CancellationToken cancellationToken)
     {
         try
         {
@@ -119,6 +120,7 @@ public sealed class RegistryCleanerService
 
             foreach (var subkeyName in key.GetSubKeyNames())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     using var subkey = key.OpenSubKey(subkeyName);
@@ -147,25 +149,30 @@ public sealed class RegistryCleanerService
                         });
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     // Ignore individual subkey failures
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Ignore key-level access errors
         }
     }
 
-    private static void ScanFileExtensions(List<RegistryIssue> issues)
+    private static void ScanFileExtensions(List<RegistryIssue> issues, CancellationToken cancellationToken)
     {
-        ScanFileExtensionsForHive(issues, Registry.CurrentUser, @"Software\Classes", "HKEY_CURRENT_USER");
-        ScanFileExtensionsForHive(issues, Registry.LocalMachine, @"Software\Classes", "HKEY_LOCAL_MACHINE");
+        ScanFileExtensionsForHive(issues, Registry.CurrentUser, @"Software\Classes", "HKEY_CURRENT_USER", cancellationToken);
+        ScanFileExtensionsForHive(issues, Registry.LocalMachine, @"Software\Classes", "HKEY_LOCAL_MACHINE", cancellationToken);
     }
 
-    private static void ScanFileExtensionsForHive(List<RegistryIssue> issues, RegistryKey hive, string path, string hiveName)
+    private static void ScanFileExtensionsForHive(
+        List<RegistryIssue> issues,
+        RegistryKey hive,
+        string path,
+        string hiveName,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -177,6 +184,7 @@ public sealed class RegistryCleanerService
 
             foreach (var subkeyName in key.GetSubKeyNames())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!subkeyName.StartsWith("."))
                 {
                     continue;
@@ -227,13 +235,13 @@ public sealed class RegistryCleanerService
                         });
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     // Ignore individual subkey failures
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Ignore key-level access errors
         }

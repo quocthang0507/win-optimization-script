@@ -6,7 +6,16 @@ namespace WinOptimizationApp.Views;
 public sealed partial class MaintenancePage : BasePage
 {
     private readonly bool _includeWinapp2;
-    private bool _winapp2PanelRendered;
+    private readonly bool _includeOneClick;
+    private readonly Dictionary<string, CheckBox> _oneClickSelections = new(StringComparer.OrdinalIgnoreCase);
+    private Button? _oneClickRunButton;
+    private Button? _oneClickStopButton;
+    private ProgressBar? _oneClickProgress;
+    private TextBlock? _oneClickStatus;
+    private CancellationTokenSource? _oneClickCancellation;
+    private bool _oneClickRunning;
+    private UIElement? _winapp2Panel;
+    private int _appliedWinapp2Revision = -1;
 
     public MaintenancePage(
         MainWindow mainWindow,
@@ -16,6 +25,7 @@ public sealed partial class MaintenancePage : BasePage
         bool includeOptimization = false) : base(mainWindow)
     {
         _includeWinapp2 = includePrivacy;
+        _includeOneClick = group.Equals("Cleanup", StringComparison.OrdinalIgnoreCase);
         AddHeader(title, T("taskPage.subtitle"));
 
         var groups = new List<string> { group };
@@ -38,6 +48,11 @@ public sealed partial class MaintenancePage : BasePage
             }
         }
 
+        if (_includeOneClick)
+        {
+            MainContent.Children.Add(OneClickPanel());
+        }
+
         if (includePrivacy)
         {
             MainContent.Children.Add(PrivacyCleanerPanel());
@@ -55,20 +70,37 @@ public sealed partial class MaintenancePage : BasePage
 
     public override async Task OnNavigatedToAsync()
     {
-        if (_includeWinapp2 && !_winapp2PanelRendered)
+        if (!_includeWinapp2)
         {
-            if (!MainWindow.SessionState.Winapp2Loaded)
-            {
-                await MainWindow.RefreshWinapp2StateAsync();
-            }
-
-            if (MainWindow.SessionState.Winapp2Entries.Count > 0)
-            {
-                MainContent.Children.Add(Winapp2CleanerPanel(MainWindow.SessionState.Winapp2Entries));
-            }
-
-            _winapp2PanelRendered = true;
+            return;
         }
+
+        if (!MainWindow.SessionState.Winapp2Loaded)
+        {
+            await MainWindow.RefreshWinapp2StateAsync();
+        }
+
+        if (_appliedWinapp2Revision == MainWindow.SessionState.Winapp2Revision)
+        {
+            return;
+        }
+
+        if (_winapp2Panel != null)
+        {
+            MainContent.Children.Remove(_winapp2Panel);
+        }
+
+        _winapp2Panel = MainWindow.SessionState.Winapp2Entries.Count > 0
+            ? Winapp2CleanerPanel(MainWindow.SessionState.Winapp2Entries)
+            : !string.IsNullOrWhiteSpace(MainWindow.SessionState.Winapp2Error)
+                ? InfoBlock(MainWindow.SessionState.Winapp2Error!)
+                : null;
+        if (_winapp2Panel != null)
+        {
+            MainContent.Children.Add(_winapp2Panel);
+        }
+
+        _appliedWinapp2Revision = MainWindow.SessionState.Winapp2Revision;
     }
 
     private void AddTaskRow(MaintenanceTask task)
@@ -277,8 +309,12 @@ public sealed partial class MaintenancePage : BasePage
 
     private async Task PreviewAndRunWinapp2CleanupAsync(List<CleanerEntry> selectedEntries)
     {
+        var customDatabase = IsCustomWinapp2DatabaseActive();
         MainWindow.SetStatusText(T("winapp2.scanning"));
-        var preview = await MainWindow.Winapp2Cleanup.PreviewAsync(selectedEntries, MainWindow.Settings.ProtectedPaths);
+        var preview = await MainWindow.Winapp2Cleanup.PreviewAsync(
+            selectedEntries,
+            MainWindow.Settings.ProtectedPaths,
+            restrictCustomDatabase: customDatabase);
         if (preview.Candidates.Count == 0)
         {
             MainWindow.SetStatusText(T("common.ready"));
@@ -286,14 +322,47 @@ public sealed partial class MaintenancePage : BasePage
             return;
         }
 
+        var confirmation = new StackPanel { Spacing = 10 };
+        confirmation.Children.Add(new TextBlock
+        {
+            Text = F("winapp2.confirmBody", preview.Candidates.Count, Formatters.FormatBytes(preview.TotalBytes), selectedEntries.Count),
+            TextWrapping = TextWrapping.Wrap
+        });
+        if (customDatabase)
+        {
+            confirmation.Children.Add(InfoBlock(T("winapp2.customDatabaseWarning")));
+        }
+
+        confirmation.Children.Add(new TextBlock
+        {
+            Text = T("winapp2.targetPaths"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        var targetText = string.Join(Environment.NewLine, preview.Candidates.Take(25).Select(candidate => candidate.Path));
+        if (preview.Candidates.Count > 25)
+        {
+            targetText += Environment.NewLine + F("winapp2.moreTargets", preview.Candidates.Count - 25);
+        }
+        confirmation.Children.Add(new ScrollViewer
+        {
+            MaxHeight = 220,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = new TextBlock
+            {
+                Text = targetText,
+                FontFamily = new FontFamily("Consolas"),
+                TextWrapping = TextWrapping.Wrap
+            }
+        });
+        if (preview.Warnings.Count > 0)
+        {
+            confirmation.Children.Add(InfoBlock(F("winapp2.blockedTargets", preview.Warnings.Count)));
+        }
+
         var dialog = new ContentDialog
         {
             Title = T("winapp2.confirmTitle"),
-            Content = new TextBlock
-            {
-                Text = F("winapp2.confirmBody", preview.Candidates.Count, Formatters.FormatBytes(preview.TotalBytes), selectedEntries.Count),
-                TextWrapping = TextWrapping.Wrap
-            },
+            Content = confirmation,
             PrimaryButtonText = T("common.delete"),
             CloseButtonText = T("common.cancel"),
             DefaultButton = ContentDialogButton.Close,
@@ -306,8 +375,299 @@ public sealed partial class MaintenancePage : BasePage
         }
 
         MainWindow.SetStatusText(T("winapp2.cleaning"));
-        var result = await MainWindow.Winapp2Cleanup.RunAsync(preview, selectedEntries.Count, MainWindow.Settings.ProtectedPaths);
+        var result = await MainWindow.Winapp2Cleanup.RunAsync(
+            preview,
+            selectedEntries.Count,
+            MainWindow.Settings.ProtectedPaths,
+            restrictCustomDatabase: customDatabase);
         MainWindow.SetStatusText(T("common.ready"));
         await MainWindow.ShowRunResultAsync_Internal(result);
+    }
+
+    private Border OneClickPanel()
+    {
+        var stack = new StackPanel { Spacing = 12 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = T("oneClick.title"),
+            FontSize = 22,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        stack.Children.Add(InfoBlock(T("oneClick.description")));
+
+        var cleanupItems = new StackPanel { Spacing = 8 };
+        var systemItems = new StackPanel { Spacing = 8 };
+        var performanceItems = new StackPanel { Spacing = 8 };
+        var systemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "cleanup.shaders", "cleanup.errorreports", "cleanup.prefetch", "cleanup.defenderlogs",
+            "cleanup.systemdumps", "cleanup.windowsupdate"
+        };
+
+        foreach (var (definition, task) in MainWindow.OneClickMaintenance.GetItems())
+        {
+            var checkBox = OneClickOption(task, definition.DefaultSelected);
+            _oneClickSelections[task.Id] = checkBox;
+            if (definition.IsPerformanceAction)
+            {
+                performanceItems.Children.Add(checkBox);
+            }
+            else if (systemIds.Contains(task.Id))
+            {
+                systemItems.Children.Add(checkBox);
+            }
+            else
+            {
+                cleanupItems.Children.Add(checkBox);
+            }
+        }
+
+        stack.Children.Add(OneClickGroup(T("oneClick.cleanupGroup"), cleanupItems, expanded: true));
+        stack.Children.Add(OneClickGroup(T("oneClick.systemGroup"), systemItems, expanded: false));
+        stack.Children.Add(OneClickGroup(T("oneClick.performanceGroup"), performanceItems, expanded: true));
+
+        _oneClickProgress = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 1,
+            Height = 8,
+            Visibility = Visibility.Collapsed
+        };
+        _oneClickStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.72 };
+        stack.Children.Add(_oneClickProgress);
+        stack.Children.Add(_oneClickStatus);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        _oneClickRunButton = ActionButton(T("oneClick.analyze"), Symbol.Play, async (_, _) => await RunOneClickAsync());
+        _oneClickStopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) => _oneClickCancellation?.Cancel());
+        _oneClickStopButton.IsEnabled = false;
+        actions.Children.Add(_oneClickRunButton);
+        actions.Children.Add(_oneClickStopButton);
+        stack.Children.Add(actions);
+
+        return new Border
+        {
+            Padding = new Thickness(18),
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brush(Colors.DodgerBlue),
+            Background = Brush(Color.FromArgb(18, 30, 144, 255)),
+            Child = stack
+        };
+    }
+
+    private CheckBox OneClickOption(MaintenanceTask task, bool selectedByDefault)
+    {
+        var content = new StackPanel { Spacing = 2 };
+        content.Children.Add(new TextBlock
+        {
+            Text = MainWindow.TaskLabel_Internal(task),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = MainWindow.TaskImpact_Internal(task),
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.68
+        });
+        var checkBox = new CheckBox
+        {
+            Content = content,
+            IsChecked = selectedByDefault,
+            IsEnabled = !task.RequiresAdmin || SystemStatusService.IsAdministrator()
+        };
+        if (!checkBox.IsEnabled)
+        {
+            ToolTipService.SetToolTip(checkBox, T("oneClick.adminRequired"));
+        }
+        else if (task.RiskLevel == RiskLevel.High)
+        {
+            ToolTipService.SetToolTip(checkBox, T("oneClick.highRiskWarning"));
+        }
+        return checkBox;
+    }
+
+    private static Expander OneClickGroup(string title, UIElement content, bool expanded)
+    {
+        return new Expander
+        {
+            Header = title,
+            Content = content,
+            IsExpanded = expanded,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+    }
+
+    private async Task RunOneClickAsync()
+    {
+        if (_oneClickRunning || _oneClickRunButton == null || _oneClickStopButton == null ||
+            _oneClickProgress == null || _oneClickStatus == null)
+        {
+            return;
+        }
+
+        var selectedIds = _oneClickSelections
+            .Where(pair => pair.Value.IsEnabled && pair.Value.IsChecked == true)
+            .Select(pair => pair.Key)
+            .ToList();
+        if (selectedIds.Count == 0)
+        {
+            await MainWindow.ShowDialogAsync_Internal(
+                T("oneClick.title"),
+                InfoBlock(T("oneClick.selectAtLeastOne")),
+                T("common.close"));
+            return;
+        }
+
+        _oneClickRunning = true;
+        _oneClickCancellation?.Dispose();
+        _oneClickCancellation = new CancellationTokenSource();
+        _oneClickRunButton.IsEnabled = false;
+        _oneClickStopButton.IsEnabled = true;
+        _oneClickProgress.Visibility = Visibility.Visible;
+        SetOneClickSelectionsEnabled(false);
+
+        var progress = new Progress<OneClickProgress>(value =>
+        {
+            _oneClickProgress.Maximum = Math.Max(1, value.Total);
+            _oneClickProgress.Value = value.Current;
+            var task = MainWindow.Catalog.GetById(value.TaskId);
+            _oneClickStatus.Text = F(
+                value.IsRunning ? "oneClick.runningProgress" : "oneClick.scanningProgress",
+                value.Current,
+                value.Total,
+                MainWindow.TaskLabel_Internal(task));
+        });
+
+        try
+        {
+            var preview = await MainWindow.OneClickMaintenance.PreviewAsync(
+                selectedIds,
+                MainWindow.Settings.ProtectedPaths,
+                progress,
+                _oneClickCancellation.Token);
+            if (!await ConfirmOneClickAsync(preview))
+            {
+                return;
+            }
+
+            var summary = await MainWindow.OneClickMaintenance.RunAsync(
+                preview,
+                MainWindow.Settings.ProtectedPaths,
+                progress,
+                _oneClickCancellation.Token);
+            var aggregate = BuildOneClickReport(summary);
+            await MainWindow.SaveOperationReportAsync(aggregate);
+            if (!summary.Cancelled)
+            {
+                await MainWindow.RefreshHealthMetricsStateAsync(_oneClickCancellation.Token);
+            }
+            await MainWindow.ShowRunResultAsync_Internal(aggregate);
+        }
+        catch (OperationCanceledException)
+        {
+            _oneClickStatus.Text = T("common.cancelled");
+        }
+        finally
+        {
+            _oneClickRunning = false;
+            _oneClickRunButton.IsEnabled = true;
+            _oneClickStopButton.IsEnabled = false;
+            SetOneClickSelectionsEnabled(true);
+            _oneClickCancellation?.Dispose();
+            _oneClickCancellation = null;
+            MainWindow.SetStatusText(T("common.ready"));
+        }
+    }
+
+    private async Task<bool> ConfirmOneClickAsync(OneClickPreview preview)
+    {
+        var panel = new StackPanel { Spacing = 10, MaxWidth = 720 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = F("oneClick.previewSummary", preview.EstimatedFileCount, Formatters.FormatBytes(preview.EstimatedBytes), preview.Tasks.Count),
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        });
+        var details = new StackPanel { Spacing = 8 };
+        foreach (var item in preview.Tasks)
+        {
+            details.Children.Add(new TextBlock
+            {
+                Text = item.IsPerformanceAction
+                    ? F("oneClick.performanceLine", MainWindow.TaskLabel_Internal(item.Task))
+                    : F("oneClick.cleanupLine", MainWindow.TaskLabel_Internal(item.Task), Formatters.FormatBytes(item.Preview.EstimatedBytes), item.Preview.EstimatedFileCount),
+                Foreground = item.Task.RiskLevel == RiskLevel.High ? Brush(Colors.IndianRed) : null,
+                TextWrapping = TextWrapping.Wrap
+            });
+            foreach (var warning in item.Preview.Warnings.Take(3))
+            {
+                details.Children.Add(new TextBlock
+                {
+                    Text = $"  • {warning}",
+                    Foreground = Brush(Colors.DarkOrange),
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+        }
+        panel.Children.Add(new ScrollViewer
+        {
+            Content = details,
+            MaxHeight = 340,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        });
+
+        var dialog = new ContentDialog
+        {
+            Title = T("oneClick.confirmTitle"),
+            Content = panel,
+            PrimaryButtonText = T("oneClick.cleanAndBoost"),
+            CloseButtonText = T("common.cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private TaskRunResult BuildOneClickReport(OneClickRunSummary summary)
+    {
+        var now = DateTimeOffset.Now;
+        var messages = summary.Results
+            .Select(result => $"{MainWindow.TaskLabel_Internal(MainWindow.Catalog.GetById(result.TaskId))}: {(result.Success ? "OK" : "Failed")}")
+            .ToList();
+        if (summary.Cancelled)
+        {
+            messages.Add("One-click maintenance was cancelled before all actions completed.");
+        }
+        var errors = summary.Results
+            .SelectMany(result => result.Errors.Select(error => $"{result.TaskId}: {error}"))
+            .ToList();
+        return new TaskRunResult(
+            "maintenance.oneclick",
+            "1-click cleanup and boost",
+            summary.Results.Count > 0 ? summary.Results.Min(result => result.StartedAt) : now,
+            now,
+            !summary.Cancelled && summary.Results.All(result => result.Success),
+            summary.FreedBytes,
+            summary.FilesRemoved,
+            summary.FilesSkipped,
+            messages,
+            errors);
+    }
+
+    private void SetOneClickSelectionsEnabled(bool enabled)
+    {
+        foreach (var (taskId, checkBox) in _oneClickSelections)
+        {
+            var task = MainWindow.Catalog.GetById(taskId);
+            checkBox.IsEnabled = enabled && (!task.RequiresAdmin || SystemStatusService.IsAdministrator());
+        }
+    }
+
+    private bool IsCustomWinapp2DatabaseActive()
+    {
+        var path = MainWindow.Settings.CustomWinapp2DatabasePath;
+        return !string.IsNullOrWhiteSpace(path) && File.Exists(path);
     }
 }

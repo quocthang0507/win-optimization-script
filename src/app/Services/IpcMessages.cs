@@ -20,11 +20,13 @@ public sealed class RunTaskRequestPayload
     public string TaskLabel { get; set; } = string.Empty;
     public string TaskGroup { get; set; } = string.Empty;
     public bool CanRollback { get; set; }
+    public List<string> ProtectedPaths { get; set; } = [];
 }
 
 public sealed class PreviewTaskRequestPayload
 {
     public string TaskId { get; set; } = string.Empty;
+    public List<string> ProtectedPaths { get; set; } = [];
 }
 
 public sealed class SettingsPayload

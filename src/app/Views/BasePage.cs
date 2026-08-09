@@ -4,6 +4,7 @@ namespace WinOptimizationApp.Views;
 
 public abstract partial class BasePage : UserControl
 {
+    private readonly Dictionary<string, DebouncedUiAction> _debouncedActions = new(StringComparer.Ordinal);
     protected MainWindow MainWindow { get; }
     protected StackPanel MainContent { get; }
 
@@ -205,6 +206,42 @@ public abstract partial class BasePage : UserControl
         return theme == ElementTheme.Light
             ? Brush(Color.FromArgb(255, 252, 253, 255))
             : Brush(Color.FromArgb(255, 31, 36, 44));
+    }
+
+    protected void DebounceUiAction(string key, Action action, int delayMilliseconds = 180)
+    {
+        if (!_debouncedActions.TryGetValue(key, out var pending))
+        {
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(delayMilliseconds) };
+            pending = new DebouncedUiAction(timer);
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                var scheduledAction = pending.PendingAction;
+                pending.PendingAction = null;
+                scheduledAction?.Invoke();
+            };
+            _debouncedActions[key] = pending;
+        }
+
+        pending.PendingAction = action;
+        pending.Timer.Stop();
+        pending.Timer.Start();
+    }
+
+    protected void CancelDebouncedUiAction(string key)
+    {
+        if (_debouncedActions.TryGetValue(key, out var pending))
+        {
+            pending.Timer.Stop();
+            pending.PendingAction = null;
+        }
+    }
+
+    private sealed class DebouncedUiAction(DispatcherTimer timer)
+    {
+        public DispatcherTimer Timer { get; } = timer;
+        public Action? PendingAction { get; set; }
     }
 
     private static ElementTheme ResolveEffectiveTheme()

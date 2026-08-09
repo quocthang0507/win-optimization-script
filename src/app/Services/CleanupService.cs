@@ -14,19 +14,32 @@ public sealed class CleanupService(CommandRunner commands)
 
     public IpcClient? Client { get; set; }
 
-    public async Task<TaskPreview> PreviewAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
+    public Task<TaskPreview> PreviewAsync(MaintenanceTask task, CancellationToken cancellationToken = default) =>
+        PreviewAsync(task, null, cancellationToken);
+
+    public async Task<TaskPreview> PreviewAsync(
+        MaintenanceTask task,
+        IReadOnlyList<string>? protectedPaths,
+        CancellationToken cancellationToken = default)
     {
         if (Client?.IsConnected == true)
         {
-            var payload = System.Text.Json.JsonSerializer.Serialize(new PreviewTaskRequestPayload { TaskId = task.Id });
+            var payload = System.Text.Json.JsonSerializer.Serialize(new PreviewTaskRequestPayload
+            {
+                TaskId = task.Id,
+                ProtectedPaths = ProtectedPathService.NormalizePaths(protectedPaths).ToList()
+            });
             var response = await Client.SendRequestAsync("PreviewTask", payload, cancellationToken);
             return System.Text.Json.JsonSerializer.Deserialize<TaskPreview>(response) ?? throw new InvalidOperationException("Failed to deserialize TaskPreview");
         }
 
         return await Task.Run(() =>
         {
+            var normalizedProtectedPaths = ProtectedPathService.NormalizePaths(protectedPaths);
             var targets = GetTargets(task.Id)
-                .Select(target => PreviewTarget(target.Name, target.Path))
+                .Select(target => ProtectedPathService.IntersectsProtectedTree(target.Path, normalizedProtectedPaths)
+                    ? new CleanupTargetPreview(target.Name, target.Path, File.Exists(target.Path) || Directory.Exists(target.Path), 0, 0, "Protected")
+                    : PreviewTarget(target, cancellationToken))
                 .ToList();
 
             var warnings = GetWarnings(task.Id).ToList();
@@ -42,7 +55,13 @@ public sealed class CleanupService(CommandRunner commands)
         }, cancellationToken);
     }
 
-    public async Task<TaskRunResult> RunAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
+    public Task<TaskRunResult> RunAsync(MaintenanceTask task, CancellationToken cancellationToken = default) =>
+        RunAsync(task, null, cancellationToken);
+
+    public async Task<TaskRunResult> RunAsync(
+        MaintenanceTask task,
+        IReadOnlyList<string>? protectedPaths,
+        CancellationToken cancellationToken = default)
     {
         var started = DateTimeOffset.Now;
         var messages = new List<string>();
@@ -50,6 +69,7 @@ public sealed class CleanupService(CommandRunner commands)
         long freedBytes = 0;
         var filesRemoved = 0;
         var filesSkipped = 0;
+        var normalizedProtectedPaths = ProtectedPathService.NormalizePaths(protectedPaths);
 
         try
         {
@@ -105,6 +125,69 @@ public sealed class CleanupService(CommandRunner commands)
                         break;
                     }
 
+                case "cleanup.windowsupdate":
+                    {
+                        var stoppedServices = new List<string>();
+                        try
+                        {
+                            foreach (var serviceName in new[] { "wuauserv", "bits", "dosvc" })
+                            {
+                                var stopResult = await _commands.RunCaptureAsync(
+                                    "sc.exe",
+                                    $"stop {serviceName}",
+                                    cancellationToken);
+                                if (stopResult.ExitCode == 0)
+                                {
+                                    stoppedServices.Add(serviceName);
+                                }
+                            }
+                            if (stoppedServices.Count > 0)
+                            {
+                                await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken);
+                            }
+
+                            foreach (var target in GetTargets(task.Id))
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                if (ProtectedPathService.IntersectsProtectedTree(target.Path, normalizedProtectedPaths))
+                                {
+                                    filesSkipped++;
+                                    messages.Add($"Skipped protected target: {target.Path}");
+                                    continue;
+                                }
+
+                                if (!IsSafeCleanupPath(target.Path))
+                                {
+                                    filesSkipped++;
+                                    errors.Add($"Skipped unsafe path: {target.Path}");
+                                    continue;
+                                }
+
+                                var (removedCount, skippedCount, removedBytes) =
+                                    DeleteContents(target, errors, cancellationToken);
+                                freedBytes += removedBytes;
+                                filesRemoved += removedCount;
+                                filesSkipped += skippedCount;
+                                messages.Add($"Cleaned {target.Name}: {Formatters.FormatBytes(removedBytes)}.");
+                            }
+                        }
+                        finally
+                        {
+                            foreach (var serviceName in stoppedServices.AsEnumerable().Reverse())
+                            {
+                                var startResult = await _commands.RunCaptureAsync(
+                                    "sc.exe",
+                                    $"start {serviceName}",
+                                    CancellationToken.None);
+                                if (startResult.ExitCode != 0)
+                                {
+                                    errors.Add($"Could not restart Windows service {serviceName}.");
+                                }
+                            }
+                        }
+                        break;
+                    }
+
                 case "privacy.clipboard":
                     await _commands.RunCaptureAsync("cmd.exe", "/c echo off | clip", cancellationToken);
                     messages.Add("Clipboard cleared.");
@@ -114,7 +197,8 @@ public sealed class CleanupService(CommandRunner commands)
                     {
                         var historyPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Windows", "PowerShell", "PSReadLine", "ConsoleHost_history.txt");
                         var preview = PreviewTarget("PowerShell history", historyPath);
-                        if (File.Exists(historyPath) && IsSafeFile(historyPath))
+                        if (File.Exists(historyPath) && IsSafeFile(historyPath) &&
+                            !ProtectedPathService.IntersectsProtectedTree(historyPath, normalizedProtectedPaths))
                         {
                             File.Delete(historyPath);
                             freedBytes += preview.Bytes;
@@ -148,7 +232,15 @@ public sealed class CleanupService(CommandRunner commands)
                 default:
                     foreach (var target in GetTargets(task.Id))
                     {
-                        var preview = PreviewTarget(target.Name, target.Path);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (ProtectedPathService.IntersectsProtectedTree(target.Path, normalizedProtectedPaths))
+                        {
+                            filesSkipped++;
+                            messages.Add($"Skipped protected target: {target.Path}");
+                            continue;
+                        }
+
+                        var preview = PreviewTarget(target, cancellationToken);
                         if (!preview.Exists)
                         {
                             continue;
@@ -161,7 +253,7 @@ public sealed class CleanupService(CommandRunner commands)
                             continue;
                         }
 
-                        var (removedCount, skippedCount, removedBytes) = DeleteContents(target.Path, errors);
+                        var (removedCount, skippedCount, removedBytes) = DeleteContents(target, errors, cancellationToken);
                         freedBytes += removedBytes;
                         filesRemoved += removedCount;
                         filesSkipped += skippedCount;
@@ -169,6 +261,10 @@ public sealed class CleanupService(CommandRunner commands)
                     }
                     break;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -188,7 +284,7 @@ public sealed class CleanupService(CommandRunner commands)
             errors);
     }
 
-    private static IEnumerable<(string Name, string Path)> GetTargets(string taskId)
+    private static IEnumerable<CleanupTargetDefinition> GetTargets(string taskId)
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -210,6 +306,27 @@ public sealed class CleanupService(CommandRunner commands)
             "cleanup.crashdumps" =>
             [
                 ("User crash dumps", Path.Combine(localAppData, "CrashDumps"))
+            ],
+            "cleanup.errorreports" =>
+            [
+                new CleanupTargetDefinition("System WER archive", Path.Combine(programData, "Microsoft", "Windows", "WER", "ReportArchive"), "*", TimeSpan.FromDays(14)),
+                new CleanupTargetDefinition("System WER queue", Path.Combine(programData, "Microsoft", "Windows", "WER", "ReportQueue"), "*", TimeSpan.FromDays(14)),
+                new CleanupTargetDefinition("User WER archive", Path.Combine(localAppData, "Microsoft", "Windows", "WER", "ReportArchive"), "*", TimeSpan.FromDays(14)),
+                new CleanupTargetDefinition("User WER queue", Path.Combine(localAppData, "Microsoft", "Windows", "WER", "ReportQueue"), "*", TimeSpan.FromDays(14))
+            ],
+            "cleanup.prefetch" =>
+            [
+                new CleanupTargetDefinition("Stale Windows Prefetch", Path.Combine(windir, "Prefetch"), "*.pf", TimeSpan.FromDays(30))
+            ],
+            "cleanup.defenderlogs" =>
+            [
+                new CleanupTargetDefinition("Defender support logs", Path.Combine(programData, "Microsoft", "Windows Defender", "Support"), "*.log", TimeSpan.FromDays(30)),
+                new CleanupTargetDefinition("Defender support traces", Path.Combine(programData, "Microsoft", "Windows Defender", "Support"), "*.etl", TimeSpan.FromDays(30))
+            ],
+            "cleanup.systemdumps" =>
+            [
+                new CleanupTargetDefinition("System memory dump", Path.Combine(windir, "MEMORY.DMP"), "*", TimeSpan.FromDays(7)),
+                new CleanupTargetDefinition("System minidumps", Path.Combine(windir, "Minidump"), "*.dmp", TimeSpan.FromDays(7))
             ],
             "cleanup.browser" => GetBrowserTargets(localAppData, appData),
             "cleanup.windowsupdate" =>
@@ -233,7 +350,7 @@ public sealed class CleanupService(CommandRunner commands)
         };
     }
 
-    private static IEnumerable<(string Name, string Path)> GetRecentFileTargets(string appData)
+    private static IEnumerable<CleanupTargetDefinition> GetRecentFileTargets(string appData)
     {
         var recentRoot = Path.Combine(appData, "Microsoft", "Windows", "Recent");
         yield return ("Recent documents", recentRoot);
@@ -241,7 +358,7 @@ public sealed class CleanupService(CommandRunner commands)
         yield return ("Custom jump lists", Path.Combine(recentRoot, "CustomDestinations"));
     }
 
-    private static IEnumerable<(string Name, string Path)> GetBrowserTargets(string localAppData, string appData)
+    private static IEnumerable<CleanupTargetDefinition> GetBrowserTargets(string localAppData, string appData)
     {
         var chromiumRoots = new (string Name, string Root)[]
         {
@@ -285,7 +402,7 @@ public sealed class CleanupService(CommandRunner commands)
         }
     }
 
-    private static IEnumerable<(string Name, string Path)> GetBrowserHistoryTargets(string localAppData, string appData)
+    private static IEnumerable<CleanupTargetDefinition> GetBrowserHistoryTargets(string localAppData, string appData)
     {
         string[] chromiumHistoryFiles = ["History", "History-journal", "Visited Links", "Top Sites", "Top Sites-journal"];
 
@@ -306,7 +423,7 @@ public sealed class CleanupService(CommandRunner commands)
         }
     }
 
-    private static IEnumerable<(string Name, string Path)> GetBrowserCookieAndSessionTargets(string localAppData, string appData)
+    private static IEnumerable<CleanupTargetDefinition> GetBrowserCookieAndSessionTargets(string localAppData, string appData)
     {
         foreach (var (browser, profile) in GetChromiumProfiles(localAppData, appData))
         {
@@ -383,6 +500,21 @@ public sealed class CleanupService(CommandRunner commands)
         {
             yield return "High-risk cleanup: create a restore point before running.";
         }
+
+        if (taskId == "cleanup.prefetch")
+        {
+            yield return "Only Prefetch files older than 30 days are eligible; recent launch data is preserved.";
+        }
+
+        if (taskId == "cleanup.defenderlogs")
+        {
+            yield return "Protection history and quarantine are not included; only old support logs are eligible.";
+        }
+
+        if (taskId is "cleanup.errorreports" or "cleanup.systemdumps")
+        {
+            yield return "These diagnostic files may be useful when investigating recent Windows failures.";
+        }
     }
 
     private IEnumerable<string> GetPlannedCommands(string taskId)
@@ -422,12 +554,25 @@ public sealed class CleanupService(CommandRunner commands)
 
     internal static CleanupTargetPreview PreviewTarget(string name, string path)
     {
+        return PreviewTarget(new CleanupTargetDefinition(name, path), CancellationToken.None);
+    }
+
+    private static CleanupTargetPreview PreviewTarget(
+        CleanupTargetDefinition target,
+        CancellationToken cancellationToken)
+    {
+        var name = target.Name;
+        var path = target.Path;
         try
         {
             if (File.Exists(path))
             {
                 var file = new FileInfo(path);
-                return new CleanupTargetPreview(name, path, true, file.Length, 1, "Ready");
+                if (!MatchesTargetFilter(file, target))
+                {
+                    return new CleanupTargetPreview(name, path, true, 0, 0, "No eligible files");
+                }
+                return new CleanupTargetPreview(name, path, true, file.Length, 1, TargetStatus(target));
             }
 
             if (!Directory.Exists(path))
@@ -437,11 +582,16 @@ public sealed class CleanupService(CommandRunner commands)
 
             long bytes = 0;
             var fileCount = 0;
-            foreach (var file in Directory.EnumerateFiles(path, "*", RecursiveEnumeration))
+            foreach (var file in Directory.EnumerateFiles(path, target.Pattern, RecursiveEnumeration))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     var info = new FileInfo(file);
+                    if (!MatchesTargetFilter(info, target))
+                    {
+                        continue;
+                    }
                     bytes += info.Length;
                     fileCount++;
                 }
@@ -451,25 +601,35 @@ public sealed class CleanupService(CommandRunner commands)
                 }
             }
 
-            return new CleanupTargetPreview(name, path, true, bytes, fileCount, "Ready");
+            return new CleanupTargetPreview(name, path, true, bytes, fileCount, TargetStatus(target));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new CleanupTargetPreview(name, path, Directory.Exists(path) || File.Exists(path), 0, 0, ex.Message);
         }
     }
 
-    private static (int Removed, int Skipped, long RemovedBytes) DeleteContents(string path, List<string> errors)
+    private static (int Removed, int Skipped, long RemovedBytes) DeleteContents(
+        CleanupTargetDefinition target,
+        List<string> errors,
+        CancellationToken cancellationToken)
     {
+        var path = target.Path;
         var removed = 0;
         var skipped = 0;
         long removedBytes = 0;
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (File.Exists(path))
         {
             try
             {
-                var bytes = new FileInfo(path).Length;
+                var info = new FileInfo(path);
+                if (!MatchesTargetFilter(info, target))
+                {
+                    return (0, 0, 0);
+                }
+                var bytes = info.Length;
                 File.Delete(path);
                 return (1, 0, bytes);
             }
@@ -489,12 +649,20 @@ public sealed class CleanupService(CommandRunner commands)
         List<string> dirs;
         try
         {
-            files = Directory.EnumerateFiles(path, "*", RecursiveEnumeration).ToList();
-            dirs = Directory.EnumerateDirectories(path, "*", RecursiveEnumeration)
-                .OrderByDescending(d => d.Length)
+            files = Directory.EnumerateFiles(path, target.Pattern, RecursiveEnumeration)
+                .Where(file =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return MatchesTargetFilter(new FileInfo(file), target);
+                })
                 .ToList();
+            dirs = target.Pattern == "*" && target.MinimumAge is null
+                ? Directory.EnumerateDirectories(path, "*", RecursiveEnumeration)
+                    .OrderByDescending(directory => directory.Length)
+                    .ToList()
+                : [];
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             errors.Add($"{path}: {ex.Message}");
             return (0, 1, 0);
@@ -502,6 +670,7 @@ public sealed class CleanupService(CommandRunner commands)
 
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var fileName = Path.GetFileName(file).ToLowerInvariant();
@@ -526,6 +695,7 @@ public sealed class CleanupService(CommandRunner commands)
 
         foreach (var dir in dirs)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 Directory.Delete(dir, false);
@@ -537,6 +707,19 @@ public sealed class CleanupService(CommandRunner commands)
         }
 
         return (removed, skipped, removedBytes);
+    }
+
+    private static bool MatchesTargetFilter(FileInfo file, CleanupTargetDefinition target)
+    {
+        return target.MinimumAge is null ||
+               file.LastWriteTimeUtc <= DateTime.UtcNow - target.MinimumAge.Value;
+    }
+
+    private static string TargetStatus(CleanupTargetDefinition target)
+    {
+        return target.MinimumAge is { } age
+            ? $"Ready (older than {Math.Max(1, (int)age.TotalDays)} days)"
+            : "Ready";
     }
 
     private static bool IsSafeFile(string path)
@@ -565,6 +748,7 @@ public sealed class CleanupService(CommandRunner commands)
             Path.Combine(windir, "Temp"),
             Path.Combine(localAppData, "D3DSCache"),
             Path.Combine(localAppData, "CrashDumps"),
+            Path.Combine(localAppData, "Microsoft", "Windows", "WER"),
             Path.Combine(localAppData, "Microsoft", "Edge", "User Data"),
             Path.Combine(localAppData, "Google", "Chrome", "User Data"),
             Path.Combine(localAppData, "BraveSoftware", "Brave-Browser", "User Data"),
@@ -574,6 +758,11 @@ public sealed class CleanupService(CommandRunner commands)
             Path.Combine(windir, "SoftwareDistribution", "Download"),
             Path.Combine(windir, "SoftwareDistribution", "DeliveryOptimization"),
             Path.Combine(programData, "Microsoft", "Windows", "DeliveryOptimization", "Cache"),
+            Path.Combine(programData, "Microsoft", "Windows", "WER"),
+            Path.Combine(programData, "Microsoft", "Windows Defender", "Support"),
+            Path.Combine(windir, "Prefetch"),
+            Path.Combine(windir, "Minidump"),
+            Path.Combine(windir, "MEMORY.DMP"),
             Path.Combine(systemDrive, "Windows.old")
         ];
 
@@ -598,5 +787,15 @@ public sealed class CleanupService(CommandRunner commands)
         return firstSpace < 0
             ? (trimmed, string.Empty)
             : (trimmed[..firstSpace], trimmed[(firstSpace + 1)..]);
+    }
+
+    private sealed record CleanupTargetDefinition(
+        string Name,
+        string Path,
+        string Pattern = "*",
+        TimeSpan? MinimumAge = null)
+    {
+        public static implicit operator CleanupTargetDefinition((string Name, string Path) target) =>
+            new(target.Name, target.Path);
     }
 }
