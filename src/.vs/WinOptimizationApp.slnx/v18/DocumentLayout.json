@@ -1,12 +1,36 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "D:\\GitHub\\win-optimization-script\\src\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{5817DAC0-F3AA-DC6B-ECC3-98021F4DB050}|app\\WinOptimizationApp.csproj|d:\\github\\win-optimization-script\\src\\app\\winoptimizationapp.csproj||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|",
+      "RelativeMoniker": "D:0:0:{5817DAC0-F3AA-DC6B-ECC3-98021F4DB050}|app\\WinOptimizationApp.csproj|solutionrelative:app\\winoptimizationapp.csproj||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
       "VerticalTabListWidth": 256,
-      "DocumentGroups": []
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "WinOptimizationApp",
+              "DocumentMoniker": "D:\\GitHub\\win-optimization-script\\src\\app\\WinOptimizationApp.csproj",
+              "RelativeDocumentMoniker": "app\\WinOptimizationApp.csproj",
+              "ToolTip": "D:\\GitHub\\win-optimization-script\\src\\app\\WinOptimizationApp.csproj",
+              "RelativeToolTip": "app\\WinOptimizationApp.csproj",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-08-14T06:11:35.466Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
     }
   ]
 }

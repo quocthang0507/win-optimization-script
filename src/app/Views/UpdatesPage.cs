@@ -588,22 +588,29 @@ public sealed partial class UpdatesPage : BasePage
             reportMessages.Add($"Upgrade cancelled with {notProcessed:N0} package(s) not processed.");
         }
 
-        await MainWindow.SaveOperationReportAsync(new TaskRunResult(
-            downloadDirectory is null ? "software.update" : "software.update.download",
-            downloadDirectory is null ? "Application Updates" : "Download and Update Applications",
-            started,
-            DateTimeOffset.Now,
-            failed == 0 && !cancelled,
-            0,
-            succeeded,
-            failed + notProcessed,
-            reportMessages,
-            reportErrors));
-        await MainWindow.RefreshUpdatesStateAsync();
-        ApplyCachedUpdatesState();
-        MainWindow.SetStatusText(cancelled
+        var completionStatus = cancelled
             ? F("updates.upgradeCancelled", succeeded, failed, notProcessed)
-            : F("updates.upgradeSummary", succeeded, failed));
+            : F("updates.upgradeSummary", succeeded, failed);
+        try
+        {
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                downloadDirectory is null ? "software.update" : "software.update.download",
+                downloadDirectory is null ? "Application Updates" : "Download and Update Applications",
+                started,
+                DateTimeOffset.Now,
+                failed == 0 && !cancelled,
+                0,
+                succeeded,
+                failed + notProcessed,
+                reportMessages,
+                reportErrors));
+            await MainWindow.RefreshUpdatesStateAsync();
+            ApplyCachedUpdatesState();
+        }
+        finally
+        {
+            MainWindow.SetStatusText(completionStatus, isBusy: false);
+        }
     }
 
     private Task<string?> PickUpdateDownloadFolderAsync()

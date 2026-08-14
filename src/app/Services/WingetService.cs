@@ -6,6 +6,11 @@ public sealed class WingetService
 {
     private const string AgreementArguments = "--accept-package-agreements --accept-source-agreements --disable-interactivity";
     private const string SourceAgreementArguments = "--accept-source-agreements --disable-interactivity";
+    private static readonly EnumerationOptions DownloadEnumeration = new()
+    {
+        RecurseSubdirectories = true,
+        AttributesToSkip = FileAttributes.ReparsePoint
+    };
     private readonly CommandRunner _commands;
 
     public IpcClient? Client { get; set; }
@@ -96,14 +101,52 @@ public sealed class WingetService
             return new WingetPackageUpgradeResult(package, false, -1, string.Empty, "winget is not available.");
         }
 
-        Directory.CreateDirectory(downloadDirectory);
-        var result = await _commands.RunCaptureAsync("winget.exe", BuildDownloadArguments(package, downloadDirectory), cancellationToken);
-        return new WingetPackageUpgradeResult(
-            package,
-            result.ExitCode == 0,
-            result.ExitCode,
-            result.StandardOutput.Trim(),
-            result.StandardError.Trim());
+        var targetDirectory = Path.GetFullPath(downloadDirectory);
+        var stagingRoot = Path.Combine(Path.GetTempPath(), "WinOptimizationApp", "WingetDownloads");
+        var stagingDirectory = Path.Combine(stagingRoot, Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(targetDirectory);
+            Directory.CreateDirectory(stagingDirectory);
+            var result = await _commands.RunCaptureAsync(
+                "winget.exe",
+                BuildDownloadArguments(package, stagingDirectory),
+                cancellationToken);
+            if (result.ExitCode != 0)
+            {
+                return new WingetPackageUpgradeResult(
+                    package,
+                    false,
+                    result.ExitCode,
+                    result.StandardOutput.Trim(),
+                    result.StandardError.Trim());
+            }
+
+            PromoteDownloadedArtifacts(stagingDirectory, targetDirectory, cancellationToken);
+            return new WingetPackageUpgradeResult(
+                package,
+                true,
+                result.ExitCode,
+                result.StandardOutput.Trim(),
+                result.StandardError.Trim());
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return new WingetPackageUpgradeResult(
+                package,
+                false,
+                -1,
+                string.Empty,
+                $"Could not save the downloaded package: {ex.Message}");
+        }
+        finally
+        {
+            TryDeleteDownloadStaging(stagingDirectory, stagingRoot);
+        }
     }
 
     public async Task<WingetPackageUpgradeResult> InstallPackageAsync(string packageId, CancellationToken cancellationToken = default)
@@ -196,6 +239,83 @@ public sealed class WingetService
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return false;
+        }
+    }
+
+    internal static IReadOnlyList<string> PromoteDownloadedArtifacts(
+        string stagingDirectory,
+        string targetDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var stagingRoot = Path.GetFullPath(stagingDirectory);
+        var targetRoot = Path.GetFullPath(targetDirectory);
+        if (!Directory.Exists(stagingRoot))
+        {
+            return [];
+        }
+
+        Directory.CreateDirectory(targetRoot);
+        var savedFiles = new List<string>();
+        foreach (var sourcePath in Directory.EnumerateFiles(stagingRoot, "*", DownloadEnumeration))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsWingetManifestFile(sourcePath))
+            {
+                continue;
+            }
+
+            var relativePath = Path.GetRelativePath(stagingRoot, sourcePath);
+            var destinationPath = Path.GetFullPath(Path.Combine(targetRoot, relativePath));
+            if (!PathSafetyService.IsPathWithinOrEqual(destinationPath, targetRoot))
+            {
+                throw new IOException("WinGet returned an artifact outside the download staging directory.");
+            }
+
+            var destinationParent = Path.GetDirectoryName(destinationPath)
+                ?? throw new IOException("The downloaded artifact has no destination directory.");
+            Directory.CreateDirectory(destinationParent);
+            var partialPath = destinationPath + $".winoptimization-{Guid.NewGuid():N}.partial";
+            try
+            {
+                File.Copy(sourcePath, partialPath, overwrite: true);
+                File.Move(partialPath, destinationPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(partialPath))
+                {
+                    File.Delete(partialPath);
+                }
+            }
+            savedFiles.Add(destinationPath);
+        }
+
+        return savedFiles;
+    }
+
+    internal static bool IsWingetManifestFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".yaml", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".yml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void TryDeleteDownloadStaging(string stagingDirectory, string stagingRoot)
+    {
+        try
+        {
+            var fullStagingPath = Path.GetFullPath(stagingDirectory);
+            var fullStagingRoot = Path.GetFullPath(stagingRoot);
+            if (Directory.Exists(fullStagingPath) &&
+                !fullStagingPath.Equals(fullStagingRoot, StringComparison.OrdinalIgnoreCase) &&
+                PathSafetyService.IsPathWithinOrEqual(fullStagingPath, fullStagingRoot))
+            {
+                Directory.Delete(fullStagingPath, recursive: true);
+            }
+        }
+        catch
+        {
+            // A later maintenance pass can remove an inaccessible staging directory.
         }
     }
 

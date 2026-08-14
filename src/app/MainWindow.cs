@@ -8,6 +8,7 @@ public sealed class MainWindow : Window
 {
     private readonly IpcClient _ipcClient = new();
     private readonly Dictionary<string, NavigationViewItem> _navItems = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double> _pageScrollOffsets = new(StringComparer.OrdinalIgnoreCase);
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
@@ -22,6 +23,7 @@ public sealed class MainWindow : Window
 
     private readonly Dictionary<string, BasePage> _pages = new(StringComparer.OrdinalIgnoreCase);
     private string _currentPageTag = "dashboard";
+    private int _scrollRestoreVersion;
 
     internal PathService Paths { get; } = new();
     internal AppSettingsService SettingsService { get; } = new();
@@ -763,7 +765,9 @@ public sealed class MainWindow : Window
 
     internal async Task NavigateAsync(string tag)
     {
+        CaptureCurrentPageScrollPosition();
         _currentPageTag = tag;
+        var scrollRestoreVersion = ++_scrollRestoreVersion;
         _scrollViewer.Content = null;
         SetStatus(T("common.loading"));
 
@@ -803,9 +807,41 @@ public sealed class MainWindow : Window
             {
                 SetStatus($"Navigation error: {ex.Message}");
             }
+
+            RestorePageScrollPosition(tag, scrollRestoreVersion);
         }
 
         SetStatus(T("common.ready"));
+    }
+
+    private void CaptureCurrentPageScrollPosition()
+    {
+        if (_scrollViewer.Content is not null && !string.IsNullOrWhiteSpace(_currentPageTag))
+        {
+            _pageScrollOffsets[_currentPageTag] = Math.Max(0, _scrollViewer.VerticalOffset);
+        }
+    }
+
+    private void RestorePageScrollPosition(string tag, int restoreVersion)
+    {
+        var targetOffset = _pageScrollOffsets.TryGetValue(tag, out var savedOffset)
+            ? Math.Max(0, savedOffset)
+            : 0;
+
+        void ApplyScrollPosition()
+        {
+            if (restoreVersion != _scrollRestoreVersion ||
+                !_currentPageTag.Equals(tag, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _scrollViewer.UpdateLayout();
+            _scrollViewer.ChangeView(null, targetOffset, null, disableAnimation: true);
+        }
+
+        ApplyScrollPosition();
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplyScrollPosition);
     }
 
     internal async Task ChangeLanguageAsync(AppLanguage language)
@@ -866,6 +902,11 @@ public sealed class MainWindow : Window
     internal void SetStatusText(string text)
     {
         SetStatus(text);
+    }
+
+    internal void SetStatusText(string text, bool isBusy)
+    {
+        SetStatus(text, isBusy);
     }
 
     internal async Task SaveOperationReportAsync(TaskRunResult result)
@@ -1164,7 +1205,7 @@ public sealed class MainWindow : Window
         await dialog.ShowAsync();
     }
 
-    private void SetStatus(string text)
+    private void SetStatus(string text, bool? isBusyOverride = null)
     {
         var displayText = text;
         if (text == T("common.ready"))
@@ -1181,7 +1222,7 @@ public sealed class MainWindow : Window
         var brush = GetStatusBrush(text);
         _statusText.Foreground = brush;
 
-        var isBusy = !string.IsNullOrEmpty(text)
+        var inferredBusy = !string.IsNullOrEmpty(text)
             && text != T("common.ready")
             && text != T("settings.saved")
             && text != T("update.latest")
@@ -1189,6 +1230,7 @@ public sealed class MainWindow : Window
             && !text.Contains(T("storage.scanCanceled"))
             && !text.Contains("Canceled")
             && !text.Contains("Hủy");
+        var isBusy = isBusyOverride ?? inferredBusy;
 
         _statusProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
         _statusProgress.Foreground = brush;

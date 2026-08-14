@@ -65,6 +65,51 @@ public sealed class WingetServiceTests
     }
 
     [Theory]
+    [InlineData("manifest.yaml", true)]
+    [InlineData("manifest.YML", true)]
+    [InlineData("installer.yaml.exe", false)]
+    [InlineData("setup.exe", false)]
+    public void IsWingetManifestFile_RecognizesOnlyYamlExtensions(string fileName, bool expected)
+    {
+        Assert.Equal(expected, WingetService.IsWingetManifestFile(fileName));
+    }
+
+    [Fact]
+    public void PromoteDownloadedArtifacts_SavesInstallersButSkipsYamlFiles()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "WinOptimizationAppTests", Guid.NewGuid().ToString("N"));
+        var staging = Path.Combine(testRoot, "staging");
+        var target = Path.Combine(testRoot, "target");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(staging, "dependency"));
+            Directory.CreateDirectory(target);
+            File.WriteAllText(Path.Combine(target, "UserNotes.yaml"), "keep: true");
+            File.WriteAllText(Path.Combine(staging, "Example.yaml"), "PackageIdentifier: Vendor.Example");
+            File.WriteAllText(Path.Combine(staging, "Example.yml"), "PackageVersion: 2.0");
+            File.WriteAllText(Path.Combine(staging, "Example.msix"), "installer");
+            File.WriteAllText(Path.Combine(staging, "dependency", "Runtime.exe"), "dependency");
+
+            var saved = WingetService.PromoteDownloadedArtifacts(staging, target);
+
+            Assert.Equal(2, saved.Count);
+            Assert.True(File.Exists(Path.Combine(target, "Example.msix")));
+            Assert.True(File.Exists(Path.Combine(target, "dependency", "Runtime.exe")));
+            Assert.False(File.Exists(Path.Combine(target, "Example.yaml")));
+            Assert.Equal("keep: true", File.ReadAllText(Path.Combine(target, "UserNotes.yaml")));
+            Assert.Single(Directory.EnumerateFiles(target, "*.yaml", SearchOption.AllDirectories));
+            Assert.Empty(Directory.EnumerateFiles(target, "*.yml", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            if (Directory.Exists(testRoot))
+            {
+                Directory.Delete(testRoot, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
     [InlineData("Google.Chrome", true)]
     [InlineData("Vendor.Package-Preview_1", true)]
     [InlineData("Vendor.Package\" --scope machine", false)]
