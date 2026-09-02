@@ -23,6 +23,8 @@ public sealed partial class StoragePage : BasePage
     private ComboBox? _diskItemSizeFilterBox;
     private DiskItemSortColumn _diskItemSortColumn = DiskItemSortColumn.Size;
     private bool _diskItemSortAscending;
+    private int _selectedResultTab;
+    private int _selectedDiscoveryTab;
     private DateTimeOffset _lastPartialRenderAt = DateTimeOffset.MinValue;
 
     public StoragePage(MainWindow mainWindow) : base(mainWindow)
@@ -426,6 +428,8 @@ public sealed partial class StoragePage : BasePage
     private void RenderStorageResults(StackPanel resultPanel, DiskScanResult result)
     {
         resultPanel.Children.Clear();
+        if (result.HasIncompleteTotals)
+            resultPanel.Children.Add(InfoBlock(T("storage.incompleteTotals")));
 
         var summary = new Grid { ColumnSpacing = 12, RowSpacing = 12 };
         summary.ColumnDefinitions.Add(new ColumnDefinition());
@@ -439,7 +443,7 @@ public sealed partial class StoragePage : BasePage
             0,
             0,
             T("storage.scanned"),
-            Formatters.FormatBytes(result.TotalBytes),
+            (result.HasIncompleteTotals ? "≥ " : string.Empty) + Formatters.FormatBytes(result.TotalBytes),
             $"{F("storage.filesFolders", result.FileCount, result.FolderCount)}\n{F("storage.allocatedDetail", Formatters.FormatBytes(result.Root.AllocatedSize))}",
             Colors.SteelBlue);
         AddMetric(summary, 0, 1, T("storage.largestFolder"), largestFolder is null ? T("common.none") : Formatters.FormatBytes(largestFolder.Size), largestFolder?.FullPath ?? result.Root.FullPath, Colors.DarkCyan);
@@ -478,6 +482,12 @@ public sealed partial class StoragePage : BasePage
             IsClosable = false,
             Content = StorageDiscoverTab(result)
         });
+
+        tabs.SelectedIndex = _selectedResultTab;
+        tabs.SelectionChanged += (_, _) =>
+        {
+            if (tabs.SelectedIndex >= 0) _selectedResultTab = tabs.SelectedIndex;
+        };
 
         return tabs;
     }
@@ -811,7 +821,8 @@ public sealed partial class StoragePage : BasePage
             panel.Children.Add(candidatePanel);
         }
 
-        var diskItems = MainWindow.DiskAnalysis.FlattenVisibleTree(result.Root, 400);
+        // Search all retained direct children before applying the UI row limit.
+        IReadOnlyList<DiskItem> diskItems = result.Root.IsDirectory ? result.Root.Children : [result.Root];
         var filteredDiskItems = FilterDiskItems(diskItems).ToList();
         panel.Children.Add(SectionTitle(F("storage.folderTreeCount", filteredDiskItems.Count, diskItems.Count)));
         panel.Children.Add(StorageDiskItemHeaderRow());
@@ -876,6 +887,11 @@ public sealed partial class StoragePage : BasePage
         discoveries.TabItems.Add(DiscoveryTab(T("storage.newestFiles"), result.NewestFiles, result));
         discoveries.TabItems.Add(DiscoveryTab(T("storage.oldestFiles"), result.OldestFiles, result));
         discoveries.TabItems.Add(DiscoveryTab(T("storage.developerArtifacts"), result.DeveloperArtifacts, result));
+        discoveries.SelectedIndex = _selectedDiscoveryTab;
+        discoveries.SelectionChanged += (_, _) =>
+        {
+            if (discoveries.SelectedIndex >= 0) _selectedDiscoveryTab = discoveries.SelectedIndex;
+        };
         panel.Children.Add(discoveries);
         return panel;
     }
@@ -883,7 +899,9 @@ public sealed partial class StoragePage : BasePage
     private TabViewItem DiscoveryTab(string header, IReadOnlyList<DiskItem> source, DiskScanResult result)
     {
         var content = new StackPanel { Spacing = 4, Padding = new Thickness(0, 10, 0, 0) };
-        var filtered = FilterDiskItems(source).Take(40).ToList();
+        var matches = FilterDiskItems(source).ToList();
+        var filtered = matches.Take(40).ToList();
+        content.Children.Add(InfoBlock(F("storage.discoveryCount", filtered.Count, matches.Count, source.Count)));
         content.Children.Add(StorageDiscoveryHeaderRow());
         foreach (var item in filtered)
         {
@@ -1063,29 +1081,13 @@ public sealed partial class StoragePage : BasePage
             _ => 0L
         };
 
-        return items.Where(item =>
-            MatchesDiskItemQuery(item, query)
-            && MatchesDiskItemType(item, typeIndex)
-            && item.Size >= minimumSize);
-    }
-
-    private static bool MatchesDiskItemQuery(DiskItem item, string query)
-    {
-        return string.IsNullOrWhiteSpace(query)
-            || item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || item.FullPath.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || item.Extension.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || item.ScanStatus.Contains(query, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool MatchesDiskItemType(DiskItem item, int typeIndex)
-    {
-        return typeIndex switch
+        bool? directoriesOnly = typeIndex switch
         {
-            1 => item.IsDirectory,
-            2 => !item.IsDirectory,
-            _ => true
+            1 => true,
+            2 => false,
+            _ => null
         };
+        return DiskAnalysisService.FilterItems(items, query, directoriesOnly, minimumSize);
     }
 
     private IEnumerable<DiskItem> SortDiskItems(IReadOnlyList<DiskItem> items, DiskItem root)

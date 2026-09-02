@@ -64,10 +64,18 @@ public sealed class TweakSnapshotService
         {
             try
             {
-                var snapshot = JsonSerializer.Deserialize<TweakSnapshot>(File.ReadAllText(file.FullName));
-                if (snapshot is not null && snapshot.Values.Count > 0)
+                // Validate before deserializing; duplicate IDs must not silently overwrite values.
+                if (file.Length > 1024 * 1024 || (file.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                using var document = JsonDocument.Parse(File.ReadAllText(file.FullName));
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("Values", out var values)) continue;
+                var validated = TweakChangePlanner.ParseValues(values);
+                var snapshot = JsonSerializer.Deserialize<TweakSnapshot>(root.GetRawText());
+                if (snapshot is not null && validated.Count > 0 &&
+                    !string.IsNullOrWhiteSpace(snapshot.Id) && !string.IsNullOrWhiteSpace(snapshot.Label) &&
+                    snapshot.CreatedAt != default)
                 {
-                    snapshots.Add((file.FullName, snapshot));
+                    snapshots.Add((file.FullName, snapshot with { Values = validated }));
                     if (snapshots.Count >= maxCount)
                     {
                         break;
@@ -78,9 +86,13 @@ public sealed class TweakSnapshotService
             {
                 // A corrupt snapshot is ignored and left for manual inspection.
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or InvalidDataException)
             {
                 // A busy snapshot is skipped for this refresh.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Inaccessible snapshots cannot be offered for restore.
             }
         }
 

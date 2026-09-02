@@ -264,7 +264,7 @@ public sealed class DiskAnalysisService
                     .Select(pair => pair.Value.ToSummary(pair.Key))
                     .OrderByDescending(summary => summary.TotalBytes)
                     .ToList(),
-                isPartial)
+                isPartial || errors.Count > 0)
             {
                 NewestFiles = newestFiles.Select(CloneDiskItem).ToList(),
                 OldestFiles = oldestFiles.Select(CloneDiskItem).ToList(),
@@ -390,6 +390,19 @@ public sealed class DiskAnalysisService
     private static void TrackLargestFile(DiskItem item, List<DiskItem> largestFiles)
     {
         TrackLargestItem(item, largestFiles, LargestFileLimit);
+    }
+
+    public static IEnumerable<DiskItem> FilterItems(
+        IEnumerable<DiskItem> items, string? query = null, bool? directoriesOnly = null, long minimumSize = 0)
+    {
+        query = query?.Trim() ?? string.Empty;
+        return items.Where(item =>
+            (directoriesOnly is null || item.IsDirectory == directoriesOnly.Value) &&
+            item.Size >= minimumSize &&
+            (query.Length == 0 || item.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+             item.FullPath.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+             item.Extension.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+             item.ScanStatus.Contains(query, StringComparison.OrdinalIgnoreCase)));
     }
 
     private static long SafeAllocatedSize(FileInfo file, long logicalSize)

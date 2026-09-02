@@ -12,6 +12,9 @@ public class CleanerEntry
     public string? Warning { get; set; }
     public bool Default { get; set; } = true;
 
+    public bool CanSelectByDefault(bool customDatabase) =>
+        !customDatabase && Default && string.IsNullOrWhiteSpace(Warning);
+
     // Detect keys and files are used to check if the app is installed
     public List<string> DetectKeys { get; } = new();
     public List<string> DetectFiles { get; } = new();

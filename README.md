@@ -259,13 +259,15 @@ Chi tiết kế hoạch triển khai và tiến trình hiện tại có thể xe
 
 ## Lời cảm ơn (Acknowledgments)
 
+Đợt rà soát ngày 02/09/2026 đã đối chiếu đủ sáu project bên dưới. Các cải tiến mới gồm tìm kiếm/cảnh báo Winapp2, xem trước và nhật ký áp dụng preset, kiểm tra bản sao khôi phục, giữ tab khi lọc và nhận diện số liệu lưu trữ chưa đầy đủ. Xem [bảng đối chiếu và phần chưa tích hợp](docs/reference_project_review.md).
+
 - Xin gửi lời cảm ơn đến đội ngũ phát triển [Microsoft WinUI 3](https://github.com/microsoft/microsoft-ui-xaml) và .NET.
-- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)** đã truyền cảm hứng cho việc tích hợp cơ sở dữ liệu dọn dẹp Winapp2 tùy chỉnh, quy trình xem trước minh bạch và trải nghiệm WinUI tối giản.
-- **[Winhance](https://github.com/memstechtips/Winhance)** đã truyền cảm hứng cho các chức năng tối ưu hệ thống, tinh chỉnh có thể khôi phục, quản lý phần mềm và cấu hình tái sử dụng.
-- **[Win11Debloat](https://github.com/Raphire/Win11Debloat)** của Raphire đã truyền cảm hứng cho các tinh chỉnh Windows an toàn, có thể hoàn tác như hiển thị phần mở rộng tệp, giảm nội dung gợi ý, tìm kiếm cục bộ và tùy chỉnh taskbar.
+- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)** đã truyền cảm hứng cho Winapp2 tùy chỉnh, tìm kiếm mục dọn dẹp, cảnh báo rõ ràng và trải nghiệm WinUI tối giản.
+- **[Winhance](https://github.com/memstechtips/Winhance)** đã truyền cảm hứng cho tinh chỉnh có thể khôi phục, cấu hình tái sử dụng, xem trước trạng thái trước/sau và lịch sử thay đổi.
+- **[Win11Debloat](https://github.com/Raphire/Win11Debloat)** của Raphire đã truyền cảm hứng cho tùy chỉnh Windows có thể hoàn tác và kiểm tra dữ liệu chặt chẽ trước khi áp dụng hoặc khôi phục.
 - **[Optimizer](https://github.com/hellzerg/optimizer)** của hellzerg đã truyền cảm hứng cho bộ công cụ chẩn đoán mạng, cách tổ chức các tùy chọn tối ưu nâng cao và tùy chọn đồng hồ UTC cho máy dual-boot. Repository gốc hiện đã được lưu trữ và được thay thế bởi OptimizerNXT.
-- **[QDirStat](https://github.com/shundhammer/qdirstat)** của Stefan Hundhammer đã truyền cảm hứng cho chế độ khám phá file lớn nhất, mới nhất và cũ nhất, phân bố tuổi file và cách làm nổi bật mục chiếm ưu thế trong Phân tích lưu trữ.
-- **[WinMole](https://github.com/bhadraagada/winmole)** của bhadraagada đã truyền cảm hứng cho danh sách đường dẫn được bảo vệ, phát hiện build artifact theo dấu hiệu project và quy trình bảo trì tất cả trong một.
+- **[QDirStat](https://github.com/shundhammer/qdirstat)** của Stefan Hundhammer đã truyền cảm hứng cho khám phá dung lượng theo kích thước và tuổi file, tìm kiếm kết quả quét và điều hướng nhất quán khi lọc.
+- **[WinMole](https://github.com/bhadraagada/winmole)** của bhadraagada đã truyền cảm hứng cho đường dẫn được bảo vệ, phát hiện artifact theo project và hiển thị rõ khi số liệu dung lượng chưa đầy đủ.
 - Cảm ơn cộng đồng mã nguồn mở và những người dùng đã đóng góp ý tưởng để cải thiện và hoàn thiện công cụ này.
 
 ---

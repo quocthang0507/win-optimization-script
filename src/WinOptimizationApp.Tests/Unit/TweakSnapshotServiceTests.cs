@@ -48,4 +48,20 @@ public sealed class TweakSnapshotServiceTests : IDisposable
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("{\"Values\":null}")]
+    [InlineData("{\"Values\":{\"a\":true,\"A\":false}}")]
+    [InlineData("{\"Values\":{\"a\":\"true\"}}")]
+    [InlineData("{\"Values\":{\"a\":true}}")]
+    public async Task GetSnapshots_SkipsMalformedSnapshotsWithoutHidingValidOnes(string invalidJson)
+    {
+        var paths = new PathService(_root);
+        var service = new TweakSnapshotService(paths);
+        await service.SaveAsync("Valid", new Dictionary<string, bool> { ["a"] = false });
+        await File.WriteAllTextAsync(Path.Combine(paths.BackupsDirectory, "tweak-snapshot-zzz.json"), invalidJson);
+        Assert.Equal("Valid", Assert.Single(service.GetSnapshots()).Snapshot.Label);
+    }
 }

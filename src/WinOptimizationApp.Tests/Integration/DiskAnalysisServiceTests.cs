@@ -6,6 +6,16 @@ namespace WinOptimizationApp.Tests.Integration;
 public sealed class DiskAnalysisServiceTests
 {
     [Fact]
+    public async Task ScanAsync_UnreadableRootIsPartialInsteadOfReportingAnExactZero()
+    {
+        using var fixture = TempDirectory.Create();
+        var result = await new DiskAnalysisService().ScanAsync(new DiskScanOptions(Path.Combine(fixture.Path, "missing")));
+        Assert.True(result.IsPartial);
+        Assert.True(result.HasIncompleteTotals);
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
     public async Task ScanAsync_ComputesFolderSizesAndPercentOfParent()
     {
         using var fixture = TempDirectory.Create();

@@ -34,13 +34,13 @@ graph TD
 
 ## Acknowledgments
 
-This project takes inspiration and borrows concepts/architectural patterns from the following amazing open-source projects:
+This project takes product inspiration from the following projects. The [2026-09-02 review](../../docs/reference_project_review.md) documents upstream changes, implemented improvements, and deferred features.
 
-- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)**: Inspired custom Winapp2 cleaning database support, the transparent preview workflow, and a focused WinUI experience.
-- **[Winhance](https://github.com/memstechtips/Winhance)**: Inspired system optimization, reversible tweaks, software management, and reusable configuration profiles.
-- **[Win11Debloat](https://github.com/Raphire/Win11Debloat)** by Raphire: Inspired safe, reversible Windows customization for File Explorer, Search, suggestions, and the taskbar.
+- **[FluentCleaner](https://github.com/builtbybel/FluentCleaner)**: Inspired custom Winapp2 databases, searchable selections, explicit cleanup warnings, and a focused WinUI experience.
+- **[Winhance](https://github.com/memstechtips/Winhance)**: Inspired reversible tweaks, reusable profiles, before/after review, and change history.
+- **[Win11Debloat](https://github.com/Raphire/Win11Debloat)** by Raphire: Inspired reversible Windows customization and stronger validation before applying or restoring settings.
 - **[Optimizer](https://github.com/hellzerg/optimizer)** by hellzerg: Inspired the advanced toolbox, network diagnostics, and the optional UTC hardware-clock setting for dual-boot systems. The original project is archived and has been superseded by OptimizerNXT.
-- **[QDirStat](https://github.com/shundhammer/qdirstat)** by Stefan Hundhammer: Inspired storage discovery by largest, newest, and oldest files, file-age distribution, and emphasis on dominant disk-usage items.
-- **[WinMole](https://github.com/bhadraagada/winmole)** by bhadraagada: Inspired user-protected paths, project-aware developer artifact discovery, and an all-in-one maintenance workflow.
+- **[QDirStat](https://github.com/shundhammer/qdirstat)** by Stefan Hundhammer: Inspired storage discovery by size and age, searchable scan results, and consistent navigation while filtering.
+- **[WinMole](https://github.com/bhadraagada/winmole)** by bhadraagada: Inspired protected paths, project-aware artifact discovery, and explicit reporting of incomplete storage totals.
 
 The features in this app are independently implemented and adapted to its preview, confirmation, snapshot, and rollback safety model.

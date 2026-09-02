@@ -2,6 +2,7 @@ namespace WinOptimizationApp.Views;
 
 public sealed partial class HistoryPage : BasePage
 {
+    private bool _undoInProgress;
     public HistoryPage(MainWindow mainWindow) : base(mainWindow)
     {
     }
@@ -97,42 +98,66 @@ public sealed partial class HistoryPage : BasePage
 
     private async Task UndoSnapshotAsync(string path, WinOptimizationApp.Models.TweakSnapshot snapshot)
     {
-        var dialog = new ContentDialog
+        if (_undoInProgress) return;
+        _undoInProgress = true;
+        IsEnabled = false;
+        try
         {
-            Title = T("history.undoConfirmTitle"),
-            Content = new TextBlock { Text = F("history.undoConfirmBody", snapshot.Values.Count), TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = T("history.undo"),
-            CloseButtonText = T("common.cancel"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            var dialog = new ContentDialog
+            {
+                Title = T("history.undoConfirmTitle"),
+                Content = new TextBlock { Text = F("history.undoConfirmBody", snapshot.Values.Count), TextWrapping = TextWrapping.Wrap },
+                PrimaryButtonText = T("history.undo"),
+                CloseButtonText = T("common.cancel"),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = MainWindow.Navigation_Internal.XamlRoot
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-        var tweaks = new WinOptimizationApp.Services.TweakService(MainWindow.Commands) { Client = MainWindow.IpcClient };
-        var currentValues = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        foreach (var id in snapshot.Values.Keys)
-        {
-            var state = await tweaks.CheckTweakStateAsync(id);
-            if (string.IsNullOrWhiteSpace(state.Error)) currentValues[id] = state.IsEnabled;
-        }
-        await MainWindow.TweakSnapshots.SaveAsync(F("history.beforeUndo", snapshot.Label), currentValues);
+            var tweaks = new WinOptimizationApp.Services.TweakService(MainWindow.Commands) { Client = MainWindow.IpcClient };
+            var currentValues = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var id in snapshot.Values.Keys)
+            {
+                var state = await tweaks.CheckTweakStateAsync(id);
+                if (string.IsNullOrWhiteSpace(state.Error)) currentValues[id] = state.IsEnabled;
+            }
+            var plan = WinOptimizationApp.Services.TweakChangePlanner.Create(snapshot.Values, tweaks.GetAllTweaks(), currentValues);
+            if (plan.UnknownCount > 0)
+                throw new InvalidDataException(T("history.unknownSnapshotSettings"));
+            if (plan.Changes.Count > 0)
+            {
+                var backup = await MainWindow.TweakSnapshots.SaveAsync(F("history.beforeUndo", snapshot.Label),
+                    plan.Changes.ToDictionary(change => change.Id, change => change.Before, StringComparer.OrdinalIgnoreCase));
+                if (backup is null) throw new IOException(T("optimize.backupRequired"));
+            }
 
-        var failures = 0;
-        foreach (var value in snapshot.Values)
-        {
-            var result = await tweaks.ApplyTweakAsync(value.Key, value.Value);
-            if (!string.IsNullOrWhiteSpace(result.Error)) failures++;
-        }
+            var failures = 0;
+            foreach (var change in plan.Changes)
+            {
+                var result = await tweaks.ApplyTweakAsync(change.Id, change.After);
+                if (!string.IsNullOrWhiteSpace(result.Error)) failures++;
+                else MainWindow.SetCachedTweakState(result);
+            }
 
-        if (failures == 0)
-        {
-            MainWindow.TweakSnapshots.Delete(path);
-            MainWindow.SetStatusText(T("history.undoComplete"));
-            await OnNavigatedToAsync();
+            if (failures == 0)
+            {
+                MainWindow.TweakSnapshots.Delete(path);
+                MainWindow.SetStatusText(T("history.undoComplete"));
+                await OnNavigatedToAsync();
+            }
+            else
+            {
+                MainWindow.SetStatusText(F("history.undoFailed", failures));
+            }
         }
-        else
+        catch (Exception ex)
         {
-            MainWindow.SetStatusText(F("history.undoFailed", failures));
+            MainWindow.SetStatusText(F("history.undoError", ex.Message));
+        }
+        finally
+        {
+            _undoInProgress = false;
+            IsEnabled = true;
         }
     }
 

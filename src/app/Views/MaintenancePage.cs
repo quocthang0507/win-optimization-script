@@ -235,9 +235,11 @@ public sealed partial class MaintenancePage : BasePage
 
     private Border Winapp2CleanerPanel(IReadOnlyList<CleanerEntry> entries)
     {
+        var customDatabase = IsCustomWinapp2DatabaseActive();
         var stack = new StackPanel { Spacing = 10 };
         stack.Children.Add(SectionTitle(T("winapp2.title")));
         stack.Children.Add(InfoBlock(F("winapp2.detected", entries.Count)));
+        stack.Children.Add(InfoBlock(T("winapp2.selectionSafety")));
 
         var row = new Grid { ColumnSpacing = 12, MinHeight = 44 };
         row.ColumnDefinitions.Add(new ColumnDefinition());
@@ -246,7 +248,7 @@ public sealed partial class MaintenancePage : BasePage
         // Dropdown with Checkboxes (ListView inside Flyout)
         var dropDownBtn = new DropDownButton
         {
-            Content = F("winapp2.selectApps", entries.Count(e => e.Default)),
+            Content = F("winapp2.selectApps", entries.Count(e => e.CanSelectByDefault(customDatabase))),
             HorizontalAlignment = HorizontalAlignment.Left
         };
 
@@ -259,12 +261,22 @@ public sealed partial class MaintenancePage : BasePage
 
         foreach (var entry in entries)
         {
+            var details = new StackPanel { Spacing = 4 };
+            details.Children.Add(new TextBlock { Text = entry.Name, TextWrapping = TextWrapping.Wrap });
+            if (!string.IsNullOrWhiteSpace(entry.Warning))
+                details.Children.Add(new TextBlock
+                {
+                    Text = F("winapp2.entryWarning", entry.Warning),
+                    TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.8
+                });
             var item = new ListViewItem
             {
-                Content = entry.Name,
+                Content = details,
                 Tag = entry,
-                IsSelected = entry.Default
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                IsSelected = entry.CanSelectByDefault(customDatabase)
             };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, entry.Name);
             listView.Items.Add(item);
         }
 
@@ -276,9 +288,25 @@ public sealed partial class MaintenancePage : BasePage
             runBtn.IsEnabled = listView.SelectedItems.Count > 0;
         };
 
+        var search = new TextBox { PlaceholderText = T("winapp2.search"), Width = 350 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(search, T("winapp2.search"));
+        search.TextChanged += (_, _) => DebounceUiAction("winapp2-search", () =>
+        {
+            var query = search.Text.Trim();
+            foreach (ListViewItem item in listView.Items)
+            {
+                var entry = (CleanerEntry)item.Tag;
+                item.Visibility = entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                                  entry.Section.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    ? Visibility.Visible : Visibility.Collapsed;
+            }
+        });
+        var pickerContent = new StackPanel { Spacing = 10 };
+        pickerContent.Children.Add(search);
+        pickerContent.Children.Add(listView);
         var flyout = new Flyout
         {
-            Content = listView,
+            Content = pickerContent,
             Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Bottom
         };
         dropDownBtn.Flyout = flyout;
@@ -287,8 +315,22 @@ public sealed partial class MaintenancePage : BasePage
 
         runBtn.Click += async (_, _) =>
         {
-            var selected = listView.SelectedItems.Select(i => (CleanerEntry)((ListViewItem)i).Tag).ToList();
-            await PreviewAndRunWinapp2CleanupAsync(selected);
+            runBtn.IsEnabled = false;
+            dropDownBtn.IsEnabled = false;
+            try
+            {
+                var selected = listView.SelectedItems.Select(i => (CleanerEntry)((ListViewItem)i).Tag).ToList();
+                await PreviewAndRunWinapp2CleanupAsync(selected);
+            }
+            catch (Exception ex)
+            {
+                MainWindow.SetStatusText(F("winapp2.operationFailed", ex.Message));
+            }
+            finally
+            {
+                dropDownBtn.IsEnabled = true;
+                runBtn.IsEnabled = listView.SelectedItems.Count > 0;
+            }
         };
         Grid.SetColumn(runBtn, 1);
         row.Children.Add(runBtn);
@@ -356,7 +398,12 @@ public sealed partial class MaintenancePage : BasePage
         });
         if (preview.Warnings.Count > 0)
         {
-            confirmation.Children.Add(InfoBlock(F("winapp2.blockedTargets", preview.Warnings.Count)));
+            confirmation.Children.Add(InfoBlock(F("winapp2.reviewWarnings", preview.Warnings.Count)));
+            confirmation.Children.Add(new ScrollViewer
+            {
+                MaxHeight = 160,
+                Content = new TextBlock { Text = string.Join(Environment.NewLine, preview.Warnings), TextWrapping = TextWrapping.Wrap }
+            });
         }
 
         var dialog = new ContentDialog
@@ -386,18 +433,19 @@ public sealed partial class MaintenancePage : BasePage
 
     private Border OneClickPanel()
     {
-        var stack = new StackPanel { Spacing = 12 };
+        var stack = new StackPanel { Spacing = 16, HorizontalAlignment = HorizontalAlignment.Stretch };
         stack.Children.Add(new TextBlock
         {
             Text = T("oneClick.title"),
             FontSize = 22,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
         });
         stack.Children.Add(InfoBlock(T("oneClick.description")));
 
-        var cleanupItems = new StackPanel { Spacing = 8 };
-        var systemItems = new StackPanel { Spacing = 8 };
-        var performanceItems = new StackPanel { Spacing = 8 };
+        var cleanupItems = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var systemItems = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var performanceItems = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
         var systemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "cleanup.shaders", "cleanup.errorreports", "cleanup.prefetch", "cleanup.defenderlogs",
@@ -422,60 +470,82 @@ public sealed partial class MaintenancePage : BasePage
             }
         }
 
-        stack.Children.Add(OneClickGroup(T("oneClick.cleanupGroup"), cleanupItems, expanded: true));
-        stack.Children.Add(OneClickGroup(T("oneClick.systemGroup"), systemItems, expanded: false));
-        stack.Children.Add(OneClickGroup(T("oneClick.performanceGroup"), performanceItems, expanded: true));
+        var groups = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+        groups.Children.Add(OneClickGroup(T("oneClick.cleanupGroup"), Symbol.Delete, cleanupItems, expanded: true));
+        groups.Children.Add(OneClickGroup(T("oneClick.systemGroup"), Symbol.Setting, systemItems, expanded: false));
+        groups.Children.Add(OneClickGroup(T("oneClick.performanceGroup"), Symbol.Repair, performanceItems, expanded: true));
+        stack.Children.Add(groups);
 
+        var footer = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
         _oneClickProgress = new ProgressBar
         {
             Minimum = 0,
             Maximum = 1,
-            Height = 8,
+            Height = 4,
             Visibility = Visibility.Collapsed
         };
         _oneClickStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.72 };
-        stack.Children.Add(_oneClickProgress);
-        stack.Children.Add(_oneClickStatus);
+        footer.Children.Add(_oneClickProgress);
+        footer.Children.Add(_oneClickStatus);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         _oneClickRunButton = ActionButton(T("oneClick.analyze"), Symbol.Play, async (_, _) => await RunOneClickAsync());
+        _oneClickRunButton.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         _oneClickStopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) => _oneClickCancellation?.Cancel());
         _oneClickStopButton.IsEnabled = false;
         actions.Children.Add(_oneClickRunButton);
         actions.Children.Add(_oneClickStopButton);
-        stack.Children.Add(actions);
+        footer.Children.Add(actions);
+        stack.Children.Add(new Border
+        {
+            Padding = new Thickness(0, 16, 0, 0),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            BorderBrush = ThemeBorderBrush(),
+            Child = footer
+        });
 
         return new Border
         {
-            Padding = new Thickness(18),
-            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(20),
+            CornerRadius = new CornerRadius(8),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(Colors.DodgerBlue),
-            Background = Brush(Color.FromArgb(18, 30, 144, 255)),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
             Child = stack
         };
     }
 
     private CheckBox OneClickOption(MaintenanceTask task, bool selectedByDefault)
     {
-        var content = new StackPanel { Spacing = 2 };
+        var content = new StackPanel { Spacing = 4, HorizontalAlignment = HorizontalAlignment.Stretch };
         content.Children.Add(new TextBlock
         {
             Text = MainWindow.TaskLabel_Internal(task),
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontSize = 14,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
         });
         content.Children.Add(new TextBlock
         {
             Text = MainWindow.TaskImpact_Internal(task),
+            FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
-            Opacity = 0.68
+            Opacity = 0.75
         });
         var checkBox = new CheckBox
         {
             Content = content,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(8, 10, 12, 10),
+            MinHeight = 64,
             IsChecked = selectedByDefault,
             IsEnabled = !task.RequiresAdmin || SystemStatusService.IsAdministrator()
         };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(checkBox, MainWindow.TaskLabel_Internal(task));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(checkBox, MainWindow.TaskImpact_Internal(task));
         if (!checkBox.IsEnabled)
         {
             ToolTipService.SetToolTip(checkBox, T("oneClick.adminRequired"));
@@ -487,15 +557,45 @@ public sealed partial class MaintenancePage : BasePage
         return checkBox;
     }
 
-    private static Expander OneClickGroup(string title, UIElement content, bool expanded)
+    private static Expander OneClickGroup(string title, Symbol symbol, StackPanel content, bool expanded)
     {
-        return new Expander
+        var header = new Grid { ColumnSpacing = 12, MinHeight = 28 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(new SymbolIcon(symbol) { Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Center });
+        var label = new TextBlock
         {
-            Header = title,
-            Content = content,
+            Text = title,
+            FontSize = 15,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(label, 1);
+        header.Children.Add(label);
+        var count = new Border
+        {
+            Padding = new Thickness(8, 2, 8, 2),
+            CornerRadius = new CornerRadius(10),
+            Background = ThemeBorderBrush(),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = content.Children.Count.ToString(), FontSize = 12 }
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(count, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+        Grid.SetColumn(count, 2);
+        header.Children.Add(count);
+
+        var expander = new Expander
+        {
+            Header = header,
+            Content = new Border { Padding = new Thickness(8, 4, 8, 4), Child = content },
             IsExpanded = expanded,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(expander, title);
+        return expander;
     }
 
     private async Task RunOneClickAsync()

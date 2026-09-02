@@ -8,6 +8,16 @@ public sealed class Winapp2CleanupServiceTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "WinOptimizationApp.Tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task PreviewAsync_PreservesDatabaseWarningsWithoutDeletingAnything()
+    {
+        var service = new Winapp2CleanupService(new ReportService(new PathService(_root)));
+        var preview = await service.PreviewAsync([new CleanerEntry { Name = "Browser", Warning = "Signs you out." }]);
+        Assert.Contains("Browser: Signs you out.", preview.Warnings);
+        Assert.Empty(preview.Candidates);
+        Assert.False(Directory.Exists(_root));
+    }
+
+    [Fact]
     public async Task PreviewAndRun_SupportWildcardDeduplicationAndExclusions()
     {
         var cache = Path.Combine(_root, "App1", "cache");

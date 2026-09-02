@@ -121,6 +121,8 @@ public sealed class Winapp2CleanupService(ReportService reports)
         foreach (var entry in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!string.IsNullOrWhiteSpace(entry.Warning))
+                AddWarning($"{entry.Name}: {entry.Warning}");
             if (entry.RegKeys.Count > 0)
             {
                 AddWarning($"{entry.Name}: {entry.RegKeys.Count:N0} registry rule(s) were previewed but intentionally not deleted.");

@@ -109,6 +109,7 @@
     <Compile Include="..\app\Services\TweakService.cs" Link="Production\Services\TweakService.cs" />
     <Compile Include="..\app\Services\TweakProfileCatalog.cs" Link="Production\Services\TweakProfileCatalog.cs" />
     <Compile Include="..\app\Services\TweakSnapshotService.cs" Link="Production\Services\TweakSnapshotService.cs" />
+    <Compile Include="..\app\Services\TweakChangePlanner.cs" Link="Production\Services\TweakChangePlanner.cs" />
   </ItemGroup>
 
   <ItemGroup>

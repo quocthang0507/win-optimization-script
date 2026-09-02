@@ -13,6 +13,7 @@ public sealed record DiskScanResult(
     IReadOnlyList<FileTypeSummary> FileTypes,
     bool IsPartial = false)
 {
+    public bool HasIncompleteTotals => IsPartial || SkippedCount > 0 || Errors.Count > 0;
     public IReadOnlyList<DiskItem> NewestFiles { get; init; } = [];
     public IReadOnlyList<DiskItem> OldestFiles { get; init; } = [];
     public IReadOnlyList<FileAgeSummary> FileAgeSummaries { get; init; } = [];

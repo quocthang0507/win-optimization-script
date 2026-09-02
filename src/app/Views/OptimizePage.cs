@@ -28,6 +28,7 @@ public sealed partial class OptimizePage : BasePage
     private Button? _applyProfileButton;
     private CheckBox? _technicalDetailsBox;
     private bool _isLoadingState;
+    private bool _isApplyingChanges;
     private int _appliedRevision = -1;
 
     public OptimizePage(MainWindow mainWindow) : base(mainWindow)
@@ -179,7 +180,9 @@ public sealed partial class OptimizePage : BasePage
         };
         toggle.Toggled += async (s, e) => 
         {
-            if (_isLoadingState) return;
+            if (_isLoadingState || _isApplyingChanges) return;
+            _isApplyingChanges = true;
+            IsEnabled = false;
             toggle.IsEnabled = false;
             try
             {
@@ -209,6 +212,8 @@ public sealed partial class OptimizePage : BasePage
             finally
             {
                 toggle.IsEnabled = true;
+                IsEnabled = true;
+                _isApplyingChanges = false;
             }
         };
 
@@ -313,56 +318,7 @@ public sealed partial class OptimizePage : BasePage
             return;
         }
 
-        var dialog = new ContentDialog
-        {
-            Title = T(profile.NameKey),
-            Content = new TextBlock { Text = F("optimize.confirmProfile", profile.Values.Count, T(profile.DescriptionKey)), TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = T("optimize.applyProfile"),
-            CloseButtonText = T("common.cancel"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-        {
-            return;
-        }
-
-        _isLoadingState = true;
-        if (_applyProfileButton != null) _applyProfileButton.IsEnabled = false;
-        var failed = 0;
-        try
-        {
-            var previousValues = profile.Values.Keys
-                .Where(_knownStates.ContainsKey)
-                .Where(id => _knownStates[id] != profile.Values[id])
-                .ToDictionary(id => id, id => _knownStates[id], StringComparer.OrdinalIgnoreCase);
-            await MainWindow.TweakSnapshots.SaveAsync(T(profile.NameKey), previousValues);
-
-            var index = 0;
-            foreach (var change in profile.Values)
-            {
-                index++;
-                MainWindow.SetStatusText(F("optimize.profileProgress", index, profile.Values.Count));
-                var response = await _tweakService.ApplyTweakAsync(change.Key, change.Value);
-                if (!string.IsNullOrWhiteSpace(response.Error))
-                {
-                    failed++;
-                    continue;
-                }
-
-                _knownStates[change.Key] = response.IsEnabled;
-                MainWindow.SetCachedTweakState(response);
-                _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
-            }
-        }
-        finally
-        {
-            _isLoadingState = false;
-            if (_applyProfileButton != null) _applyProfileButton.IsEnabled = true;
-            RenderTweaks();
-        }
-
-        MainWindow.SetStatusText(F("optimize.profileComplete", profile.Values.Count - failed, failed));
+        await ReviewAndApplyProfileAsync(T(profile.NameKey), profile.Values);
     }
 
     private async Task ExportProfileAsync()
@@ -391,6 +347,7 @@ public sealed partial class OptimizePage : BasePage
 
     private async Task ImportProfileAsync()
     {
+        if (_isApplyingChanges) return;
         var picker = new FileOpenPicker
         {
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary
@@ -403,56 +360,76 @@ public sealed partial class OptimizePage : BasePage
 
         try
         {
-            var json = await File.ReadAllTextAsync(file.Path);
-            var profile = JsonSerializer.Deserialize<Dictionary<string, bool>>(json);
-            if (profile == null) return;
-            var knownIds = _tweakService.GetAllTweaks().Select(tweak => tweak.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var applicable = profile.Where(entry => knownIds.Contains(entry.Key)).ToList();
-            if (applicable.Count == 0)
-            {
-                throw new InvalidDataException(T("optimize.profileNoKnownSettings"));
-            }
+            if (new FileInfo(file.Path).Length > 1024 * 1024)
+                throw new InvalidDataException(T("optimize.profileTooLarge"));
+            var profile = TweakChangePlanner.ParseProfile(await File.ReadAllTextAsync(file.Path));
+            await ReviewAndApplyProfileAsync(T("optimize.importProfile"), profile);
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText(F("optimize.importFailed", ex.Message));
+        }
+    }
 
+    private async Task ReviewAndApplyProfileAsync(string label, IReadOnlyDictionary<string, bool> values)
+    {
+        if (_isApplyingChanges) return;
+        _isApplyingChanges = true;
+        IsEnabled = false;
+        try
+        {
+            // Refresh first, so the undo snapshot never guesses a missing state from the UI cache.
+            var states = await _tweakService.CheckAllTweakStatesAsync();
+            var current = states.Where(state => string.IsNullOrWhiteSpace(state.Error))
+                .ToDictionary(state => state.Id, state => state.IsEnabled, StringComparer.OrdinalIgnoreCase);
+            var plan = TweakChangePlanner.Create(values, _tweakService.GetAllTweaks(), current);
+            if (plan.Changes.Count + plan.UnchangedCount == 0)
+                throw new InvalidDataException(T("optimize.profileNoKnownSettings"));
+
+            var preview = new StackPanel { Spacing = 10 };
+            preview.Children.Add(InfoBlock(F("optimize.planSummary", plan.Changes.Count, plan.UnchangedCount, plan.UnknownCount)));
+            foreach (var change in plan.Changes)
+                preview.Children.Add(InfoBlock($"{change.Title}\n{T(change.Before ? "common.on" : "common.off")} → {T(change.After ? "common.on" : "common.off")}"));
             var dialog = new ContentDialog
             {
-                Title = "Import Profile",
-                Content = F("optimize.confirmImport", applicable.Count, profile.Count - applicable.Count),
-                PrimaryButtonText = "Apply",
+                Title = label,
+                Content = new ScrollViewer { MaxHeight = 420, Content = preview },
+                PrimaryButtonText = plan.Changes.Count > 0 ? T("optimize.applyProfile") : string.Empty,
                 CloseButtonText = T("common.cancel"),
-                DefaultButton = ContentDialogButton.Primary,
+                DefaultButton = ContentDialogButton.Close,
                 XamlRoot = MainWindow.Navigation_Internal.XamlRoot
             };
-
             if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-            MainWindow.SetStatusText("Applying profile tweaks...");
-            _isLoadingState = true; // Prevent individual toggles from triggering events
+            var backup = await MainWindow.TweakSnapshots.SaveAsync(label,
+                plan.Changes.ToDictionary(change => change.Id, change => change.Before, StringComparer.OrdinalIgnoreCase));
+            if (backup is null) throw new IOException(T("optimize.backupRequired"));
 
-            var previousValues = applicable
-                .Where(entry => _knownStates.ContainsKey(entry.Key) && _knownStates[entry.Key] != entry.Value)
-                .ToDictionary(entry => entry.Key, entry => _knownStates[entry.Key], StringComparer.OrdinalIgnoreCase);
-            await MainWindow.TweakSnapshots.SaveAsync(T("optimize.importProfile"), previousValues);
-
-            var failed = 0;
-            foreach (var kvp in applicable)
+            var started = DateTimeOffset.Now;
+            var messages = new List<string> { $"Undo snapshot: {backup}", $"Unchanged: {plan.UnchangedCount}; unknown IDs ignored: {plan.UnknownCount}." };
+            var errors = new List<string>();
+            _isLoadingState = true;
+            var index = 0;
+            foreach (var change in plan.Changes)
             {
-                if (_knownStates.GetValueOrDefault(kvp.Key) != kvp.Value)
+                MainWindow.SetStatusText(F("optimize.profileProgress", ++index, plan.Changes.Count));
+                try
                 {
-                    var response = await _tweakService.ApplyTweakAsync(kvp.Key, kvp.Value);
-                    if (!string.IsNullOrWhiteSpace(response.Error))
-                    {
-                        failed++;
-                        continue;
-                    }
-
-                    _knownStates[kvp.Key] = response.IsEnabled;
+                    var response = await _tweakService.ApplyTweakAsync(change.Id, change.After);
+                    if (!string.IsNullOrWhiteSpace(response.Error)) throw new InvalidOperationException(response.Error);
+                    _knownStates[change.Id] = response.IsEnabled;
                     MainWindow.SetCachedTweakState(response);
-                    _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
+                    messages.Add($"{change.Id}: {change.Before} → {response.IsEnabled} (verified)");
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{change.Id}: {change.Before} → {change.After}: {ex.Message}");
                 }
             }
-
-            RenderTweaks();
-            MainWindow.SetStatusText(F("optimize.profileComplete", applicable.Count - failed, failed));
+            _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
+            await MainWindow.SaveOperationReportAsync(new TaskRunResult("tweaks.profile", label, started,
+                DateTimeOffset.Now, errors.Count == 0, 0, 0, 0, messages, errors));
+            MainWindow.SetStatusText(F("optimize.profileComplete", plan.Changes.Count - errors.Count, errors.Count));
         }
         catch (Exception ex)
         {
@@ -461,6 +438,9 @@ public sealed partial class OptimizePage : BasePage
         finally
         {
             _isLoadingState = false;
+            _isApplyingChanges = false;
+            IsEnabled = true;
+            RenderTweaks();
         }
     }
 }
