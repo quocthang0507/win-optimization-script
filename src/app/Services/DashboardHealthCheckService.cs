@@ -222,8 +222,8 @@ public static class DashboardHealthCheckService
             RiskLevel.Safe,
             "Restart when convenient",
             "Save your work and restart Windows to finish pending maintenance.",
-            "Review Updates",
-            "updates"));
+            "Restart guidance",
+            "restartGuidance"));
         score -= 15;
     }
 
@@ -249,8 +249,8 @@ public static class DashboardHealthCheckService
             RiskLevel.Safe,
             "Schedule a restart",
             "A periodic restart can clear pending handles and complete background updates.",
-            "Review Updates",
-            "updates"));
+            "Restart guidance",
+            "restartGuidance"));
         score -= 6;
     }
 

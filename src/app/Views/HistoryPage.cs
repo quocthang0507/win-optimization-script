@@ -112,7 +112,7 @@ public sealed partial class HistoryPage : BasePage
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = MainWindow.Navigation_Internal.XamlRoot
             };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary) return;
 
             var tweaks = new WinOptimizationApp.Services.TweakService(MainWindow.Commands) { Client = MainWindow.IpcClient };
             var currentValues = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -183,7 +183,7 @@ public sealed partial class HistoryPage : BasePage
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary)
         {
             return;
         }

@@ -76,6 +76,7 @@ public sealed partial class SettingsPage : BasePage
         grid.Children.Add(text);
 
         var combo = new ComboBox { MinWidth = 170 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(combo, T("settings.language"));
         combo.Items.Add(new ComboBoxItem { Content = "English", Tag = AppLanguage.English });
         combo.Items.Add(new ComboBoxItem { Content = "Tiếng Việt", Tag = AppLanguage.Vietnamese });
         combo.SelectedIndex = MainWindow.Localization.CurrentLanguage == AppLanguage.Vietnamese ? 1 : 0;
@@ -115,6 +116,7 @@ public sealed partial class SettingsPage : BasePage
 
         var currentTheme = MainWindow.Settings.Theme ?? AppTheme.System;
         var combo = new ComboBox { MinWidth = 170 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(combo, T("settings.theme"));
         combo.Items.Add(new ComboBoxItem { Content = T("settings.themeSystem"), Tag = AppTheme.System });
         combo.Items.Add(new ComboBoxItem { Content = T("settings.themeLight"), Tag = AppTheme.Light });
         combo.Items.Add(new ComboBoxItem { Content = T("settings.themeDark"), Tag = AppTheme.Dark });
@@ -163,6 +165,7 @@ public sealed partial class SettingsPage : BasePage
 
         var currentStyle = MainWindow.Settings.WinUiStyle ?? AppWinUiStyle.Default;
         var combo = new ComboBox { MinWidth = 170 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(combo, T("settings.winUiStyle"));
         combo.Items.Add(new ComboBoxItem { Content = T("settings.winUiStyleDefault"), Tag = AppWinUiStyle.Default });
         combo.Items.Add(new ComboBoxItem { Content = "Mica", Tag = AppWinUiStyle.Mica });
         combo.Items.Add(new ComboBoxItem { Content = "Acrylic", Tag = AppWinUiStyle.Acrylic });
@@ -217,6 +220,7 @@ public sealed partial class SettingsPage : BasePage
             OnContent = T("common.yes"),
             OffContent = T("common.no")
         };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, T("settings.widget"));
         toggle.Toggled += (s, e) =>
         {
             MainWindow.Settings.WidgetEnabled = toggle.IsOn;

@@ -42,7 +42,8 @@ public sealed class CleanupService(CommandRunner commands)
                     : PreviewTarget(target, cancellationToken))
                 .ToList();
 
-            var warnings = GetWarnings(task.Id).ToList();
+            var warningDetails = GetWarningDetails(task.Id).ToList();
+            var warnings = warningDetails.Select(warning => warning.Fallback).ToList();
             var commands = GetPlannedCommands(task.Id).ToList();
             var bytes = targets.Sum(target => target.Bytes);
             var files = targets.Sum(target => target.FileCount);
@@ -51,7 +52,7 @@ public sealed class CleanupService(CommandRunner commands)
                 ? $"{commands.Count} command(s) ready"
                 : $"{Formatters.FormatBytes(bytes)} across {files:N0} file(s)";
 
-            return new TaskPreview(task.Id, summary, bytes, files, targets, warnings, commands);
+            return new TaskPreview(task.Id, summary, bytes, files, targets, warnings, commands) { WarningDetails = warningDetails };
         }, cancellationToken);
     }
 
@@ -482,7 +483,7 @@ public sealed class CleanupService(CommandRunner commands)
             : [];
     }
 
-    private static IEnumerable<string> GetWarnings(string taskId)
+    internal static IEnumerable<CleanupWarning> GetWarningDetails(string taskId)
     {
         if (taskId is "cleanup.browser" or "privacy.browserHistory" or "privacy.browserCookies")
         {
@@ -491,29 +492,29 @@ public sealed class CleanupService(CommandRunner commands)
             {
                 if (Process.GetProcessesByName(processName).Length > 0)
                 {
-                    yield return $"{processName}.exe is running; close it for a more complete cleanup.";
+                    yield return new CleanupWarning("browserRunning", $"{processName}.exe is running; close it for a more complete cleanup.", [$"{processName}.exe"]);
                 }
             }
         }
 
         if (taskId is "cleanup.windowsupdate" or "cleanup.windowsold")
         {
-            yield return "High-risk cleanup: create a restore point before running.";
+            yield return new CleanupWarning("highRisk", "High-risk cleanup: create a restore point before running.", []);
         }
 
         if (taskId == "cleanup.prefetch")
         {
-            yield return "Only Prefetch files older than 30 days are eligible; recent launch data is preserved.";
+            yield return new CleanupWarning("oldPrefetch", "Only Prefetch files older than 30 days are eligible; recent launch data is preserved.", []);
         }
 
         if (taskId == "cleanup.defenderlogs")
         {
-            yield return "Protection history and quarantine are not included; only old support logs are eligible.";
+            yield return new CleanupWarning("defenderLogs", "Protection history and quarantine are not included; only old support logs are eligible.", []);
         }
 
         if (taskId is "cleanup.errorreports" or "cleanup.systemdumps")
         {
-            yield return "These diagnostic files may be useful when investigating recent Windows failures.";
+            yield return new CleanupWarning("diagnostics", "These diagnostic files may be useful when investigating recent Windows failures.", []);
         }
     }
 

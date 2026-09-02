@@ -27,7 +27,7 @@ public sealed class DashboardHealthCheckServiceTests
         var result = DashboardHealthCheckService.Analyze(status);
 
         Assert.Contains(result.Findings, finding => finding.Id == "reboot.pending");
-        Assert.Contains(result.Recommendations, recommendation => recommendation.Id == "reboot.restart" && recommendation.ActionTag == "updates");
+        Assert.Contains(result.Recommendations, recommendation => recommendation.Id == "reboot.restart" && recommendation.ActionTag == "restartGuidance");
     }
 
     [Fact]

@@ -150,6 +150,7 @@ public abstract partial class BasePage : UserControl
             }
         };
         ToolTipService.SetToolTip(button, text);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, text);
         button.Click += action;
         return button;
     }
@@ -164,6 +165,7 @@ public abstract partial class BasePage : UserControl
             Content = new SymbolIcon(symbol)
         };
         ToolTipService.SetToolTip(button, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
         button.Click += action;
         return button;
     }

@@ -433,7 +433,7 @@ public sealed partial class ToolboxPage : BasePage
             XamlRoot = XamlRoot
         };
 
-        var dialogResult = await confirmDialog.ShowAsync();
+        var dialogResult = await MainWindow.ShowThemedDialogAsync(confirmDialog);
         if (dialogResult != ContentDialogResult.Primary)
         {
             return;
@@ -464,7 +464,7 @@ public sealed partial class ToolboxPage : BasePage
                     CloseButtonText = T("common.close"),
                     XamlRoot = XamlRoot
                 };
-                await completeDialog.ShowAsync();
+                await MainWindow.ShowThemedDialogAsync(completeDialog);
                 await ScanRegistryAsync();
             }
             else
@@ -476,7 +476,7 @@ public sealed partial class ToolboxPage : BasePage
                     CloseButtonText = T("common.close"),
                     XamlRoot = XamlRoot
                 };
-                await failedDialog.ShowAsync();
+                await MainWindow.ShowThemedDialogAsync(failedDialog);
             }
         }
         catch (Exception ex)
@@ -524,7 +524,7 @@ public sealed partial class ToolboxPage : BasePage
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = XamlRoot
             };
-            if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+            if (await MainWindow.ShowThemedDialogAsync(confirmation) != ContentDialogResult.Primary)
             {
                 return;
             }
@@ -573,7 +573,7 @@ public sealed partial class ToolboxPage : BasePage
                     CloseButtonText = T("common.close"),
                     XamlRoot = XamlRoot
                 };
-                await dialog.ShowAsync();
+                await MainWindow.ShowThemedDialogAsync(dialog);
             }
             else
             {
@@ -584,7 +584,7 @@ public sealed partial class ToolboxPage : BasePage
                     CloseButtonText = T("common.close"),
                     XamlRoot = XamlRoot
                 };
-                await dialog.ShowAsync();
+                await MainWindow.ShowThemedDialogAsync(dialog);
             }
         }
         catch (Exception ex)
@@ -928,7 +928,7 @@ public sealed partial class ToolboxPage : BasePage
             XamlRoot = XamlRoot
         };
 
-        if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await MainWindow.ShowThemedDialogAsync(confirmDialog) != ContentDialogResult.Primary)
         {
             return;
         }
@@ -998,7 +998,7 @@ public sealed partial class ToolboxPage : BasePage
                         XamlRoot = XamlRoot
                     };
 
-                    if (await leftoversDialog.ShowAsync() == ContentDialogResult.Primary)
+                    if (await MainWindow.ShowThemedDialogAsync(leftoversDialog) == ContentDialogResult.Primary)
                     {
                         MainWindow.SetStatusText(T("storage.cleaning"));
                         var cleanupStarted = DateTimeOffset.Now;
@@ -1023,7 +1023,7 @@ public sealed partial class ToolboxPage : BasePage
                                 CloseButtonText = T("common.close"),
                                 XamlRoot = XamlRoot
                             };
-                            await completeDialog.ShowAsync();
+                            await MainWindow.ShowThemedDialogAsync(completeDialog);
                         }
                     }
                 }
@@ -1051,7 +1051,7 @@ public sealed partial class ToolboxPage : BasePage
                     CloseButtonText = T("common.close"),
                     XamlRoot = XamlRoot
                 };
-                await failDialog.ShowAsync();
+                await MainWindow.ShowThemedDialogAsync(failDialog);
             }
         }
         catch (Exception ex)

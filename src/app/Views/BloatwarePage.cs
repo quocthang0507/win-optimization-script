@@ -188,7 +188,7 @@ public sealed partial class BloatwarePage : BasePage
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary) return;
 
         _isWorking = true;
         SetControlsEnabled(false);

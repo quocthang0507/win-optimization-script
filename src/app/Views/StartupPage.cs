@@ -70,7 +70,7 @@ public sealed partial class StartupPage : BasePage
         searchRow.Children.Add(resetButton);
         panel.Children.Add(searchRow);
 
-        var filterRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var filterRow = new AdaptiveWrapPanel();
 
         _statusFilterBox = FilterBox(T("startup.statusFilter"), 148,
         [
@@ -426,7 +426,7 @@ public sealed partial class StartupPage : BasePage
                         XamlRoot = XamlRoot
                     };
 
-                    var res = await confirmDialog.ShowAsync();
+                    var res = await MainWindow.ShowThemedDialogAsync(confirmDialog);
                     if (res != ContentDialogResult.Primary)
                     {
                         return;

@@ -65,7 +65,11 @@ public sealed class OneClickMaintenanceService(
                     0,
                     [],
                     task.RequiresAdmin ? ["Administrator permission is required."] : [],
-                    []);
+                    [])
+                {
+                    WarningDetails = task.RequiresAdmin
+                        ? [new CleanupWarning("adminRequired", "Administrator permission is required.", [])] : []
+                };
             }
 
             previews.Add(new OneClickTaskPreview(task, preview, definition.IsPerformanceAction));

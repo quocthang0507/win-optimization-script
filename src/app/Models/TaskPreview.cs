@@ -7,4 +7,7 @@ public sealed record TaskPreview(
     int EstimatedFileCount,
     IReadOnlyList<CleanupTargetPreview> Targets,
     IReadOnlyList<string> Warnings,
-    IReadOnlyList<string> PlannedCommands);
+    IReadOnlyList<string> PlannedCommands)
+{
+    public IReadOnlyList<CleanupWarning> WarningDetails { get; init; } = [];
+}

@@ -116,6 +116,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
 
         var query = _searchBox?.Text?.Trim() ?? string.Empty;
         var filtered = GetFilteredApps(query);
+        UpdateInstallButton();
 
         _resultPanel.Children.Add(SectionTitle(F("software.results", filtered.Count, _curatedApps.Count)));
 
@@ -176,7 +177,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
         Grid.SetColumn(details, 1);
         grid.Children.Add(details);
 
-        var openButton = IconButton(Symbol.OpenFile, T("common.open"), (_, _) =>
+        var openButton = IconButton(Symbol.OpenFile, F("common.actionFor", T("common.open"), app.Name), (_, _) =>
         {
             try
             {
@@ -213,6 +214,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
         }
 
         if (_clearSelectionButton != null) _clearSelectionButton.IsEnabled = _selectedIds.Count > 0 && !_isInstalling;
+        if (_selectVisibleButton != null) _selectVisibleButton.IsEnabled = !_isInstalling && GetFilteredApps().Any();
     }
 
     private List<(string Name, string Id, string Description, string Group)> GetFilteredApps(string? query = null)
@@ -248,7 +250,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
         if (_installSelectedButton != null) _installSelectedButton.IsEnabled = isEnabled && _selectedIds.Count > 0;
         if (_searchBox != null) _searchBox.IsEnabled = isEnabled;
         if (_groupFilterBox != null) _groupFilterBox.IsEnabled = isEnabled;
-        if (_selectVisibleButton != null) _selectVisibleButton.IsEnabled = isEnabled;
+        if (_selectVisibleButton != null) _selectVisibleButton.IsEnabled = isEnabled && GetFilteredApps().Any();
         if (_clearSelectionButton != null) _clearSelectionButton.IsEnabled = isEnabled && _selectedIds.Count > 0;
     }
 
@@ -267,7 +269,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary) return;
 
         _isInstalling = true;
         SetControlsEnabled(false);

@@ -305,7 +305,7 @@ public sealed partial class DashboardPage : BasePage
                     XamlRoot = MainWindow.Navigation_Internal.XamlRoot
                 };
 
-                if (await confirmDialog.ShowAsync() == ContentDialogResult.Primary)
+                if (await MainWindow.ShowThemedDialogAsync(confirmDialog) == ContentDialogResult.Primary)
                 {
                     try
                     {
@@ -470,7 +470,7 @@ public sealed partial class DashboardPage : BasePage
             CloseButtonText = T("common.close"),
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
-        await dialog.ShowAsync();
+        await MainWindow.ShowThemedDialogAsync(dialog);
     }
 
     private Grid HealthRecommendationRow(HealthCheckRecommendation recommendation)
@@ -547,6 +547,10 @@ public sealed partial class DashboardPage : BasePage
             case "updates":
                 await MainWindow.NavigateToTagAsync(actionTag);
                 break;
+            case "restartGuidance":
+                await MainWindow.ShowDialogAsync_Internal(T("dashboard.restartGuidance"),
+                    InfoBlock(T("dashboard.restartInstructions")), T("common.close"));
+                break;
             default:
                 await MainWindow.ShowDialogAsync_Internal(T("dashboard.healthCheck"), InfoBlock(T("dashboard.healthManualAction")), T("common.close"));
                 break;
@@ -561,6 +565,7 @@ public sealed partial class DashboardPage : BasePage
             "storage" => T("dashboard.analyzeStorage"),
             "startup" => T("startup.scan"),
             "updates" => T("dashboard.scanUpdates"),
+            "restartGuidance" => T("dashboard.restartGuidance"),
             _ => fallback
         };
     }

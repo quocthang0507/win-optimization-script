@@ -89,6 +89,36 @@ public sealed class LocalizationService
         return value == key ? group : value;
     }
 
+    private string LocalizedOrFallback(string key, string fallback)
+    {
+        var text = Get(key);
+        return text == key ? fallback : text;
+    }
+
+    public string TweakTitle(string id, string fallback) => LocalizedOrFallback($"tweak.{id}.title", fallback);
+    public string TweakDescription(SystemTweak tweak) => LocalizedOrFallback($"tweak.{tweak.Id}.description", tweak.Description);
+    public string TweakCategory(string category) => LocalizedOrFallback($"tweak.category.{category}", category);
+
+    public bool MatchesTweak(SystemTweak tweak, string query) =>
+        string.IsNullOrWhiteSpace(query) || new[]
+        {
+            tweak.Id, tweak.Title, tweak.Description, tweak.Category,
+            TweakTitle(tweak.Id, tweak.Title), TweakDescription(tweak), TweakCategory(tweak.Category)
+        }.Any(text => text.Contains(query.Trim(), StringComparison.CurrentCultureIgnoreCase));
+
+    public IEnumerable<string> PreviewWarnings(TaskPreview preview)
+    {
+        var details = preview.WarningDetails ?? [];
+        foreach (var warning in details)
+        {
+            var key = $"cleanup.warning.{warning.Code}";
+            yield return Get(key) == key ? warning.Fallback : Format(key, warning.Arguments.Cast<object>().ToArray());
+        }
+        // Preserve unstructured warnings from older IPC clients and third-party rules.
+        foreach (var warning in preview.Warnings)
+            if (!details.Any(detail => detail.Fallback == warning)) yield return warning;
+    }
+
     public string RiskName(RiskLevel risk)
     {
         return Get($"risk.{risk}");

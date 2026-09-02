@@ -61,6 +61,8 @@
     <Compile Include="..\app\Models\StorageCleanupCandidate.cs" Link="Production\Models\StorageCleanupCandidate.cs" />
     <Compile Include="..\app\Models\StorageCleanupMode.cs" Link="Production\Models\StorageCleanupMode.cs" />
     <Compile Include="..\app\Models\TaskRunResult.cs" Link="Production\Models\TaskRunResult.cs" />
+    <Compile Include="..\app\Models\CleanupWarning.cs" Link="Production\Models\CleanupWarning.cs" />
+    <Compile Include="..\app\Models\OneClickOperationState.cs" Link="Production\Models\OneClickOperationState.cs" />
     <Compile Include="..\app\Models\TaskPreview.cs" Link="Production\Models\TaskPreview.cs" />
     <Compile Include="..\app\Models\RegistryIssue.cs" Link="Production\Models\RegistryIssue.cs" />
     <Compile Include="..\app\Models\InstalledApp.cs" Link="Production\Models\InstalledApp.cs" />

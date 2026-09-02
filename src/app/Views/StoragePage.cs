@@ -52,7 +52,7 @@ public sealed partial class StoragePage : BasePage
         {
             Header = T("storage.driveOrFolder"),
             Text = _lastDiskScan?.Root.FullPath ?? systemRoot,
-            MinWidth = 360,
+            MinWidth = 0,
             PlaceholderText = T("storage.placeholder")
         };
 
@@ -106,29 +106,17 @@ public sealed partial class StoragePage : BasePage
         });
         browseButton.VerticalAlignment = VerticalAlignment.Bottom;
 
-        var commandGrid = new Grid { ColumnSpacing = 12, RowSpacing = 10 };
-        commandGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        commandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        Grid.SetColumn(_storageRootBox, 0);
+        // The path must stay readable even when all optional controls are visible.
+        var commandGrid = new StackPanel { Spacing = 10 };
         commandGrid.Children.Add(_storageRootBox);
-        Grid.SetColumn(driveBox, 1);
-        commandGrid.Children.Add(driveBox);
-        Grid.SetColumn(_includeHiddenBox, 2);
-        commandGrid.Children.Add(_includeHiddenBox);
-        Grid.SetColumn(_includeSystemBox, 3);
-        commandGrid.Children.Add(_includeSystemBox);
-        Grid.SetColumn(_followLinksBox, 4);
-        commandGrid.Children.Add(_followLinksBox);
-        Grid.SetColumn(browseButton, 5);
-        commandGrid.Children.Add(browseButton);
-        Grid.SetColumn(_storageScanButton, 6);
-        commandGrid.Children.Add(_storageScanButton);
+        var commandOptions = new AdaptiveWrapPanel();
+        commandOptions.Children.Add(driveBox);
+        commandOptions.Children.Add(_includeHiddenBox);
+        commandOptions.Children.Add(_includeSystemBox);
+        commandOptions.Children.Add(_followLinksBox);
+        commandOptions.Children.Add(browseButton);
+        commandOptions.Children.Add(_storageScanButton);
+        commandGrid.Children.Add(commandOptions);
 
         if (!SystemStatusService.IsAdministrator())
         {
@@ -1364,7 +1352,7 @@ public sealed partial class StoragePage : BasePage
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary)
         {
             return;
         }

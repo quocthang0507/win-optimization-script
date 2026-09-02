@@ -740,7 +740,7 @@ public sealed class MainWindow : Window
             XamlRoot = Navigation_Internal.XamlRoot
         };
 
-        var result = await dialog.ShowAsync();
+        var result = await ShowThemedDialogAsync(dialog);
         if (result == ContentDialogResult.Primary)
         {
             OpenUrl(string.IsNullOrWhiteSpace(update.AssetUrl) ? update.ReleaseUrl : update.AssetUrl);
@@ -909,6 +909,13 @@ public sealed class MainWindow : Window
         SetStatus(text, isBusy);
     }
 
+    internal Task<ContentDialogResult> ShowThemedDialogAsync(ContentDialog dialog)
+    {
+        dialog.XamlRoot = Navigation_Internal.XamlRoot;
+        dialog.RequestedTheme = Navigation_Internal.ActualTheme;
+        return dialog.ShowAsync().AsTask();
+    }
+
     internal async Task SaveOperationReportAsync(TaskRunResult result)
     {
         try
@@ -931,7 +938,7 @@ public sealed class MainWindow : Window
         var detailsPanel = new StackPanel { Spacing = 6 };
         var hasDetails = false;
 
-        foreach (var warning in preview.Warnings)
+        foreach (var warning in Localization.PreviewWarnings(preview))
         {
             detailsPanel.Children.Add(new TextBlock { Text = warning, Foreground = new SolidColorBrush(Colors.DarkOrange), TextWrapping = TextWrapping.Wrap });
             hasDetails = true;
@@ -1016,7 +1023,7 @@ public sealed class MainWindow : Window
                 XamlRoot = Navigation_Internal.XamlRoot
             };
 
-            var dialogResult = await dialog.ShowAsync();
+            var dialogResult = await ShowThemedDialogAsync(dialog);
             if (dialogResult == ContentDialogResult.Primary)
             {
                 ElevateApplication();
@@ -1060,7 +1067,7 @@ public sealed class MainWindow : Window
             XamlRoot = Navigation_Internal.XamlRoot
         };
 
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await ShowThemedDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
     private async Task ShowRunResultAsync(TaskRunResult result)
@@ -1202,7 +1209,7 @@ public sealed class MainWindow : Window
             XamlRoot = Navigation_Internal.XamlRoot
         };
 
-        await dialog.ShowAsync();
+        await ShowThemedDialogAsync(dialog);
     }
 
     private void SetStatus(string text, bool? isBusyOverride = null)

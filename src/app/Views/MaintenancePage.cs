@@ -14,6 +14,8 @@ public sealed partial class MaintenancePage : BasePage
     private TextBlock? _oneClickStatus;
     private CancellationTokenSource? _oneClickCancellation;
     private bool _oneClickRunning;
+    private readonly OneClickOperationState _oneClickState = new();
+    private TextBlock? _oneClickSelectionSummary;
     private UIElement? _winapp2Panel;
     private int _appliedWinapp2Revision = -1;
 
@@ -415,7 +417,7 @@ public sealed partial class MaintenancePage : BasePage
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary)
         {
             MainWindow.SetStatusText(T("common.ready"));
             return;
@@ -474,7 +476,6 @@ public sealed partial class MaintenancePage : BasePage
         groups.Children.Add(OneClickGroup(T("oneClick.cleanupGroup"), Symbol.Delete, cleanupItems, expanded: true));
         groups.Children.Add(OneClickGroup(T("oneClick.systemGroup"), Symbol.Setting, systemItems, expanded: false));
         groups.Children.Add(OneClickGroup(T("oneClick.performanceGroup"), Symbol.Repair, performanceItems, expanded: true));
-        stack.Children.Add(groups);
 
         var footer = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
         _oneClickProgress = new ProgressBar
@@ -484,11 +485,14 @@ public sealed partial class MaintenancePage : BasePage
             Height = 4,
             Visibility = Visibility.Collapsed
         };
-        _oneClickStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.72 };
+        _oneClickStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.85, Visibility = Visibility.Collapsed };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(_oneClickStatus, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+        _oneClickSelectionSummary = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.75 };
+        footer.Children.Add(_oneClickSelectionSummary);
         footer.Children.Add(_oneClickProgress);
         footer.Children.Add(_oneClickStatus);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var actions = new AdaptiveWrapPanel();
         _oneClickRunButton = ActionButton(T("oneClick.analyze"), Symbol.Play, async (_, _) => await RunOneClickAsync());
         _oneClickRunButton.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         _oneClickStopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) => _oneClickCancellation?.Cancel());
@@ -498,11 +502,13 @@ public sealed partial class MaintenancePage : BasePage
         footer.Children.Add(actions);
         stack.Children.Add(new Border
         {
-            Padding = new Thickness(0, 16, 0, 0),
-            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(0, 0, 0, 16),
+            BorderThickness = new Thickness(0, 0, 0, 1),
             BorderBrush = ThemeBorderBrush(),
             Child = footer
         });
+        stack.Children.Add(groups);
+        UpdateOneClickSelectionSummary();
 
         return new Border
         {
@@ -554,7 +560,17 @@ public sealed partial class MaintenancePage : BasePage
         {
             ToolTipService.SetToolTip(checkBox, T("oneClick.highRiskWarning"));
         }
+        checkBox.Checked += (_, _) => UpdateOneClickSelectionSummary();
+        checkBox.Unchecked += (_, _) => UpdateOneClickSelectionSummary();
         return checkBox;
+    }
+
+    private void UpdateOneClickSelectionSummary()
+    {
+        if (_oneClickSelectionSummary == null || _oneClickRunning) return;
+        var count = _oneClickSelections.Values.Count(box => box.IsEnabled && box.IsChecked == true);
+        _oneClickSelectionSummary.Text = F("oneClick.selectedCount", count);
+        if (_oneClickRunButton != null) _oneClickRunButton.IsEnabled = count > 0;
     }
 
     private static Expander OneClickGroup(string title, Symbol symbol, StackPanel content, bool expanded)
@@ -620,63 +636,86 @@ public sealed partial class MaintenancePage : BasePage
         }
 
         _oneClickRunning = true;
+        var generation = _oneClickState.Begin();
         _oneClickCancellation?.Dispose();
         _oneClickCancellation = new CancellationTokenSource();
         _oneClickRunButton.IsEnabled = false;
         _oneClickStopButton.IsEnabled = true;
+        _oneClickProgress.Value = 0;
         _oneClickProgress.Visibility = Visibility.Visible;
+        _oneClickStatus.Visibility = Visibility.Visible;
+        _oneClickStatus.Text = T("oneClick.analyzing");
         SetOneClickSelectionsEnabled(false);
 
         var progress = new Progress<OneClickProgress>(value =>
         {
+            if (!_oneClickState.AcceptsProgress(generation, value.IsRunning)) return;
             _oneClickProgress.Maximum = Math.Max(1, value.Total);
             _oneClickProgress.Value = value.Current;
             var task = MainWindow.Catalog.GetById(value.TaskId);
             _oneClickStatus.Text = F(
                 value.IsRunning ? "oneClick.runningProgress" : "oneClick.scanningProgress",
-                value.Current,
-                value.Total,
-                MainWindow.TaskLabel_Internal(task));
+                value.Current, value.Total, MainWindow.TaskLabel_Internal(task));
         });
 
         try
         {
             var preview = await MainWindow.OneClickMaintenance.PreviewAsync(
-                selectedIds,
-                MainWindow.Settings.ProtectedPaths,
-                progress,
-                _oneClickCancellation.Token);
+                selectedIds, MainWindow.Settings.ProtectedPaths, progress, _oneClickCancellation.Token);
+            _oneClickCancellation.Token.ThrowIfCancellationRequested();
+            _oneClickState.AwaitConfirmation();
+            _oneClickProgress.Visibility = Visibility.Collapsed;
+            _oneClickStopButton.IsEnabled = false;
+            _oneClickStatus.Text = T("oneClick.awaitingConfirmation");
             if (!await ConfirmOneClickAsync(preview))
             {
+                _oneClickState.Finish(OneClickPhase.Cancelled);
+                _oneClickStatus.Text = T("oneClick.cancelledBeforeRun");
                 return;
             }
 
+            _oneClickCancellation.Token.ThrowIfCancellationRequested();
+            _oneClickState.StartRunning();
+            _oneClickProgress.Value = 0;
+            _oneClickProgress.Visibility = Visibility.Visible;
+            _oneClickStopButton.IsEnabled = true;
             var summary = await MainWindow.OneClickMaintenance.RunAsync(
-                preview,
-                MainWindow.Settings.ProtectedPaths,
-                progress,
-                _oneClickCancellation.Token);
+                preview, MainWindow.Settings.ProtectedPaths, progress, _oneClickCancellation.Token);
             var aggregate = BuildOneClickReport(summary);
+            _oneClickState.Finish(summary.Cancelled ? OneClickPhase.Cancelled :
+                aggregate.Success ? OneClickPhase.Completed : OneClickPhase.Failed);
+            _oneClickProgress.Visibility = Visibility.Collapsed;
+            _oneClickStopButton.IsEnabled = false;
+            _oneClickStatus.Text = summary.Cancelled ? T("oneClick.cancelledAfterRun") :
+                F("oneClick.completedSummary", Formatters.FormatBytes(summary.FreedBytes),
+                    summary.FilesRemoved, summary.Results.Count(result => !result.Success));
             await MainWindow.SaveOperationReportAsync(aggregate);
             if (!summary.Cancelled)
-            {
                 await MainWindow.RefreshHealthMetricsStateAsync(_oneClickCancellation.Token);
-            }
             await MainWindow.ShowRunResultAsync_Internal(aggregate);
         }
         catch (OperationCanceledException)
         {
-            _oneClickStatus.Text = T("common.cancelled");
+            _oneClickState.Finish(OneClickPhase.Cancelled);
+            _oneClickStatus.Text = T(_oneClickState.HasStartedExecution
+                ? "oneClick.cancelledAfterRun" : "oneClick.cancelledBeforeRun");
+        }
+        catch (Exception ex)
+        {
+            _oneClickState.Finish(OneClickPhase.Failed);
+            _oneClickStatus.Text = F("oneClick.failed", ex.Message);
         }
         finally
         {
             _oneClickRunning = false;
-            _oneClickRunButton.IsEnabled = true;
+            _oneClickProgress.Visibility = Visibility.Collapsed;
+            _oneClickProgress.Value = 0;
             _oneClickStopButton.IsEnabled = false;
             SetOneClickSelectionsEnabled(true);
+            UpdateOneClickSelectionSummary();
             _oneClickCancellation?.Dispose();
             _oneClickCancellation = null;
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(_oneClickStatus.Text);
         }
     }
 
@@ -693,15 +732,16 @@ public sealed partial class MaintenancePage : BasePage
         var details = new StackPanel { Spacing = 8 };
         foreach (var item in preview.Tasks)
         {
-            details.Children.Add(new TextBlock
+            var line = new TextBlock
             {
                 Text = item.IsPerformanceAction
                     ? F("oneClick.performanceLine", MainWindow.TaskLabel_Internal(item.Task))
                     : F("oneClick.cleanupLine", MainWindow.TaskLabel_Internal(item.Task), Formatters.FormatBytes(item.Preview.EstimatedBytes), item.Preview.EstimatedFileCount),
-                Foreground = item.Task.RiskLevel == RiskLevel.High ? Brush(Colors.IndianRed) : null,
                 TextWrapping = TextWrapping.Wrap
-            });
-            foreach (var warning in item.Preview.Warnings.Take(3))
+            };
+            if (item.Task.RiskLevel == RiskLevel.High) line.Foreground = Brush(Colors.IndianRed);
+            details.Children.Add(line);
+            foreach (var warning in MainWindow.Localization.PreviewWarnings(item.Preview))
             {
                 details.Children.Add(new TextBlock
                 {
@@ -727,7 +767,7 @@ public sealed partial class MaintenancePage : BasePage
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await MainWindow.ShowThemedDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
     private TaskRunResult BuildOneClickReport(OneClickRunSummary summary)

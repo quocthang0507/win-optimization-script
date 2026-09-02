@@ -74,7 +74,7 @@ public sealed partial class OptimizePage : BasePage
         filters.ColumnDefinitions.Add(new ColumnDefinition());
         filters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
 
-        _searchBox = new TextBox { PlaceholderText = T("optimize.searchPlaceholder") };
+        _searchBox = new TextBox { PlaceholderText = T("optimize.searchPlaceholder"), VerticalAlignment = VerticalAlignment.Bottom };
         _searchBox.TextChanged += (_, _) => DebounceUiAction("optimize-search", RenderTweaks);
         filters.Children.Add(_searchBox);
 
@@ -82,7 +82,7 @@ public sealed partial class OptimizePage : BasePage
         _categoryBox.Items.Add(T("common.all"));
         foreach (var category in _tweakService.GetAllTweaks().Select(tweak => tweak.Category).Distinct().OrderBy(value => value))
         {
-            _categoryBox.Items.Add(category);
+            _categoryBox.Items.Add(new ComboBoxItem { Content = MainWindow.Localization.TweakCategory(category), Tag = category });
         }
         _categoryBox.SelectedIndex = 0;
         _categoryBox.SelectionChanged += (_, _) => RenderTweaks();
@@ -90,7 +90,7 @@ public sealed partial class OptimizePage : BasePage
         filters.Children.Add(_categoryBox);
         panel.Children.Add(filters);
 
-        var profiles = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var profiles = new AdaptiveWrapPanel();
         _profileBox = new ComboBox { Header = T("optimize.profile"), MinWidth = 240 };
         foreach (var profile in TweakProfileCatalog.All)
         {
@@ -118,18 +118,16 @@ public sealed partial class OptimizePage : BasePage
         _toggles.Clear();
 
         var query = _searchBox?.Text?.Trim() ?? string.Empty;
-        var category = _categoryBox?.SelectedIndex > 0 ? _categoryBox.SelectedItem?.ToString() : null;
+        var category = _categoryBox?.SelectedIndex > 0 ? (_categoryBox.SelectedItem as ComboBoxItem)?.Tag as string : null;
         var tweaks = _tweakService.GetAllTweaks()
-            .Where(tweak => string.IsNullOrWhiteSpace(query)
-                || tweak.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || tweak.Description.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || tweak.Category.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Where(tweak => MainWindow.Localization.MatchesTweak(tweak, query))
             .Where(tweak => category == null || tweak.Category.Equals(category, StringComparison.OrdinalIgnoreCase));
         var groups = tweaks.GroupBy(t => t.Category).OrderBy(g => g.Key);
 
+        if (!tweaks.Any()) _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
         foreach (var group in groups)
         {
-            _resultPanel.Children.Add(SectionTitle(group.Key));
+            _resultPanel.Children.Add(SectionTitle(MainWindow.Localization.TweakCategory(group.Key)));
             
             var groupPanel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 0, 0, 10) };
             foreach (var tweak in group)
@@ -156,10 +154,10 @@ public sealed partial class OptimizePage : BasePage
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var details = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        details.Children.Add(new TextBlock { Text = tweak.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        details.Children.Add(new TextBlock { Text = MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         details.Children.Add(new TextBlock
         {
-            Text = tweak.Description,
+            Text = MainWindow.Localization.TweakDescription(tweak),
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.7
         });
@@ -178,6 +176,8 @@ public sealed partial class OptimizePage : BasePage
             IsEnabled = _knownStates.ContainsKey(tweak.Id),
             IsOn = _knownStates.GetValueOrDefault(tweak.Id)
         };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(toggle, MainWindow.Localization.TweakDescription(tweak));
         toggle.Toggled += async (s, e) => 
         {
             if (_isLoadingState || _isApplyingChanges) return;
@@ -188,7 +188,7 @@ public sealed partial class OptimizePage : BasePage
             {
                 var previousState = _knownStates.GetValueOrDefault(tweak.Id);
                 await MainWindow.TweakSnapshots.SaveAsync(
-                    F("optimize.snapshotBeforeChange", tweak.Title),
+                    F("optimize.snapshotBeforeChange", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title)),
                     new Dictionary<string, bool> { [tweak.Id] = previousState });
                 var response = await _tweakService.ApplyTweakAsync(tweak.Id, toggle.IsOn);
                 if (!string.IsNullOrWhiteSpace(response.Error))
@@ -200,11 +200,11 @@ public sealed partial class OptimizePage : BasePage
                 MainWindow.SetCachedTweakState(response);
                 _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
                 toggle.IsOn = response.IsEnabled;
-                MainWindow.SetStatusText(F("optimize.applied", tweak.Title));
+                MainWindow.SetStatusText(F("optimize.applied", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title)));
             }
             catch (Exception ex)
             {
-                MainWindow.SetStatusText($"Failed to apply {tweak.Title}: {ex.Message}");
+                MainWindow.SetStatusText(F("optimize.applyFailed", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title), ex.Message));
                 _isLoadingState = true;
                 toggle.IsOn = !toggle.IsOn; // Revert visually
                 _isLoadingState = false;
@@ -342,7 +342,7 @@ public sealed partial class OptimizePage : BasePage
 
         var json = JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(file.Path, json);
-        MainWindow.SetStatusText($"Profile exported to {file.Path}");
+        MainWindow.SetStatusText(F("optimize.exported", file.Path));
     }
 
     private async Task ImportProfileAsync()
@@ -389,7 +389,7 @@ public sealed partial class OptimizePage : BasePage
             var preview = new StackPanel { Spacing = 10 };
             preview.Children.Add(InfoBlock(F("optimize.planSummary", plan.Changes.Count, plan.UnchangedCount, plan.UnknownCount)));
             foreach (var change in plan.Changes)
-                preview.Children.Add(InfoBlock($"{change.Title}\n{T(change.Before ? "common.on" : "common.off")} → {T(change.After ? "common.on" : "common.off")}"));
+                preview.Children.Add(InfoBlock($"{MainWindow.Localization.TweakTitle(change.Id, change.Title)}\n{T(change.Before ? "common.on" : "common.off")} → {T(change.After ? "common.on" : "common.off")}"));
             var dialog = new ContentDialog
             {
                 Title = label,
@@ -399,7 +399,7 @@ public sealed partial class OptimizePage : BasePage
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = MainWindow.Navigation_Internal.XamlRoot
             };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary) return;
 
             var backup = await MainWindow.TweakSnapshots.SaveAsync(label,
                 plan.Changes.ToDictionary(change => change.Id, change => change.Before, StringComparer.OrdinalIgnoreCase));
@@ -441,6 +441,7 @@ public sealed partial class OptimizePage : BasePage
             _isApplyingChanges = false;
             IsEnabled = true;
             RenderTweaks();
+            _applyProfileButton?.Focus(FocusState.Programmatic);
         }
     }
 }

@@ -322,13 +322,13 @@ public sealed partial class UpdatesPage : BasePage
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        var upgradeButton = IconButton(Symbol.Download, T("updates.upgradeOne"), async (_, _) =>
+        var upgradeButton = IconButton(Symbol.Download, F("common.actionFor", T("updates.upgradeOne"), package.Name), async (_, _) =>
         {
             await UpgradePackagesAsync([package]);
         });
         actions.Children.Add(upgradeButton);
 
-        var openButton = IconButton(Symbol.OpenFile, T("common.open"), (_, _) =>
+        var openButton = IconButton(Symbol.OpenFile, F("common.actionFor", T("common.open"), package.Name), (_, _) =>
         {
             try
             {
@@ -349,7 +349,7 @@ public sealed partial class UpdatesPage : BasePage
         detailsContent.Children.Add(infoPanel);
 
         bool detailsLoaded = false;
-        var infoButton = IconButton(Symbol.List, T("storage.details"), async (_, _) =>
+        var infoButton = IconButton(Symbol.List, F("common.actionFor", T("storage.details"), package.Name), async (_, _) =>
         {
             if (detailsContent.Visibility == Visibility.Collapsed)
             {
@@ -366,20 +366,12 @@ public sealed partial class UpdatesPage : BasePage
 
                         if (!string.IsNullOrWhiteSpace(pkgDetails.Publisher))
                         {
-                            var pubPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-                            pubPanel.Children.Add(new TextBlock { Text = "Publisher:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Width = 110 });
-                            pubPanel.Children.Add(string.IsNullOrWhiteSpace(pkgDetails.PublisherUrl) 
-                                ? new TextBlock { Text = pkgDetails.Publisher }
-                                : CreateLink(pkgDetails.Publisher, pkgDetails.PublisherUrl));
-                            infoPanel.Children.Add(pubPanel);
+                            infoPanel.Children.Add(PackageDetailField(T("updates.publisher"), pkgDetails.Publisher, pkgDetails.PublisherUrl));
                         }
 
                         if (!string.IsNullOrWhiteSpace(pkgDetails.Homepage))
                         {
-                            var hpPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-                            hpPanel.Children.Add(new TextBlock { Text = "Homepage:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Width = 110 });
-                            hpPanel.Children.Add(CreateLink(pkgDetails.Homepage, pkgDetails.Homepage));
-                            infoPanel.Children.Add(hpPanel);
+                            infoPanel.Children.Add(PackageDetailField(T("updates.homepage"), pkgDetails.Homepage, pkgDetails.Homepage));
 
                             try
                             {
@@ -393,27 +385,22 @@ public sealed partial class UpdatesPage : BasePage
 
                         if (!string.IsNullOrWhiteSpace(pkgDetails.License))
                         {
-                            var licPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-                            licPanel.Children.Add(new TextBlock { Text = "License:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Width = 110 });
-                            licPanel.Children.Add(string.IsNullOrWhiteSpace(pkgDetails.LicenseUrl)
-                                ? new TextBlock { Text = pkgDetails.License }
-                                : CreateLink(pkgDetails.License, pkgDetails.LicenseUrl));
-                            infoPanel.Children.Add(licPanel);
+                            infoPanel.Children.Add(PackageDetailField(T("updates.license"), pkgDetails.License, pkgDetails.LicenseUrl));
                         }
 
                         if (!string.IsNullOrWhiteSpace(pkgDetails.Description))
                         {
                             var descPanel = new StackPanel { Spacing = 2 };
-                            descPanel.Children.Add(new TextBlock { Text = "Description:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                            descPanel.Children.Add(new TextBlock { Text = pkgDetails.Description, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
+                            descPanel.Children.Add(new TextBlock { Text = T("updates.description"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                            descPanel.Children.Add(new TextBlock { Text = pkgDetails.Description, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
                             infoPanel.Children.Add(descPanel);
                         }
 
                         if (!string.IsNullOrWhiteSpace(pkgDetails.ReleaseNotes))
                         {
                             var rnPanel = new StackPanel { Spacing = 2 };
-                            rnPanel.Children.Add(new TextBlock { Text = "Release Notes:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                            rnPanel.Children.Add(new TextBlock { Text = pkgDetails.ReleaseNotes, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
+                            rnPanel.Children.Add(new TextBlock { Text = T("updates.releaseNotes"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                            rnPanel.Children.Add(new TextBlock { Text = pkgDetails.ReleaseNotes, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
                             infoPanel.Children.Add(rnPanel);
                         }
 
@@ -422,7 +409,7 @@ public sealed partial class UpdatesPage : BasePage
                     else
                     {
                         infoPanel.Children.Clear();
-                        infoPanel.Children.Add(new TextBlock { Text = "Failed to load package details from Winget.", Foreground = Brush(Colors.Red) });
+                        infoPanel.Children.Add(new TextBlock { Text = T("updates.detailsFailed"), Foreground = Brush(Colors.Red) });
                     }
 
                     progressRing.Visibility = Visibility.Collapsed;
@@ -446,22 +433,28 @@ public sealed partial class UpdatesPage : BasePage
         return border;
     }
 
-    private static UIElement CreateLink(string text, string url)
+    private static UIElement PackageDetailField(string label, string value, string? url)
     {
-        try
+        var row = new Grid { ColumnSpacing = 12 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.Children.Add(new TextBlock
         {
-            return new HyperlinkButton
-            {
-                Content = text,
-                NavigateUri = new Uri(url),
-                Padding = new Thickness(0),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-        }
-        catch
+            Text = label, TextWrapping = TextWrapping.Wrap,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        var text = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http")
         {
-            return new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center };
+            var link = new Microsoft.UI.Xaml.Documents.Hyperlink { NavigateUri = uri };
+            link.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = value });
+            text.Inlines.Add(link);
         }
+        else text.Text = value;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(text, $"{label} {value}");
+        Grid.SetColumn(text, 1);
+        row.Children.Add(text);
+        return row;
     }
 
     private async Task UpgradePackagesAsync(IReadOnlyList<WingetPackage>? selectedPackages)
@@ -637,7 +630,7 @@ public sealed partial class UpdatesPage : BasePage
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
 
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await MainWindow.ShowThemedDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
     private void SetUpdateControlsEnabled(bool isEnabled)
