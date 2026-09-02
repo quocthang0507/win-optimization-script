@@ -74,6 +74,9 @@ if ((git tag --list $tag)) {
 dotnet test $testProjectPath --configuration Release
 Assert-NativeCommandSucceeded -CommandName 'dotnet test'
 
+dotnet restore $projectPath --runtime win-x64
+Assert-NativeCommandSucceeded -CommandName 'dotnet restore'
+
 # WinUI XAML compiler output can become incompatible after a .NET or Windows App SDK
 # update (for example, stale App.g.i.cs paired with a newly generated App.g.cs).
 # Clean only the app's Release intermediates before publishing so both files are
