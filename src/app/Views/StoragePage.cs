@@ -57,16 +57,31 @@ public sealed partial class StoragePage : BasePage
         };
 
         var driveBox = new ComboBox { Header = T("storage.drive"), MinWidth = 180 };
+        var driveRoots = new List<string>();
         foreach (var drive in DriveInfo.GetDrives().Where(drive => drive.IsReady))
         {
+            driveRoots.Add(drive.Name);
             driveBox.Items.Add($"{drive.Name}  {Formatters.FormatBytes(drive.AvailableFreeSpace)} {T("storage.free")}");
         }
 
+        bool syncingDrive = false;
+        void SyncDriveSelection()
+        {
+            var path = _storageRootBox.Text.Trim();
+            syncingDrive = true;
+            try
+            {
+                driveBox.SelectedIndex = driveRoots.FindIndex(root => path.StartsWith(root, StringComparison.OrdinalIgnoreCase));
+            }
+            finally { syncingDrive = false; }
+        }
+        _storageRootBox.TextChanged += (_, _) => SyncDriveSelection();
+        SyncDriveSelection();
         driveBox.SelectionChanged += (_, _) =>
         {
-            if (driveBox.SelectedItem is string selected && selected.Length >= 3)
+            if (!syncingDrive && driveBox.SelectedIndex >= 0)
             {
-                _storageRootBox.Text = selected[..3];
+                _storageRootBox.Text = driveRoots[driveBox.SelectedIndex];
             }
         };
 
@@ -138,7 +153,7 @@ public sealed partial class StoragePage : BasePage
         progressStack.Children.Add(_storageProgress);
         progressStack.Children.Add(_storageProgressText);
 
-        var progressButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var progressButtons = new AdaptiveWrapPanel { Spacing = 10 };
         progressButtons.Children.Add(_storageStopButton);
         progressStack.Children.Add(progressButtons);
 
@@ -161,21 +176,16 @@ public sealed partial class StoragePage : BasePage
         var panel = new StackPanel { Spacing = 10 };
         panel.Children.Add(SectionTitle(T("storage.resultFilters")));
 
-        var grid = new Grid { ColumnSpacing = 10 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var grid = new AdaptiveWrapPanel();
 
         _diskItemSearchBox = new TextBox
         {
             PlaceholderText = T("storage.searchPlaceholder"),
             Height = 36,
-            MinWidth = 300
+            MinWidth = 0
         };
-        _diskItemSearchBox.TextChanged += (_, _) => DebounceUiAction("storage-search", RenderLastStorageResults);
-        Grid.SetColumn(_diskItemSearchBox, 0);
-        grid.Children.Add(_diskItemSearchBox);
+        ConfigureSearch(_diskItemSearchBox, "storage-search", RenderLastStorageResults);
+        panel.Children.Add(_diskItemSearchBox);
 
         _diskItemTypeFilterBox = new ComboBox
         {
@@ -187,7 +197,6 @@ public sealed partial class StoragePage : BasePage
         _diskItemTypeFilterBox.Items.Add(T("storage.filesOnly"));
         _diskItemTypeFilterBox.SelectedIndex = 0;
         _diskItemTypeFilterBox.SelectionChanged += (_, _) => RenderLastStorageResults();
-        Grid.SetColumn(_diskItemTypeFilterBox, 1);
         grid.Children.Add(_diskItemTypeFilterBox);
 
         _diskItemSizeFilterBox = new ComboBox
@@ -201,11 +210,9 @@ public sealed partial class StoragePage : BasePage
         _diskItemSizeFilterBox.Items.Add(T("storage.minSize1Gb"));
         _diskItemSizeFilterBox.SelectedIndex = 0;
         _diskItemSizeFilterBox.SelectionChanged += (_, _) => RenderLastStorageResults();
-        Grid.SetColumn(_diskItemSizeFilterBox, 2);
         grid.Children.Add(_diskItemSizeFilterBox);
 
         var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetStorageResultFilters());
-        Grid.SetColumn(resetButton, 3);
         grid.Children.Add(resetButton);
 
         panel.Children.Add(grid);

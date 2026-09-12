@@ -14,7 +14,7 @@ public sealed class OneClickMaintenanceService(
     public static IReadOnlyList<OneClickItemDefinition> Items { get; } =
     [
         new("cleanup.temp", true, false),
-        new("cleanup.browser", true, false),
+        new("cleanup.browser", false, false),
         new("cleanup.shaders", false, false),
         new("cleanup.crashdumps", false, false),
         new("cleanup.errorreports", false, false),
@@ -26,7 +26,7 @@ public sealed class OneClickMaintenanceService(
         new("privacy.powershell", false, false),
         new("cleanup.dev", false, false),
         new("cleanup.windowsupdate", false, false),
-        new("network.dns", true, true),
+        new("network.dns", false, true),
         new("optimization.drives", false, true)
     ];
 

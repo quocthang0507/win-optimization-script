@@ -100,7 +100,7 @@ public sealed partial class ToolboxPage : BasePage
     {
         var panel = new StackPanel { Spacing = 12, Padding = new Thickness(0, 12, 0, 12) };
 
-        var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        var actionPanel = new AdaptiveWrapPanel { Spacing = 12 };
         _registryScanBtn = ActionButton(T("registry.scan"), Symbol.Find, async (_, _) => await ScanRegistryAsync());
         _registryCancelBtn = ActionButton(T("common.stop"), Symbol.Stop, (_, _) => _scanCts?.Cancel());
         _registryCancelBtn.IsEnabled = false;
@@ -127,7 +127,7 @@ public sealed partial class ToolboxPage : BasePage
     {
         var panel = new StackPanel { Spacing = 16, Padding = new Thickness(0, 12, 0, 12) };
 
-        var actionPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        var actionPanel = new AdaptiveWrapPanel { Spacing = 12 };
         _flushDnsBtn = ActionButton(T("network.flushDns"), Symbol.Sync, async (_, _) => await RunNetworkActionAsync("FlushDns"));
         _resetWinsockBtn = ActionButton(T("network.resetWinsock"), Symbol.Refresh, async (_, _) => await RunNetworkActionAsync("ResetWinsock"));
         _renewIpBtn = ActionButton(T("network.renewIp"), Symbol.Target, async (_, _) => await RunNetworkActionAsync("RenewIp"));
@@ -201,31 +201,25 @@ public sealed partial class ToolboxPage : BasePage
         var panel = new StackPanel { Spacing = 12, Padding = new Thickness(0, 12, 0, 12) };
         var controls = new StackPanel { Spacing = 10 };
 
-        var searchGrid = new Grid { ColumnSpacing = 12 };
-        searchGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        searchGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        searchGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var searchGrid = new AdaptiveWrapPanel { Spacing = 12 };
 
         _searchBox = new TextBox
         {
             PlaceholderText = T("uninstaller.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (_, _) => DebounceUiAction("uninstaller-search", FilterAppsList);
-        Grid.SetColumn(_searchBox, 0);
-        searchGrid.Children.Add(_searchBox);
+        ConfigureSearch(_searchBox, "uninstaller-search", FilterAppsList);
+        controls.Children.Add(_searchBox);
 
         var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetAppFilters());
-        Grid.SetColumn(resetButton, 1);
         searchGrid.Children.Add(resetButton);
 
         _appsScanBtn = ActionButton(T("uninstaller.scan"), Symbol.Find, async (_, _) => await ScanAppsAsync());
-        Grid.SetColumn(_appsScanBtn, 2);
         searchGrid.Children.Add(_appsScanBtn);
 
         controls.Children.Add(searchGrid);
 
-        var filterRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var filterRow = new AdaptiveWrapPanel { Spacing = 10 };
 
         _appsSourceFilterBox = new ComboBox
         {

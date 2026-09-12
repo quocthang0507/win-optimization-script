@@ -352,7 +352,7 @@ public sealed partial class SettingsPage : BasePage
         ToolTipService.SetToolTip(source, source.Text);
         stack.Children.Add(source);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
         actions.Children.Add(ActionButton(T("settings.selectWinapp2Database"), Symbol.OpenFile, async (_, _) =>
         {
             var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };

@@ -8,15 +8,15 @@ public sealed class OneClickMaintenanceServiceTests
     private readonly MaintenanceCatalog _catalog = new();
 
     [Fact]
-    public void Defaults_AreSafeAndIncludeCleanupAndPerformance()
+    public void Defaults_OnlyIncludeConservativeCleanup()
     {
         var defaults = OneClickMaintenanceService.Items
             .Where(item => item.DefaultSelected)
             .ToList();
 
         Assert.Contains(defaults, item => item.TaskId == "cleanup.temp");
-        Assert.Contains(defaults, item => item.TaskId == "cleanup.browser");
-        Assert.Contains(defaults, item => item.TaskId == "network.dns" && item.IsPerformanceAction);
+        Assert.Single(defaults);
+        Assert.DoesNotContain(defaults, item => item.IsPerformanceAction);
         Assert.All(defaults, item => Assert.NotEqual(RiskLevel.High, _catalog.GetById(item.TaskId).RiskLevel));
     }
 

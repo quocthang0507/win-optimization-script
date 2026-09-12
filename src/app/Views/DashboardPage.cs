@@ -253,7 +253,7 @@ public sealed partial class DashboardPage : BasePage
         MainContent.Children.Add(DriveOverviewPanel(status));
 
         // Quick Actions
-        var quick = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var quick = new AdaptiveWrapPanel { Spacing = 10 };
         quick.Children.Add(ActionButton(T("dashboard.healthCheck"), Symbol.Refresh, async (_, _) => await RefreshDashboardAsync()));
         quick.Children.Add(ActionButton(T("dashboard.scanCleanup"), Symbol.Find, async (_, _) => await MainWindow.NavigateToTagAsync("cleanup")));
         quick.Children.Add(ActionButton(T("dashboard.analyzeStorage"), Symbol.View, async (_, _) => await MainWindow.NavigateToTagAsync("storage")));

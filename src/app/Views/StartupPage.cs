@@ -62,7 +62,7 @@ public sealed partial class StartupPage : BasePage
             PlaceholderText = T("startup.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (_, _) => DebounceUiAction("startup-search", RenderStartupEntries);
+        ConfigureSearch(_searchBox, "startup-search", RenderStartupEntries);
         searchRow.Children.Add(_searchBox);
 
         var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetStartupFilters());

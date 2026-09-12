@@ -132,7 +132,7 @@ public sealed partial class MaintenancePage : BasePage
         Grid.SetColumn(risk, 1);
         grid.Children.Add(risk);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var actions = new AdaptiveWrapPanel { Spacing = 8 };
         if (task.CanPreview)
         {
             actions.Children.Add(IconButton(Symbol.Find, T("common.scan"), async (_, _) => await MainWindow.PreviewTaskAsync(task)));
@@ -448,12 +448,6 @@ public sealed partial class MaintenancePage : BasePage
         var cleanupItems = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
         var systemItems = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
         var performanceItems = new StackPanel { Spacing = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var systemIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "cleanup.shaders", "cleanup.errorreports", "cleanup.prefetch", "cleanup.defenderlogs",
-            "cleanup.systemdumps", "cleanup.windowsupdate"
-        };
-
         foreach (var (definition, task) in MainWindow.OneClickMaintenance.GetItems())
         {
             var checkBox = OneClickOption(task, definition.DefaultSelected);
@@ -462,7 +456,7 @@ public sealed partial class MaintenancePage : BasePage
             {
                 performanceItems.Children.Add(checkBox);
             }
-            else if (systemIds.Contains(task.Id))
+            else if (!definition.DefaultSelected)
             {
                 systemItems.Children.Add(checkBox);
             }
@@ -475,7 +469,7 @@ public sealed partial class MaintenancePage : BasePage
         var groups = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
         groups.Children.Add(OneClickGroup(T("oneClick.cleanupGroup"), Symbol.Delete, cleanupItems, expanded: true));
         groups.Children.Add(OneClickGroup(T("oneClick.systemGroup"), Symbol.Setting, systemItems, expanded: false));
-        groups.Children.Add(OneClickGroup(T("oneClick.performanceGroup"), Symbol.Repair, performanceItems, expanded: true));
+        groups.Children.Add(OneClickGroup(T("oneClick.performanceGroup"), Symbol.Repair, performanceItems, expanded: false));
 
         var footer = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
         _oneClickProgress = new ProgressBar

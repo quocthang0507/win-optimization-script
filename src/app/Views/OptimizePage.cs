@@ -54,14 +54,14 @@ public sealed partial class OptimizePage : BasePage
         AddHeader(T("optimize.title"), T("optimize.subtitle"));
 
         _resultPanel = new StackPanel { Spacing = 10 };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
 
         actions.Children.Add(ActionButton(T("optimize.exportProfile"), Symbol.Save, async (_, _) => await ExportProfileAsync()));
         actions.Children.Add(ActionButton(T("optimize.importProfile"), Symbol.OpenFile, async (_, _) => await ImportProfileAsync()));
 
         MainContent.Children.Add(actions);
         MainContent.Children.Add(BuildFiltersAndProfiles());
-        MainContent.Children.Add(new TextBlock { Text = T("optimize.immediateNote"), Opacity = 0.6, Margin = new Thickness(0, 0, 0, 10) });
+        MainContent.Children.Add(new TextBlock { Text = T("optimize.immediateNote"), TextWrapping = TextWrapping.Wrap, Opacity = 0.75, Margin = new Thickness(0, 0, 0, 10) });
         MainContent.Children.Add(_resultPanel);
 
         RenderTweaks();
@@ -75,7 +75,7 @@ public sealed partial class OptimizePage : BasePage
         filters.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
 
         _searchBox = new TextBox { PlaceholderText = T("optimize.searchPlaceholder"), VerticalAlignment = VerticalAlignment.Bottom };
-        _searchBox.TextChanged += (_, _) => DebounceUiAction("optimize-search", RenderTweaks);
+        ConfigureSearch(_searchBox, "optimize-search", RenderTweaks);
         filters.Children.Add(_searchBox);
 
         _categoryBox = new ComboBox { Header = T("optimize.category"), MinWidth = 200 };

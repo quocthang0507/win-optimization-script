@@ -38,7 +38,7 @@ public abstract partial class BasePage : UserControl
 
     protected void AddHeader(string title, string subtitle)
     {
-        MainContent.Children.Add(new TextBlock { Text = title, FontSize = 30, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        MainContent.Children.Add(new TextBlock { Text = title, FontSize = 30, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         MainContent.Children.Add(new TextBlock { Text = subtitle, TextWrapping = TextWrapping.Wrap, Opacity = 0.72, Margin = new Thickness(0, -8, 0, 4) });
     }
 
@@ -90,7 +90,7 @@ public abstract partial class BasePage : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var text = new StackPanel { Spacing = 4 };
-        text.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        text.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         text.Children.Add(new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
         grid.Children.Add(text);
 
@@ -229,6 +229,30 @@ public abstract partial class BasePage : UserControl
         pending.PendingAction = action;
         pending.Timer.Stop();
         pending.Timer.Start();
+    }
+
+    protected void ConfigureSearch(TextBox search, string key, Action filter)
+    {
+        search.MinHeight = 36;
+        search.VerticalAlignment = VerticalAlignment.Bottom;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(search, search.PlaceholderText);
+        search.TextChanged += (_, _) => DebounceUiAction(key, filter);
+        search.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Escape && search.Text.Length > 0)
+            {
+                search.Text = string.Empty;
+                CancelDebouncedUiAction(key);
+                filter();
+                args.Handled = true;
+            }
+            else if (args.Key == Windows.System.VirtualKey.Enter)
+            {
+                CancelDebouncedUiAction(key);
+                filter();
+                args.Handled = true;
+            }
+        };
     }
 
     protected void CancelDebouncedUiAction(string key)

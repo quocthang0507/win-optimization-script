@@ -19,6 +19,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
     private Button? _installSelectedButton;
     private Button? _selectVisibleButton;
     private Button? _clearSelectionButton;
+    private TextBlock? _operationStatus;
     private readonly HashSet<string> _selectedIds = new();
     private bool _isInstalling;
 
@@ -50,7 +51,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
         AddHeader(T("software.title"), T("software.subtitle"));
 
         _resultPanel = new StackPanel { Spacing = 8 };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var actions = new AdaptiveWrapPanel();
 
         _installSelectedButton = ActionButton(T("software.installSelected"), Symbol.Download, async (_, _) =>
         {
@@ -67,6 +68,10 @@ public sealed partial class SoftwareInstallerPage : BasePage
         actions.Children.Add(_clearSelectionButton);
 
         MainContent.Children.Add(actions);
+        _operationStatus = InfoBlock(string.Empty);
+        _operationStatus.Visibility = Visibility.Collapsed;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(_operationStatus, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+        MainContent.Children.Add(_operationStatus);
         MainContent.Children.Add(FilterPanel());
         MainContent.Children.Add(_resultPanel);
 
@@ -85,11 +90,11 @@ public sealed partial class SoftwareInstallerPage : BasePage
             PlaceholderText = T("software.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (_, _) => DebounceUiAction("software-search", RenderApps);
+        ConfigureSearch(_searchBox, "software-search", RenderApps);
         searchRow.Children.Add(_searchBox);
         panel.Children.Add(searchRow);
 
-        var filterRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var filterRow = new AdaptiveWrapPanel { Spacing = 10 };
 
         _groupFilterBox = new ComboBox
         {
@@ -99,7 +104,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
         _groupFilterBox.Items.Add(T("common.all"));
         foreach (var g in _curatedApps.Select(a => a.Group).Distinct().OrderBy(g => g))
         {
-            _groupFilterBox.Items.Add(g);
+            _groupFilterBox.Items.Add(new ComboBoxItem { Content = T($"software.group.{g}"), Tag = g });
         }
         _groupFilterBox.SelectedIndex = 0;
         _groupFilterBox.SelectionChanged += (_, _) => RenderApps();
@@ -132,7 +137,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
             if (app.Group != currentGroup)
             {
                 currentGroup = app.Group;
-                _resultPanel.Children.Add(SectionTitle(currentGroup));
+                _resultPanel.Children.Add(SectionTitle(T($"software.group.{currentGroup}")));
             }
             _resultPanel.Children.Add(AppRow(app));
         }
@@ -157,6 +162,9 @@ public sealed partial class SoftwareInstallerPage : BasePage
 
         var checkbox = new CheckBox
         {
+            MinWidth = 0,
+            Padding = new Thickness(0),
+            IsEnabled = !_isInstalling,
             VerticalAlignment = VerticalAlignment.Center,
             IsChecked = _selectedIds.Contains(app.Id)
         };
@@ -170,7 +178,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
         details.Children.Add(new TextBlock { Text = app.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         details.Children.Add(new TextBlock
         {
-            Text = $"{app.Description} • {app.Id}",
+            Text = $"{T($"software.description.{app.Id}")} • {app.Id}",
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.7
         });
@@ -200,6 +208,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
     {
         if (_installSelectedButton != null)
         {
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_installSelectedButton, F("software.installSelectedCount", _selectedIds.Count));
             _installSelectedButton.IsEnabled = _selectedIds.Count > 0 && !_isInstalling;
             _installSelectedButton.Content = new StackPanel
             {
@@ -220,11 +229,13 @@ public sealed partial class SoftwareInstallerPage : BasePage
     private List<(string Name, string Id, string Description, string Group)> GetFilteredApps(string? query = null)
     {
         query ??= _searchBox?.Text?.Trim() ?? string.Empty;
-        var selectedGroup = _groupFilterBox?.SelectedIndex > 0 ? _groupFilterBox.SelectedItem?.ToString() : null;
+        var selectedGroup = (_groupFilterBox?.SelectedItem as ComboBoxItem)?.Tag as string;
         return _curatedApps
             .Where(app => string.IsNullOrEmpty(query)
                 || app.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || app.Id.Contains(query, StringComparison.OrdinalIgnoreCase))
+                || app.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || T($"software.description.{app.Id}").Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                || T($"software.group.{app.Group}").Contains(query, StringComparison.CurrentCultureIgnoreCase))
             .Where(app => selectedGroup == null || app.Group == selectedGroup)
             .OrderBy(app => app.Group)
             .ThenBy(app => app.Name)
@@ -233,16 +244,16 @@ public sealed partial class SoftwareInstallerPage : BasePage
 
     private void SelectVisibleApps()
     {
+        if (_isInstalling) return;
         foreach (var app in GetFilteredApps()) _selectedIds.Add(app.Id);
         RenderApps();
-        UpdateInstallButton();
     }
 
     private void ClearSelection()
     {
+        if (_isInstalling) return;
         _selectedIds.Clear();
         RenderApps();
-        UpdateInstallButton();
     }
 
     private void SetControlsEnabled(bool isEnabled)
@@ -259,19 +270,25 @@ public sealed partial class SoftwareInstallerPage : BasePage
         if (_resultPanel == null || _isInstalling || _selectedIds.Count == 0) return;
 
         var selectedApps = _curatedApps.Where(a => _selectedIds.Contains(a.Id)).ToList();
+        var confirmation = new StackPanel { Spacing = 10 };
+        confirmation.Children.Add(InfoBlock(F("software.confirmBody", selectedApps.Count)));
+        foreach (var app in selectedApps)
+            confirmation.Children.Add(new TextBlock { Text = $"{app.Name} ({app.Id})", TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog
         {
             Title = T("software.confirmTitle"),
-            Content = F("software.confirmBody", selectedApps.Count),
+            Content = new ScrollViewer { Content = confirmation, MaxHeight = 360 },
             PrimaryButtonText = T("software.install"),
             CloseButtonText = T("common.cancel"),
-            DefaultButton = ContentDialogButton.Primary,
+            DefaultButton = ContentDialogButton.Close,
             XamlRoot = MainWindow.Navigation_Internal.XamlRoot
         };
 
         if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary) return;
 
         _isInstalling = true;
+        CancelDebouncedUiAction("software-search");
+        RenderApps();
         SetControlsEnabled(false);
         var started = DateTimeOffset.Now;
         var succeeded = 0;
@@ -284,7 +301,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
             for (var index = 0; index < selectedApps.Count; index++)
             {
                 var app = selectedApps[index];
-                MainWindow.SetStatusText(F("software.installProgress", index + 1, selectedApps.Count, app.Name));
+                SetOperationStatus(F("software.installProgress", index + 1, selectedApps.Count, app.Name));
                 WingetPackageUpgradeResult result;
                 try
                 {
@@ -302,6 +319,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
                 if (result.Success)
                 {
                     succeeded++;
+                    _selectedIds.Remove(app.Id);
                     reportMessages.Add($"{app.Name} ({app.Id}): installed");
                 }
                 else
@@ -314,10 +332,9 @@ public sealed partial class SoftwareInstallerPage : BasePage
         finally
         {
             _isInstalling = false;
-            _selectedIds.Clear();
             RenderApps();
-            UpdateInstallButton();
             SetControlsEnabled(true);
+            SetOperationStatus(F("software.installSummary", succeeded, failed));
             await MainWindow.SaveOperationReportAsync(new TaskRunResult(
                 "software.install",
                 "Software Installation",
@@ -329,7 +346,16 @@ public sealed partial class SoftwareInstallerPage : BasePage
                 failed,
                 reportMessages,
                 reportErrors));
-            MainWindow.SetStatusText(F("software.installSummary", succeeded, failed));
         }
+    }
+
+    private void SetOperationStatus(string text)
+    {
+        if (_operationStatus != null)
+        {
+            _operationStatus.Text = text;
+            _operationStatus.Visibility = Visibility.Visible;
+        }
+        MainWindow.SetStatusText(text);
     }
 }

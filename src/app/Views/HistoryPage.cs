@@ -13,7 +13,7 @@ public sealed partial class HistoryPage : BasePage
         AddHeader(T("history.title"), T("history.subtitle"));
 
         var logsDir = MainWindow.Paths.LogsDirectory;
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
         actions.Children.Add(ActionButton(T("history.openLogs"), Symbol.OpenFile, (_, _) => MainWindow.OpenFolder_Internal(logsDir)));
         MainContent.Children.Add(actions);
 

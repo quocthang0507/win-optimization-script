@@ -30,7 +30,7 @@ public sealed partial class BloatwarePage : BasePage
         AddHeader(T("bloatware.title"), T("bloatware.subtitle"));
 
         _resultPanel = new StackPanel { Spacing = 8 };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
 
         _scanButton = ActionButton(T("common.scan"), Symbol.Find, async (_, _) =>
         {

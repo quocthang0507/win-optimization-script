@@ -35,6 +35,12 @@ public sealed class CleanupService(CommandRunner commands)
 
         return await Task.Run(() =>
         {
+            if (IsBrowserTask(task.Id) && IsAnyBrowserRunning())
+            {
+                var blockedWarnings = GetWarningDetails(task.Id).ToList();
+                return new TaskPreview(task.Id, "Skipped: browser is running", 0, 0, [],
+                    blockedWarnings.Select(warning => warning.Fallback).ToList(), []) { WarningDetails = blockedWarnings };
+            }
             var normalizedProtectedPaths = ProtectedPathService.NormalizePaths(protectedPaths);
             var targets = GetTargets(task.Id)
                 .Select(target => ProtectedPathService.IntersectsProtectedTree(target.Path, normalizedProtectedPaths)
@@ -74,6 +80,11 @@ public sealed class CleanupService(CommandRunner commands)
 
         try
         {
+            if (IsBrowserTask(task.Id) && IsAnyBrowserRunning())
+            {
+                return new TaskRunResult(task.Id, task.Label, started, DateTimeOffset.Now, true, 0, 0, 1,
+                    ["Skipped browser cleanup: a browser is running. Close all browsers and analyze again."], []);
+            }
             switch (task.Id)
             {
                 case "cleanup.dev":
@@ -234,6 +245,12 @@ public sealed class CleanupService(CommandRunner commands)
                     foreach (var target in GetTargets(task.Id))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        if (IsBrowserTask(task.Id) && IsAnyBrowserRunning())
+                        {
+                            filesSkipped++;
+                            messages.Add("Stopped browser cleanup: a browser was opened.");
+                            break;
+                        }
                         if (ProtectedPathService.IntersectsProtectedTree(target.Path, normalizedProtectedPaths))
                         {
                             filesSkipped++;
@@ -258,7 +275,7 @@ public sealed class CleanupService(CommandRunner commands)
                         freedBytes += removedBytes;
                         filesRemoved += removedCount;
                         filesSkipped += skippedCount;
-                        messages.Add($"Cleaned {target.Name}: {Formatters.FormatBytes(removedBytes)}.");
+                        messages.Add($"Cleaned {target.Name}: {Formatters.FormatBytes(removedBytes)}; skipped {skippedCount} file(s) (recent, protected, linked or in use).");
                     }
                     break;
             }
@@ -285,7 +302,7 @@ public sealed class CleanupService(CommandRunner commands)
             errors);
     }
 
-    private static IEnumerable<CleanupTargetDefinition> GetTargets(string taskId)
+    internal static IEnumerable<CleanupTargetDefinition> GetTargets(string taskId)
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -297,8 +314,8 @@ public sealed class CleanupService(CommandRunner commands)
         {
             "cleanup.temp" =>
             [
-                ("User temp", Path.GetTempPath()),
-                ("Windows temp", Path.Combine(windir, "Temp"))
+                new CleanupTargetDefinition("User temp", Path.GetTempPath(), "*", TimeSpan.FromDays(7)),
+                new CleanupTargetDefinition("Windows temp", Path.Combine(windir, "Temp"), "*", TimeSpan.FromDays(7))
             ],
             "cleanup.shaders" =>
             [
@@ -306,7 +323,7 @@ public sealed class CleanupService(CommandRunner commands)
             ],
             "cleanup.crashdumps" =>
             [
-                ("User crash dumps", Path.Combine(localAppData, "CrashDumps"))
+                new CleanupTargetDefinition("User crash dumps", Path.Combine(localAppData, "CrashDumps"), "*.dmp", TimeSpan.FromDays(14))
             ],
             "cleanup.errorreports" =>
             [
@@ -369,7 +386,8 @@ public sealed class CleanupService(CommandRunner commands)
             ("Opera", Path.Combine(appData, "Opera Software", "Opera Stable"))
         };
 
-        string[] chromiumCachePaths = ["Cache", "Code Cache", "GPUCache", Path.Combine("Service Worker", "CacheStorage"), Path.Combine("Service Worker", "ScriptCache")];
+        // Service Worker storage may contain offline web-app data, not disposable cache.
+        string[] chromiumCachePaths = ["Cache", "Code Cache", "GPUCache"];
 
         foreach (var (name, root) in chromiumRoots)
         {
@@ -417,9 +435,7 @@ public sealed class CleanupService(CommandRunner commands)
 
         foreach (var profile in GetFirefoxProfiles(appData))
         {
-            yield return ($"Firefox {Path.GetFileName(profile)} history", Path.Combine(profile, "places.sqlite"));
-            yield return ($"Firefox {Path.GetFileName(profile)} history wal", Path.Combine(profile, "places.sqlite-wal"));
-            yield return ($"Firefox {Path.GetFileName(profile)} history shm", Path.Combine(profile, "places.sqlite-shm"));
+            // places.sqlite also stores bookmarks. Never delete it to clear history.
             yield return ($"Firefox {Path.GetFileName(profile)} form history", Path.Combine(profile, "formhistory.sqlite"));
         }
     }
@@ -485,14 +501,16 @@ public sealed class CleanupService(CommandRunner commands)
 
     internal static IEnumerable<CleanupWarning> GetWarningDetails(string taskId)
     {
+        if (taskId == "cleanup.temp")
+            yield return new CleanupWarning("oldTemp", "Only temporary files created and modified more than 7 days ago are eligible. In-use files are skipped.", []);
         if (taskId is "cleanup.browser" or "privacy.browserHistory" or "privacy.browserCookies")
         {
             string[] names = ["msedge", "chrome", "firefox", "brave", "opera"];
             foreach (var processName in names)
             {
-                if (Process.GetProcessesByName(processName).Length > 0)
+                if (IsProcessRunning(processName))
                 {
-                    yield return new CleanupWarning("browserRunning", $"{processName}.exe is running; close it for a more complete cleanup.", [$"{processName}.exe"]);
+                    yield return new CleanupWarning("browserRunning", $"{processName}.exe is running; browser cleanup is skipped until all browsers are closed.", [$"{processName}.exe"]);
                 }
             }
         }
@@ -516,6 +534,19 @@ public sealed class CleanupService(CommandRunner commands)
         {
             yield return new CleanupWarning("diagnostics", "These diagnostic files may be useful when investigating recent Windows failures.", []);
         }
+    }
+
+    private static bool IsBrowserTask(string taskId) =>
+        taskId is "cleanup.browser" or "privacy.browserHistory" or "privacy.browserCookies";
+
+    private static bool IsAnyBrowserRunning() =>
+        new[] { "msedge", "chrome", "firefox", "brave", "opera" }.Any(IsProcessRunning);
+
+    private static bool IsProcessRunning(string name)
+    {
+        var processes = Process.GetProcessesByName(name);
+        try { return processes.Length > 0; }
+        finally { foreach (var process in processes) process.Dispose(); }
     }
 
     private IEnumerable<string> GetPlannedCommands(string taskId)
@@ -558,7 +589,7 @@ public sealed class CleanupService(CommandRunner commands)
         return PreviewTarget(new CleanupTargetDefinition(name, path), CancellationToken.None);
     }
 
-    private static CleanupTargetPreview PreviewTarget(
+    internal static CleanupTargetPreview PreviewTarget(
         CleanupTargetDefinition target,
         CancellationToken cancellationToken)
     {
@@ -566,6 +597,8 @@ public sealed class CleanupService(CommandRunner commands)
         var path = target.Path;
         try
         {
+            if (HasReparsePoint(path))
+                return new CleanupTargetPreview(name, path, File.Exists(path) || Directory.Exists(path), 0, 0, "Skipped linked path");
             if (File.Exists(path))
             {
                 var file = new FileInfo(path);
@@ -610,7 +643,7 @@ public sealed class CleanupService(CommandRunner commands)
         }
     }
 
-    private static (int Removed, int Skipped, long RemovedBytes) DeleteContents(
+    internal static (int Removed, int Skipped, long RemovedBytes) DeleteContents(
         CleanupTargetDefinition target,
         List<string> errors,
         CancellationToken cancellationToken)
@@ -620,6 +653,11 @@ public sealed class CleanupService(CommandRunner commands)
         var skipped = 0;
         long removedBytes = 0;
         cancellationToken.ThrowIfCancellationRequested();
+        if (HasReparsePoint(path))
+        {
+            errors.Add($"Skipped linked or inaccessible path: {path}");
+            return (0, 1, 0);
+        }
 
         if (File.Exists(path))
         {
@@ -628,9 +666,11 @@ public sealed class CleanupService(CommandRunner commands)
                 var info = new FileInfo(path);
                 if (!MatchesTargetFilter(info, target))
                 {
-                    return (0, 0, 0);
+                    return (0, 1, 0);
                 }
-                var bytes = info.Length;
+                using var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Delete);
+                if (!MatchesTargetFilter(new FileInfo(path), target)) return (0, 1, 0);
+                var bytes = lease.Length;
                 File.Delete(path);
                 return (1, 0, bytes);
             }
@@ -650,13 +690,7 @@ public sealed class CleanupService(CommandRunner commands)
         List<string> dirs;
         try
         {
-            files = Directory.EnumerateFiles(path, target.Pattern, RecursiveEnumeration)
-                .Where(file =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    return MatchesTargetFilter(new FileInfo(file), target);
-                })
-                .ToList();
+            files = Directory.EnumerateFiles(path, target.Pattern, RecursiveEnumeration).ToList();
             dirs = target.Pattern == "*" && target.MinimumAge is null
                 ? Directory.EnumerateDirectories(path, "*", RecursiveEnumeration)
                     .OrderByDescending(directory => directory.Length)
@@ -674,15 +708,28 @@ public sealed class CleanupService(CommandRunner commands)
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                // Revalidate immediately before deletion, rather than trust an earlier scan.
+                if (HasReparsePoint(file) || !MatchesTargetFilter(new FileInfo(file), target))
+                {
+                    skipped++;
+                    continue;
+                }
                 var fileName = Path.GetFileName(file).ToLowerInvariant();
                 if (fileName == "f01b4d95cf55d32a.automaticdestinations-ms" || 
                     fileName == "5b39b05c22c0cbb0.customdestinations-ms" ||
                     fileName == "f01b4d95cf55d32a.customdestinations-ms")
                 {
+                    skipped++;
                     continue;
                 }
 
-                var bytes = new FileInfo(file).Length;
+                using var lease = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Delete);
+                if (!MatchesTargetFilter(new FileInfo(file), target))
+                {
+                    skipped++;
+                    continue;
+                }
+                var bytes = lease.Length;
                 File.Delete(file);
                 removed++;
                 removedBytes += bytes;
@@ -699,7 +746,7 @@ public sealed class CleanupService(CommandRunner commands)
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                Directory.Delete(dir, false);
+                if (!HasReparsePoint(dir)) Directory.Delete(dir, false);
             }
             catch
             {
@@ -710,10 +757,26 @@ public sealed class CleanupService(CommandRunner commands)
         return (removed, skipped, removedBytes);
     }
 
-    private static bool MatchesTargetFilter(FileInfo file, CleanupTargetDefinition target)
+    internal static bool MatchesTargetFilter(FileInfo file, CleanupTargetDefinition target)
     {
         return target.MinimumAge is null ||
-               file.LastWriteTimeUtc <= DateTime.UtcNow - target.MinimumAge.Value;
+               (file.LastWriteTimeUtc <= DateTime.UtcNow - target.MinimumAge.Value &&
+                file.CreationTimeUtc <= DateTime.UtcNow - target.MinimumAge.Value);
+    }
+
+    private static bool HasReparsePoint(string path)
+    {
+        try
+        {
+            for (var current = Path.GetFullPath(path); !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current))
+            {
+                if ((File.Exists(current) || Directory.Exists(current)) &&
+                    (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    return true;
+            }
+            return false;
+        }
+        catch { return true; }
     }
 
     private static string TargetStatus(CleanupTargetDefinition target)
@@ -790,7 +853,7 @@ public sealed class CleanupService(CommandRunner commands)
             : (trimmed[..firstSpace], trimmed[(firstSpace + 1)..]);
     }
 
-    private sealed record CleanupTargetDefinition(
+    internal sealed record CleanupTargetDefinition(
         string Name,
         string Path,
         string Pattern = "*",

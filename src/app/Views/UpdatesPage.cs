@@ -29,7 +29,7 @@ public sealed partial class UpdatesPage : BasePage
         AddHeader(T("updates.title"), T("updates.subtitle"));
 
         _resultPanel = new StackPanel { Spacing = 8 };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
 
         _scanButton = ActionButton(T("updates.scanWinget"), Symbol.Find, async (_, _) =>
         {
@@ -81,7 +81,7 @@ public sealed partial class UpdatesPage : BasePage
             PlaceholderText = T("updates.searchPlaceholder"),
             Height = 36
         };
-        _searchBox.TextChanged += (_, _) => DebounceUiAction("updates-search", RenderPackages);
+        ConfigureSearch(_searchBox, "updates-search", RenderPackages);
         searchRow.Children.Add(_searchBox);
 
         var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetUpdateFilters());
@@ -89,7 +89,7 @@ public sealed partial class UpdatesPage : BasePage
         searchRow.Children.Add(resetButton);
         panel.Children.Add(searchRow);
 
-        var filterRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var filterRow = new AdaptiveWrapPanel { Spacing = 10 };
 
         _sourceFilterBox = new ComboBox
         {
