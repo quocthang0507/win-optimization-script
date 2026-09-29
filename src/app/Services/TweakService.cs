@@ -264,6 +264,39 @@ public sealed class TweakService
         },
         new SystemTweak
         {
+            Id = "system.preventUpdateAutoReboot",
+            Category = "System",
+            Title = "Prevent Automatic Restart After Updates",
+            Description = "Prevents Windows Update from automatically restarting while a user is signed in.",
+            RiskLevel = RiskLevel.Medium,
+            RestartRequirement = "Restart required",
+            CheckScript = @"(Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoRebootWithLoggedOnUsers' -ErrorAction SilentlyContinue).NoAutoRebootWithLoggedOnUsers -eq 1",
+            EnableScript = @"
+                New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Force | Out-Null
+                Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoRebootWithLoggedOnUsers' -Value 1 -Type DWord -Force
+            ",
+            DisableScript = @"
+                Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoRebootWithLoggedOnUsers' -ErrorAction SilentlyContinue
+            "
+        },
+        new SystemTweak
+        {
+            Id = "system.disableDeliveryOptimization",
+            Category = "System",
+            Title = "Disable Peer-to-Peer Update Sharing",
+            Description = "Prevents Windows Update Delivery Optimization from sharing update data with other PCs.",
+            RiskLevel = RiskLevel.Medium,
+            CheckScript = @"(Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' -Name 'DODownloadMode' -ErrorAction SilentlyContinue).DODownloadMode -eq 0",
+            EnableScript = @"
+                New-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' -Force | Out-Null
+                Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' -Name 'DODownloadMode' -Value 0 -Type DWord -Force
+            ",
+            DisableScript = @"
+                Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' -Name 'DODownloadMode' -ErrorAction SilentlyContinue
+            "
+        },
+        new SystemTweak
+        {
             Id = "system.utcClock",
             Category = "System",
             Title = "Use UTC for the Hardware Clock",

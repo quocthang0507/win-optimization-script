@@ -66,6 +66,7 @@
     <Compile Include="..\app\Models\TaskPreview.cs" Link="Production\Models\TaskPreview.cs" />
     <Compile Include="..\app\Models\RegistryIssue.cs" Link="Production\Models\RegistryIssue.cs" />
     <Compile Include="..\app\Models\InstalledApp.cs" Link="Production\Models\InstalledApp.cs" />
+    <Compile Include="..\app\Models\LeftoverCleanupCandidate.cs" Link="Production\Models\LeftoverCleanupCandidate.cs" />
     <Compile Include="..\app\Models\SystemMetrics.cs" Link="Production\Models\SystemMetrics.cs" />
     <Compile Include="..\app\Models\WingetPackage.cs" Link="Production\Models\WingetPackage.cs" />
     <Compile Include="..\app\Models\Winapp2CleanupPreview.cs" Link="Production\Models\Winapp2CleanupPreview.cs" />

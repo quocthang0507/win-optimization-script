@@ -71,10 +71,12 @@ public sealed class UninstallerServiceTests : IDisposable
 
         // 3. Verify it found our test directory
         Assert.NotNull(leftovers);
-        Assert.Contains(_testDirPath, leftovers);
+        var leftover = Assert.Single(leftovers, candidate => candidate.Path.Equals(_testDirPath, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(LeftoverCleanupConfidence.High, leftover.Confidence);
+        Assert.False(string.IsNullOrWhiteSpace(leftover.Reason));
 
         // 4. Clean/Delete leftovers
-        var deleteResult = await service.DeleteLeftoversAsync(leftovers.ToList());
+        var deleteResult = await service.DeleteLeftoversAsync(leftovers.Select(candidate => candidate.Path).ToList());
         Assert.True(deleteResult);
 
         // 5. Verify the folder was actually deleted

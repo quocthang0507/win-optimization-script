@@ -954,17 +954,28 @@ public sealed partial class ToolboxPage : BasePage
 
                 if (leftovers.Count > 0)
                 {
-                    // Prompt leftovers deletion
+                    var selectedLeftoverPaths = new HashSet<string>(
+                        leftovers
+                            .Where(candidate => candidate.Confidence == LeftoverCleanupConfidence.High)
+                            .Select(candidate => candidate.Path),
+                        StringComparer.OrdinalIgnoreCase);
                     var leftoversListPanel = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
-                    foreach (var path in leftovers)
+                    foreach (var candidate in leftovers)
                     {
-                        leftoversListPanel.Children.Add(new TextBlock
+                        var candidateCheckbox = new CheckBox
                         {
-                            Text = path,
-                            FontSize = 12,
-                            Opacity = 0.8,
-                            TextWrapping = TextWrapping.Wrap
-                        });
+                            Content = new TextBlock
+                            {
+                                Text = $"{candidate.Confidence}: {candidate.Path}\n{candidate.Reason}",
+                                FontSize = 12,
+                                Opacity = 0.8,
+                                TextWrapping = TextWrapping.Wrap
+                            },
+                            IsChecked = candidate.Confidence == LeftoverCleanupConfidence.High
+                        };
+                        candidateCheckbox.Checked += (_, _) => selectedLeftoverPaths.Add(candidate.Path);
+                        candidateCheckbox.Unchecked += (_, _) => selectedLeftoverPaths.Remove(candidate.Path);
+                        leftoversListPanel.Children.Add(candidateCheckbox);
                     }
 
                     var scrollViewer = new ScrollViewer
@@ -994,9 +1005,16 @@ public sealed partial class ToolboxPage : BasePage
 
                     if (await MainWindow.ShowThemedDialogAsync(leftoversDialog) == ContentDialogResult.Primary)
                     {
+                        var selectedPaths = selectedLeftoverPaths.ToList();
+                        if (selectedPaths.Count == 0)
+                        {
+                            MainWindow.SetStatusText(T("common.ready"));
+                            return;
+                        }
+
                         MainWindow.SetStatusText(T("storage.cleaning"));
                         var cleanupStarted = DateTimeOffset.Now;
-                        var cleanSuccess = await MainWindow.Uninstaller.DeleteLeftoversAsync(leftovers);
+                        var cleanSuccess = await MainWindow.Uninstaller.DeleteLeftoversAsync(selectedPaths);
                         await MainWindow.SaveOperationReportAsync(new TaskRunResult(
                             "software.leftovers.recycle",
                             "Move Software Leftovers to Recycle Bin",
@@ -1004,9 +1022,9 @@ public sealed partial class ToolboxPage : BasePage
                             DateTimeOffset.Now,
                             cleanSuccess,
                             0,
-                            cleanSuccess ? leftovers.Count : 0,
-                            cleanSuccess ? 0 : leftovers.Count,
-                            cleanSuccess ? leftovers : [],
+                            cleanSuccess ? selectedPaths.Count : 0,
+                            cleanSuccess ? 0 : selectedPaths.Count,
+                            cleanSuccess ? selectedPaths : [],
                             cleanSuccess ? [] : ["One or more leftover paths were blocked or could not be moved."]));
                         if (cleanSuccess)
                         {

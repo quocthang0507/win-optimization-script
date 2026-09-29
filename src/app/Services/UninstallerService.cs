@@ -110,13 +110,13 @@ public sealed class UninstallerService
         return success;
     }
 
-    public async Task<IReadOnlyList<string>> ScanLeftoversAsync(InstalledApp app, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<LeftoverCleanupCandidate>> ScanLeftoversAsync(InstalledApp app, CancellationToken cancellationToken = default)
     {
         if (Client?.IsConnected == true)
         {
             var payload = System.Text.Json.JsonSerializer.Serialize(app);
             var response = await Client.SendRequestAsync("ScanLeftovers", payload, cancellationToken);
-            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(response) ?? [];
+            return System.Text.Json.JsonSerializer.Deserialize<List<LeftoverCleanupCandidate>>(response) ?? [];
         }
 
         InstalledApp? trustedApp;
@@ -138,9 +138,9 @@ public sealed class UninstallerService
         }
 
         app = trustedApp;
-        var leftovers = await Task.Run<IReadOnlyList<string>>(() =>
+        var leftovers = await Task.Run<IReadOnlyList<LeftoverCleanupCandidate>>(() =>
         {
-            var leftovers = new List<string>();
+            var leftovers = new List<LeftoverCleanupCandidate>();
             var searchNames = new List<string>();
 
             var cleanAppName = CleanAppNameForSearch(app.Name);
@@ -205,7 +205,10 @@ public sealed class UninstallerService
                                         {
                                             if (IsSafeLeftoverPath(pubSub))
                                             {
-                                                leftovers.Add(pubSub);
+                                                leftovers.Add(new LeftoverCleanupCandidate(
+                                                    pubSub,
+                                                    LeftoverCleanupConfidence.High,
+                                                    "Exact application folder under its publisher directory."));
                                             }
                                         }
                                     }
@@ -217,7 +220,13 @@ public sealed class UninstallerService
                             }
                             else if (IsSafeLeftoverPath(subdir))
                             {
-                                leftovers.Add(subdir);
+                                var exactMatch = dirName.Equals(cleanAppName, StringComparison.OrdinalIgnoreCase);
+                                leftovers.Add(new LeftoverCleanupCandidate(
+                                    subdir,
+                                    exactMatch ? LeftoverCleanupConfidence.High : LeftoverCleanupConfidence.Medium,
+                                    exactMatch
+                                        ? "Exact application folder name."
+                                        : "Folder name partially matches the application or publisher."));
                             }
                         }
                     }
@@ -232,20 +241,28 @@ public sealed class UninstallerService
                 Directory.Exists(app.InstallLocation) &&
                 IsSafeLeftoverPath(app.InstallLocation))
             {
-                if (!leftovers.Contains(app.InstallLocation))
+                if (!leftovers.Any(candidate => candidate.Path.Equals(app.InstallLocation, StringComparison.OrdinalIgnoreCase)))
                 {
-                    leftovers.Add(app.InstallLocation);
+                    leftovers.Add(new LeftoverCleanupCandidate(
+                        app.InstallLocation,
+                        LeftoverCleanupConfidence.High,
+                        "Registered installation location."));
                 }
             }
 
-            return leftovers.Distinct().ToList();
+            return leftovers
+                .GroupBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.OrderBy(candidate => candidate.Confidence).First())
+                .OrderBy(candidate => candidate.Confidence)
+                .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }, cancellationToken);
 
         lock (_authorizationLock)
         {
-            foreach (var path in leftovers)
+            foreach (var candidate in leftovers)
             {
-                _authorizedLeftoverPaths.Add(Path.GetFullPath(path));
+                _authorizedLeftoverPaths.Add(Path.GetFullPath(candidate.Path));
             }
         }
 

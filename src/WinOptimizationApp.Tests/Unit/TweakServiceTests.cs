@@ -59,6 +59,8 @@ public sealed class TweakServiceTests
             "privacy.webSearch",
             "ui.showFileExtensions",
             "ui.endTaskTaskbar",
+            "system.preventUpdateAutoReboot",
+            "system.disableDeliveryOptimization",
             "system.utcClock"
         };
 
@@ -81,6 +83,14 @@ public sealed class TweakServiceTests
         var utcClock = Assert.Single(tweaks, tweak => tweak.Id == "system.utcClock");
         Assert.Equal(RiskLevel.Medium, utcClock.RiskLevel);
         Assert.True(utcClock.RequiresAdministrator);
+
+        Assert.All(
+            tweaks.Where(tweak => expectedIds.Skip(4).Take(2).Contains(tweak.Id)),
+            tweak =>
+            {
+                Assert.Equal(RiskLevel.Medium, tweak.RiskLevel);
+                Assert.True(tweak.RequiresAdministrator);
+            });
 
         var windowsSuggestions = Assert.Single(tweaks, tweak => tweak.Id == "privacy.windowsSuggestions");
         Assert.Contains("SystemPaneSuggestionsEnabled", windowsSuggestions.CheckScript, StringComparison.Ordinal);

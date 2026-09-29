@@ -427,8 +427,8 @@ public sealed class IpcServer
                         {
                             return new IpcMessage("Error", "Invalid payload");
                         }
-                        var paths = await _uninstaller.ScanLeftoversAsync(app);
-                        var json = JsonSerializer.Serialize(paths);
+                        var candidates = await _uninstaller.ScanLeftoversAsync(app);
+                        var json = JsonSerializer.Serialize(candidates);
                         return new IpcMessage("Response", json);
                     }
 
