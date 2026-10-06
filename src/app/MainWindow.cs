@@ -49,6 +49,7 @@ public sealed class MainWindow : Window
     internal TweakSnapshotService TweakSnapshots { get; }
     internal Winapp2CleanupService Winapp2Cleanup { get; }
     internal OneClickMaintenanceService OneClickMaintenance { get; }
+    internal ScheduledMaintenanceService ScheduledMaintenance { get; }
     internal AppSessionState SessionState { get; } = new();
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
@@ -72,6 +73,7 @@ public sealed class MainWindow : Window
         TweakSnapshots = new TweakSnapshotService(Paths);
         Winapp2Cleanup = new Winapp2CleanupService(Reports);
         OneClickMaintenance = new OneClickMaintenanceService(Cleanup, Execution, Catalog);
+        ScheduledMaintenance = new ScheduledMaintenanceService(Commands);
 
         _statusProgress = new ProgressBar
         {
@@ -286,6 +288,8 @@ public sealed class MainWindow : Window
     {
         SetStatus(T("common.loading"));
         reportStartupStatus?.Invoke(T("splash.connectingServices"));
+        var retentionDays = Settings.ReportRetentionDays;
+        _ = Task.Run(() => Reports.PruneReports(retentionDays));
         await _runnerConnectionTask;
 
         reportStartupStatus?.Invoke(T("splash.loadingOverview"));

@@ -33,8 +33,7 @@ public sealed class AppSettingsService
 
             using var stream = File.OpenRead(SettingsPath);
             var settings = JsonSerializer.Deserialize<AppSettings>(stream, JsonOptions) ?? new AppSettings();
-            settings.ProtectedPaths = ProtectedPathService.NormalizePaths(settings.ProtectedPaths).ToList();
-            return settings;
+            return Normalize(settings);
         }
         catch (IOException)
         {
@@ -55,7 +54,7 @@ public sealed class AppSettingsService
     {
         try
         {
-            settings.ProtectedPaths = ProtectedPathService.NormalizePaths(settings.ProtectedPaths).ToList();
+            Normalize(settings);
             var directory = Path.GetDirectoryName(SettingsPath);
             if (!string.IsNullOrWhiteSpace(directory))
             {
@@ -79,6 +78,85 @@ public sealed class AppSettingsService
         {
             return false;
         }
+    }
+
+    public static IReadOnlyList<int> SupportedRetentionDays { get; } = [0, 30, 90, 180, 365];
+
+    public static bool Export(AppSettings settings, string destinationPath)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(settings, JsonOptions);
+            File.WriteAllText(destinationPath, json);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Reads a previously exported settings file. Window geometry is machine-specific and is kept from
+    /// <paramref name="current"/> so an import from a different display layout cannot open off-screen.
+    /// </summary>
+    public static bool TryImport(string sourcePath, AppSettings current, out AppSettings? imported)
+    {
+        imported = null;
+        try
+        {
+            var info = new FileInfo(sourcePath);
+            if (!info.Exists || info.Length > 1024 * 1024)
+            {
+                return false;
+            }
+
+            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(sourcePath), JsonOptions);
+            if (settings is null)
+            {
+                return false;
+            }
+
+            settings.WindowWidth = current.WindowWidth;
+            settings.WindowHeight = current.WindowHeight;
+            imported = Normalize(settings);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    internal static AppSettings Normalize(AppSettings settings)
+    {
+        settings.ProtectedPaths = ProtectedPathService.NormalizePaths(settings.ProtectedPaths).ToList();
+        settings.ScheduledMaintenanceTaskIds = (settings.ScheduledMaintenanceTaskIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (!Enum.IsDefined(settings.ScheduleFrequency))
+        {
+            settings.ScheduleFrequency = MaintenanceScheduleFrequency.Off;
+        }
+
+        if (!Enum.IsDefined(settings.ScheduleDayOfWeek))
+        {
+            settings.ScheduleDayOfWeek = DayOfWeek.Sunday;
+        }
+
+        if (settings.ScheduleTime < TimeSpan.Zero || settings.ScheduleTime >= TimeSpan.FromDays(1))
+        {
+            settings.ScheduleTime = new TimeSpan(12, 0, 0);
+        }
+
+        settings.ScheduleTime = new TimeSpan(settings.ScheduleTime.Hours, settings.ScheduleTime.Minutes, 0);
+        if (!SupportedRetentionDays.Contains(settings.ReportRetentionDays))
+        {
+            settings.ReportRetentionDays = 0;
+        }
+
+        return settings;
     }
 
     private string? PreserveCorruptSettings()

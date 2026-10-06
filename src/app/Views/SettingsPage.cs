@@ -1,3 +1,4 @@
+using System.Globalization;
 using WinOptimizationApp.Models;
 using WinOptimizationApp.Services;
 
@@ -27,6 +28,9 @@ public sealed partial class SettingsPage : BasePage
         MainContent.Children.Add(WidgetCard());
         MainContent.Children.Add(ProtectedPathsCard());
         MainContent.Children.Add(Winapp2DatabaseCard());
+        MainContent.Children.Add(ScheduledMaintenanceCard());
+        MainContent.Children.Add(ReportRetentionCard());
+        MainContent.Children.Add(SettingsBackupCard());
 
         MainContent.Children.Add(Card(
             T("settings.cliScript"),
@@ -387,6 +391,303 @@ public sealed partial class SettingsPage : BasePage
         stack.Children.Add(actions);
         border.Child = stack;
         return border;
+    }
+
+    private CultureInfo DisplayCulture => MainWindow.Localization.CurrentLanguage == AppLanguage.Vietnamese
+        ? CultureInfo.GetCultureInfo("vi-VN")
+        : CultureInfo.GetCultureInfo("en-US");
+
+    private static Border SettingsCardBorder() => new()
+    {
+        Padding = new Thickness(14),
+        CornerRadius = new CornerRadius(8),
+        BorderThickness = new Thickness(1),
+        BorderBrush = ThemeBorderBrush(),
+        Background = ThemeCardBackground()
+    };
+
+    private Border ScheduledMaintenanceCard()
+    {
+        var border = SettingsCardBorder();
+        var stack = new StackPanel { Spacing = 10 };
+        stack.Children.Add(new TextBlock { Text = T("settings.schedule"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        stack.Children.Add(new TextBlock { Text = T("settings.scheduleDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+
+        var settings = MainWindow.Settings;
+        var controls = new AdaptiveWrapPanel { Spacing = 10 };
+        var frequency = new ComboBox { MinWidth = 150, Header = T("settings.scheduleFrequency") };
+        foreach (var value in Enum.GetValues<MaintenanceScheduleFrequency>())
+        {
+            frequency.Items.Add(new ComboBoxItem { Content = T($"settings.scheduleFrequency.{value}"), Tag = value });
+        }
+
+        frequency.SelectedIndex = (int)settings.ScheduleFrequency;
+        var time = new TimePicker
+        {
+            Header = T("settings.scheduleTime"),
+            ClockIdentifier = "24HourClock",
+            MinuteIncrement = 5,
+            Time = settings.ScheduleTime
+        };
+        var day = new ComboBox { MinWidth = 150, Header = T("settings.scheduleDay") };
+        foreach (var value in Enum.GetValues<DayOfWeek>())
+        {
+            day.Items.Add(new ComboBoxItem { Content = DisplayCulture.DateTimeFormat.GetDayName(value), Tag = value });
+        }
+
+        day.SelectedIndex = (int)settings.ScheduleDayOfWeek;
+        controls.Children.Add(frequency);
+        controls.Children.Add(time);
+        controls.Children.Add(day);
+        stack.Children.Add(controls);
+
+        stack.Children.Add(new TextBlock { Text = T("settings.scheduleTasks"), Opacity = 0.85, Margin = new Thickness(0, 4, 0, 0) });
+        var taskPanel = new AdaptiveWrapPanel { Spacing = 6 };
+        var checkboxes = new List<CheckBox>();
+        var selected = settings.ScheduledMaintenanceTaskIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var taskId in ScheduledMaintenanceService.GetEligibleTaskIds(MainWindow.Catalog))
+        {
+            var task = MainWindow.Catalog.GetById(taskId);
+            var checkBox = new CheckBox
+            {
+                Content = MainWindow.Localization.TaskLabel(task.Id, task.Label),
+                Tag = task.Id,
+                IsChecked = selected.Contains(task.Id),
+                MinWidth = 220
+            };
+            ToolTipService.SetToolTip(checkBox, MainWindow.Localization.TaskDescription(task.Id, task.Description));
+            checkboxes.Add(checkBox);
+            taskPanel.Children.Add(checkBox);
+        }
+
+        stack.Children.Add(taskPanel);
+        stack.Children.Add(new TextBlock { Text = T("settings.scheduleSafetyNote"), TextWrapping = TextWrapping.Wrap, Opacity = 0.6, FontSize = 12 });
+
+        var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.85 };
+        stack.Children.Add(status);
+
+        MaintenanceScheduleFrequency SelectedFrequency() =>
+            frequency.SelectedItem is ComboBoxItem { Tag: MaintenanceScheduleFrequency value } ? value : MaintenanceScheduleFrequency.Off;
+
+        var runNow = ActionButton(T("settings.scheduleRunNow"), Symbol.Play, async (_, _) =>
+        {
+            var result = await MainWindow.ScheduledMaintenance.RunNowAsync();
+            MainWindow.SetStatusText(result.Success
+                ? T("settings.scheduleStarted")
+                : F("settings.scheduleFailed", result.Error ?? string.Empty));
+        });
+        runNow.IsEnabled = false;
+
+        async Task RefreshStatusAsync()
+        {
+            var state = await MainWindow.ScheduledMaintenance.GetRegistrationStateAsync();
+            runNow.IsEnabled = state == ScheduleRegistrationState.Current;
+            if (settings.ScheduleFrequency == MaintenanceScheduleFrequency.Off)
+            {
+                status.Text = state == ScheduleRegistrationState.Missing ? T("settings.scheduleOff") : T("settings.scheduleOrphaned");
+                return;
+            }
+
+            if (state != ScheduleRegistrationState.Current)
+            {
+                status.Text = T(state == ScheduleRegistrationState.Stale ? "settings.scheduleStale" : "settings.scheduleMissing");
+                return;
+            }
+
+            var next = ScheduledMaintenanceService.GetNextRun(
+                settings.ScheduleFrequency, settings.ScheduleTime, settings.ScheduleDayOfWeek, DateTime.Now);
+            status.Text = F("settings.scheduleActive", next?.ToString("f", DisplayCulture) ?? "-");
+        }
+
+        var save = ActionButton(T("settings.scheduleSave"), Symbol.Save, async (sender, _) =>
+        {
+            var chosenFrequency = SelectedFrequency();
+            var chosenTasks = checkboxes.Where(box => box.IsChecked == true).Select(box => (string)box.Tag).ToList();
+            if (chosenFrequency != MaintenanceScheduleFrequency.Off && chosenTasks.Count == 0)
+            {
+                status.Text = T("settings.scheduleNoTasks");
+                return;
+            }
+
+            var chosenTime = new TimeSpan(time.Time.Hours, time.Time.Minutes, 0);
+            var chosenDay = day.SelectedItem is ComboBoxItem { Tag: DayOfWeek value } ? value : DayOfWeek.Sunday;
+            var button = (Button)sender;
+            button.IsEnabled = false;
+            try
+            {
+                var result = await MainWindow.ScheduledMaintenance.RegisterAsync(chosenFrequency, chosenTime, chosenDay);
+                if (!result.Success)
+                {
+                    status.Text = F("settings.scheduleFailed", result.Error ?? string.Empty);
+                    return;
+                }
+
+                settings.ScheduleFrequency = chosenFrequency;
+                settings.ScheduleTime = chosenTime;
+                settings.ScheduleDayOfWeek = chosenDay;
+                settings.ScheduledMaintenanceTaskIds = chosenTasks;
+                var saved = MainWindow.SettingsService.Save(settings);
+                MainWindow.SetStatusText(saved ? T("settings.saved") : F("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+                await RefreshStatusAsync();
+            }
+            finally
+            {
+                button.IsEnabled = true;
+            }
+        });
+
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
+        actions.Children.Add(save);
+        actions.Children.Add(runNow);
+        stack.Children.Add(actions);
+
+        void UpdateControlState()
+        {
+            var chosen = SelectedFrequency();
+            day.Visibility = chosen == MaintenanceScheduleFrequency.Weekly ? Visibility.Visible : Visibility.Collapsed;
+            time.IsEnabled = chosen != MaintenanceScheduleFrequency.Off;
+            taskPanel.Opacity = chosen == MaintenanceScheduleFrequency.Off ? 0.55 : 1;
+        }
+
+        frequency.SelectionChanged += (_, _) => UpdateControlState();
+        UpdateControlState();
+        status.Text = T("common.loading");
+        _ = RefreshStatusAsync();
+
+        border.Child = stack;
+        return border;
+    }
+
+    private Border ReportRetentionCard()
+    {
+        var border = SettingsCardBorder();
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel { Spacing = 4 };
+        text.Children.Add(new TextBlock { Text = T("settings.reportRetention"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        text.Children.Add(new TextBlock { Text = T("settings.reportRetentionDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        grid.Children.Add(text);
+
+        var combo = new ComboBox { MinWidth = 170 };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(combo, T("settings.reportRetention"));
+        foreach (var days in AppSettingsService.SupportedRetentionDays)
+        {
+            combo.Items.Add(new ComboBoxItem
+            {
+                Content = days == 0 ? T("settings.reportRetentionForever") : F("settings.reportRetentionDays", days),
+                Tag = days
+            });
+        }
+
+        combo.SelectedIndex = Math.Max(0, AppSettingsService.SupportedRetentionDays.ToList().IndexOf(MainWindow.Settings.ReportRetentionDays));
+        combo.SelectionChanged += async (_, _) =>
+        {
+            if (combo.SelectedItem is not ComboBoxItem { Tag: int days } || days == MainWindow.Settings.ReportRetentionDays)
+            {
+                return;
+            }
+
+            MainWindow.Settings.ReportRetentionDays = days;
+            var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+            var removed = await Task.Run(() => MainWindow.Reports.PruneReports(days));
+            MainWindow.SetStatusText(!saved
+                ? F("settings.saveFailed", MainWindow.SettingsService.SettingsPath)
+                : removed > 0 ? F("settings.reportRetentionPruned", removed) : T("settings.saved"));
+        };
+
+        Grid.SetColumn(combo, 1);
+        grid.Children.Add(combo);
+        border.Child = grid;
+        return border;
+    }
+
+    private Border SettingsBackupCard()
+    {
+        var border = SettingsCardBorder();
+        var stack = new StackPanel { Spacing = 8 };
+        stack.Children.Add(new TextBlock { Text = T("settings.backup"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        stack.Children.Add(new TextBlock { Text = T("settings.backupDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
+        actions.Children.Add(ActionButton(T("settings.exportSettings"), Symbol.Upload, async (_, _) =>
+        {
+            var picker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = $"WinOptimizationApp-settings-{DateTime.Now:yyyyMMdd}"
+            };
+            picker.FileTypeChoices.Add("JSON", [".json"]);
+            InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
+            var file = await picker.PickSaveFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            MainWindow.SetStatusText(AppSettingsService.Export(MainWindow.Settings, file.Path)
+                ? F("settings.exported", file.Path)
+                : F("settings.exportFailed", file.Path));
+        }));
+        actions.Children.Add(ActionButton(T("settings.importSettings"), Symbol.Download, async (_, _) =>
+        {
+            var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
+            picker.FileTypeFilter.Add(".json");
+            InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            if (!AppSettingsService.TryImport(file.Path, MainWindow.Settings, out var imported) || imported is null)
+            {
+                MainWindow.SetStatusText(F("settings.importFailed", file.Path));
+                return;
+            }
+
+            await ApplyImportedSettingsAsync(imported);
+        }));
+        stack.Children.Add(actions);
+        border.Child = stack;
+        return border;
+    }
+
+    private async Task ApplyImportedSettingsAsync(AppSettings imported)
+    {
+        var settings = MainWindow.Settings;
+        var previousWinapp2 = settings.CustomWinapp2DatabasePath;
+        foreach (var property in typeof(AppSettings).GetProperties().Where(property => property.CanRead && property.CanWrite))
+        {
+            property.SetValue(settings, property.GetValue(imported));
+        }
+
+        var saved = MainWindow.SettingsService.Save(settings);
+        var schedule = await MainWindow.ScheduledMaintenance.RegisterAsync(
+            settings.ScheduleFrequency, settings.ScheduleTime, settings.ScheduleDayOfWeek);
+        MainWindow.ApplyWinUiStyle_Internal(settings.WinUiStyle ?? AppWinUiStyle.Default);
+        MainWindow.ToggleWidget(settings.WidgetEnabled);
+        if (!string.Equals(previousWinapp2, settings.CustomWinapp2DatabasePath, StringComparison.OrdinalIgnoreCase))
+        {
+            MainWindow.SessionState.Winapp2Loaded = false;
+            await MainWindow.RefreshWinapp2StateAsync();
+        }
+
+        // Both calls rebuild the page, so capture the translator on MainWindow rather than this page.
+        var mainWindow = MainWindow;
+        var language = settings.Language ?? mainWindow.Localization.CurrentLanguage;
+        if (language != mainWindow.Localization.CurrentLanguage)
+        {
+            await mainWindow.ChangeLanguageAsync(language);
+        }
+
+        await mainWindow.ApplyThemeAsync_Internal(settings.Theme ?? AppTheme.System);
+        mainWindow.SetStatusText(!saved
+            ? mainWindow.FormatTranslation("settings.saveFailed", mainWindow.SettingsService.SettingsPath)
+            : !schedule.Success
+                ? mainWindow.FormatTranslation("settings.scheduleFailed", schedule.Error ?? string.Empty)
+                : mainWindow.Translate("settings.imported"));
     }
 
     private Border AcknowledgmentsCard()

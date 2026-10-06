@@ -29,7 +29,7 @@ This audit reviews each user-facing feature against four baseline requirements: 
 1. Add correlated IPC request IDs and an explicit remote cancel command so long elevated DISM, SFC, WinGet, and cleanup actions can be cancelled without closing the pipe.
 2. Replace WinGet table parsing with structured output when the minimum supported WinGet version can be raised safely.
 3. Extend tweak snapshots from logical states to exact typed registry-value snapshots for settings whose Windows default varies by build or OEM.
-4. Add configurable report/snapshot retention and export/import from Settings.
+4. ~~Add configurable report retention and settings export/import.~~ Done: Settings now offers report retention (30–365 days) and JSON export/import; tweak-snapshot retention remains open.
 5. Add Authenticode signing and a signed installer before supporting unattended self-update.
 
 These remaining items improve enterprise polish but do not weaken the path, backup, protected-package, confirmation, or error-reporting safeguards implemented in this audit.

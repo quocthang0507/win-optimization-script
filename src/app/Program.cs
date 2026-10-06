@@ -11,6 +11,13 @@ public static class Program
     {
         ProcessEfficiencyService.EnableForCurrentProcess();
 
+        var headless = HeadlessCommandLine.TryParse(args);
+        if (headless is not null)
+        {
+            Environment.ExitCode = RunHeadless(headless);
+            return;
+        }
+
         var runRunner = args.Any(arg => arg.Equals(AppProcessLauncher.RunnerArgument, StringComparison.OrdinalIgnoreCase));
 
         if (runRunner)
@@ -20,6 +27,32 @@ public static class Program
         else
         {
             RunUi();
+        }
+    }
+
+    private static int RunHeadless(HeadlessOptions options)
+    {
+        var output = HeadlessConsole.Open();
+        using var cancellation = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+
+        try
+        {
+            var runner = new HeadlessMaintenanceRunner(output, new AppSettingsService().Load());
+            return runner.RunAsync(options, cancellation.Token).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            output.WriteLine($"Error: {ex.Message}");
+            return HeadlessMaintenanceRunner.ExitTaskFailed;
+        }
+        finally
+        {
+            output.Flush();
         }
     }
 

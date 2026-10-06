@@ -100,6 +100,45 @@ public sealed class ReportService
         return builder.ToString();
     }
 
+    /// <summary>
+    /// Deletes maintenance reports (JSON plus paired text log) whose last write is older than the retention window.
+    /// A non-positive <paramref name="retentionDays"/> keeps everything.
+    /// </summary>
+    public int PruneReports(int retentionDays, DateTimeOffset? now = null)
+    {
+        if (retentionDays <= 0 || !Directory.Exists(LogsDirectory))
+        {
+            return 0;
+        }
+
+        var cutoff = (now ?? DateTimeOffset.Now).UtcDateTime.AddDays(-retentionDays);
+        var removed = 0;
+        foreach (var report in new DirectoryInfo(LogsDirectory).EnumerateFiles("maintenance-*.json", SearchOption.TopDirectoryOnly).ToList())
+        {
+            if (report.LastWriteTimeUtc >= cutoff ||
+                !TryResolveReportDeleteTargets(LogsDirectory, report.FullName, out var targets))
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var target in targets.Where(File.Exists))
+                {
+                    File.Delete(target);
+                }
+
+                removed++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A locked report is retried on the next pruning pass.
+            }
+        }
+
+        return removed;
+    }
+
     public static bool TryResolveReportDeleteTargets(
         string logsDirectory,
         string reportPath,

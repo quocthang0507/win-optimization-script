@@ -113,6 +113,10 @@
     <Compile Include="..\app\Services\TweakProfileCatalog.cs" Link="Production\Services\TweakProfileCatalog.cs" />
     <Compile Include="..\app\Services\TweakSnapshotService.cs" Link="Production\Services\TweakSnapshotService.cs" />
     <Compile Include="..\app\Services\TweakChangePlanner.cs" Link="Production\Services\TweakChangePlanner.cs" />
+    <Compile Include="..\app\Models\MaintenanceScheduleFrequency.cs" Link="Production\Models\MaintenanceScheduleFrequency.cs" />
+    <Compile Include="..\app\Services\HeadlessCommandLine.cs" Link="Production\Services\HeadlessCommandLine.cs" />
+    <Compile Include="..\app\Services\HeadlessMaintenanceRunner.cs" Link="Production\Services\HeadlessMaintenanceRunner.cs" />
+    <Compile Include="..\app\Services\ScheduledMaintenanceService.cs" Link="Production\Services\ScheduledMaintenanceService.cs" />
   </ItemGroup>
 
   <ItemGroup>

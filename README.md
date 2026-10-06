@@ -23,6 +23,10 @@ Windows System Maintenance Tool là bộ công cụ dọn dẹp, tối ưu và s
 - Splash screen tải trước tổng quan hệ thống, Startup, cập nhật, Appx, trạng thái tweak và card mạng; dữ liệu được giữ trong cache theo phiên khi chuyển trang.
 - Optimize có thêm các tinh chỉnh an toàn, có thể hoàn tác: giảm gợi ý Windows, tắt web suggestion trong Search, hiện phần mở rộng tệp và bật End Task trên taskbar; tùy chọn UTC clock được đánh dấu Medium/Admin cho máy dual-boot.
 - Advanced Toolbox cung cấp dọn Registry có sao lưu, sửa mạng, clean uninstaller và kiểm tra độ trễ ICMP bằng API an toàn, không truyền dữ liệu người dùng vào shell.
+- Bảo trì theo lịch (Settings): đăng ký tác vụ Windows Task Scheduler chạy hằng ngày/tuần/tháng các mục dọn dẹp rủi ro thấp đã chọn. Tác vụ chạy bằng tài khoản hiện tại với quyền thấp nhất, chạy bù nếu máy tắt đúng giờ hẹn, bỏ qua khi dùng pin và giới hạn 2 giờ.
+- Chế độ dòng lệnh không giao diện (`--maintenance`, `--list-tasks`, `--preview`) để tự động hóa bằng script hoặc công cụ quản trị từ xa.
+- Thời hạn lưu báo cáo: tự xóa báo cáo bảo trì cũ hơn 30/90/180/365 ngày (mặc định giữ vĩnh viễn).
+- Sao lưu/khôi phục cài đặt ra tệp JSON để mang cấu hình (ngôn ngữ, giao diện, đường dẫn được bảo vệ, lịch bảo trì) sang máy khác.
 
 ### PowerShell CLI
 
@@ -120,6 +124,27 @@ dotnet run --project .\src\app\WinOptimizationApp.csproj
 ```powershell
 dotnet build .\src\app\WinOptimizationApp.csproj -c Release
 ```
+
+### Chạy bảo trì bằng dòng lệnh (không mở cửa sổ)
+
+`WinOptimizationApp.exe` có thể chạy bảo trì trực tiếp mà không mở giao diện. Chỉ các mục trong danh sách One-click được phép, đường dẫn được bảo vệ trong Settings vẫn được tôn trọng và mỗi tác vụ đều ghi báo cáo vào `logs/` (xem trong trang History).
+
+```powershell
+# Xem các ID tác vụ hợp lệ
+.\WinOptimizationApp.exe --list-tasks | Out-Host
+
+# Chỉ ước tính, không thay đổi gì
+.\WinOptimizationApp.exe --maintenance --tasks cleanup.temp,cleanup.shaders --preview | Out-Host
+
+# Chạy thật, rồi kiểm tra mã thoát
+.\WinOptimizationApp.exe --maintenance --tasks cleanup.temp,cleanup.recyclebin | Out-Host
+$LASTEXITCODE
+```
+
+- Không có `--tasks`: chỉ chạy các mục an toàn mặc định (`cleanup.temp`).
+- `--scheduled`: dùng các mục đã chọn trong Settings > Bảo trì theo lịch (Task Scheduler gọi tùy chọn này) và tự loại các mục cần admin hoặc rủi ro cao.
+- Mã thoát: `0` thành công, `1` có tác vụ thất bại, `2` tham số sai, `3` đã hủy (Ctrl+C), `4` đang có lượt chạy khác.
+- Vì app là ứng dụng GUI, hãy pipe lệnh (ví dụ `| Out-Host`) để PowerShell chờ kết thúc và nhận được `$LASTEXITCODE`.
 
 ### Chạy PowerShell CLI
 
