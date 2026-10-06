@@ -24,7 +24,8 @@ public sealed class MaintenanceCatalog
         new("privacy.powershell", "Privacy", "PowerShell history", "Clears PSReadLine console history.", RiskLevel.Medium, false, true, true, false, "Command history cannot be recovered from this file."),
         new("privacy.browserHistory", "Privacy", "Browser history", "Clears browsing history databases for supported browsers.", RiskLevel.High, false, true, true, false, "Deletes local browsing history; close browsers first for best results."),
         new("privacy.browserCookies", "Privacy", "Browser cookies and sessions", "Clears browser cookies, session restore files and web session storage.", RiskLevel.High, false, true, true, false, "Signs websites out and removes local browser sessions."),
-        new("network.dns", "Repair", "DNS cache", "Runs ipconfig /flushdns.", RiskLevel.Safe, false, false, false, false, "Refreshes cached DNS records."),
+        // Windows 11 24H2+ rejects ipconfig /flushdns from a standard token ("The requested operation requires elevation").
+        new("network.dns", "Repair", "DNS cache", "Runs ipconfig /flushdns.", RiskLevel.Safe, true, false, false, false, "Refreshes cached DNS records."),
         new("repair.dism", "Repair", "DISM RestoreHealth", "Repairs the Windows component store.", RiskLevel.High, true, true, false, true, "Long-running Windows repair command."),
         new("repair.sfc", "Repair", "System File Checker", "Runs sfc /scannow.", RiskLevel.High, true, true, false, true, "Long-running integrity scan."),
         new("repair.explorer", "Repair", "Restart Explorer", "Restarts Windows Explorer.", RiskLevel.Medium, false, true, false, false, "Taskbar and File Explorer windows refresh."),

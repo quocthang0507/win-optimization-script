@@ -574,7 +574,11 @@ public sealed partial class ToolboxPage : BasePage
                 var dialog = new ContentDialog
                 {
                     Title = T("network.actionFailed"),
-                    Content = new TextBlock { Text = T("network.actionFailed") },
+                    Content = new TextBlock
+                    {
+                        Text = T(SystemStatusService.IsAdministrator() ? "network.actionFailed" : "network.actionFailedNeedsAdmin"),
+                        TextWrapping = TextWrapping.Wrap
+                    },
                     CloseButtonText = T("common.close"),
                     XamlRoot = XamlRoot
                 };

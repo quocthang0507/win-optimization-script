@@ -125,7 +125,7 @@ public sealed class HeadlessMaintenanceRunner
                     Formatters.FormatBytes(result.FreedBytes)));
                 foreach (var error in result.Errors)
                 {
-                    _output.WriteLine($"    {error}");
+                    _output.WriteLine($"    {(error == OneClickMaintenanceService.AdminRequiredError ? _localization.Get("cleanup.warning.adminRequired") : error)}");
                 }
             }
 

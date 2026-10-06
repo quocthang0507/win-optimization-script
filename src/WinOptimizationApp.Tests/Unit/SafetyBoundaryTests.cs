@@ -57,6 +57,14 @@ public sealed class SafetyBoundaryTests
     }
 
     [Fact]
+    public void MaintenanceCatalog_DnsFlushRequiresAdministrator()
+    {
+        // Current Windows 11 builds reject ipconfig /flushdns from a standard token, so the UI must offer
+        // elevation up front instead of reporting a bare exit code.
+        Assert.True(new MaintenanceCatalog().GetById("network.dns").RequiresAdmin);
+    }
+
+    [Fact]
     public void MaintenanceCatalog_PrivacyBrowserTasksStayOptInAndPreviewable()
     {
         var catalog = new MaintenanceCatalog();

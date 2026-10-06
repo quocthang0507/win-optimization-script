@@ -215,15 +215,43 @@ public sealed class MiniToolbarWindow : Window
             _mainWindow.BringToForeground();
             await _mainWindow.NavigateToTagAsync("storage");
         });
-        AddAction(actions, 3, Symbol.Sync, T("widget.flushDns"), async () =>
+        Button? flushDnsButton = null;
+        flushDnsButton = AddAction(actions, 3, Symbol.Sync, T("widget.flushDns"), async () =>
         {
-            await _mainWindow.NetworkOptimizer.FlushDnsAsync();
+            flushDnsButton!.IsEnabled = false;
+            try
+            {
+                var flushed = await _mainWindow.NetworkOptimizer.FlushDnsAsync();
+                ShowActionFeedback(flushDnsButton, flushed
+                    ? T("network.flushed")
+                    : T(SystemStatusService.IsAdministrator() ? "network.actionFailed" : "network.actionFailedNeedsAdmin"));
+            }
+            finally
+            {
+                flushDnsButton.IsEnabled = true;
+            }
         });
 
         return actions;
     }
 
-    private void AddAction(Grid panel, int column, Symbol symbol, string label, Func<Task> action)
+    private static void ShowActionFeedback(FrameworkElement target, string message)
+    {
+        var flyout = new Flyout
+        {
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 240 }
+        };
+        flyout.ShowAt(target);
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            flyout.Hide();
+        };
+        timer.Start();
+    }
+
+    private Button AddAction(Grid panel, int column, Symbol symbol, string label, Func<Task> action)
     {
         var button = new Button
         {
@@ -238,6 +266,7 @@ public sealed class MiniToolbarWindow : Window
         button.Click += async (_, _) => await action();
         Grid.SetColumn(button, column);
         panel.Children.Add(button);
+        return button;
     }
 
     private (TextBlock Value, ProgressBar Progress) AddPercentMetric(StackPanel panel, string label, Color color)

@@ -847,5 +847,6 @@
   "settings.exportFailed": "Could not export settings to {0}",
   "settings.importFailed": "{0} is not a valid settings file.",
   "settings.imported": "Settings imported and applied.",
-  "settings.scheduleStale": "The scheduled task points to a different copy of the app (it was moved or updated). Press Save schedule to update it."
+  "settings.scheduleStale": "The scheduled task points to a different copy of the app (it was moved or updated). Press Save schedule to update it.",
+  "network.actionFailedNeedsAdmin": "Action failed. On this version of Windows the action needs administrator rights. Restart the app as administrator and try again."
 }

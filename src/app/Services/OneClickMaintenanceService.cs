@@ -11,6 +11,8 @@ public sealed class OneClickMaintenanceService(
     private readonly MaintenanceExecutionService _execution = execution;
     private readonly MaintenanceCatalog _catalog = catalog;
 
+    public const string AdminRequiredError = "Administrator permission is required.";
+
     public static IReadOnlyList<OneClickItemDefinition> Items { get; } =
     [
         new("cleanup.temp", true, false),
@@ -64,11 +66,11 @@ public sealed class OneClickMaintenanceService(
                     0,
                     0,
                     [],
-                    task.RequiresAdmin ? ["Administrator permission is required."] : [],
+                    task.RequiresAdmin ? [AdminRequiredError] : [],
                     [])
                 {
                     WarningDetails = task.RequiresAdmin
-                        ? [new CleanupWarning("adminRequired", "Administrator permission is required.", [])] : []
+                        ? [new CleanupWarning("adminRequired", AdminRequiredError, [])] : []
                 };
             }
 
@@ -114,7 +116,7 @@ public sealed class OneClickMaintenanceService(
                         0,
                         0,
                         [],
-                        ["Administrator permission is required."]));
+                        [AdminRequiredError]));
                     continue;
                 }
 

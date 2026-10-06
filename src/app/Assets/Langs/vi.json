@@ -847,5 +847,6 @@
   "settings.exportFailed": "Không thể xuất cài đặt ra {0}",
   "settings.importFailed": "{0} không phải là tệp cài đặt hợp lệ.",
   "settings.imported": "Đã nhập và áp dụng cài đặt.",
-  "settings.scheduleStale": "Tác vụ theo lịch đang trỏ tới một bản app khác (đã bị di chuyển hoặc cập nhật). Nhấn Lưu lịch để cập nhật."
+  "settings.scheduleStale": "Tác vụ theo lịch đang trỏ tới một bản app khác (đã bị di chuyển hoặc cập nhật). Nhấn Lưu lịch để cập nhật.",
+  "network.actionFailedNeedsAdmin": "Thao tác thất bại. Trên phiên bản Windows này, thao tác cần quyền quản trị. Hãy khởi động lại ứng dụng với quyền Admin rồi thử lại."
 }
