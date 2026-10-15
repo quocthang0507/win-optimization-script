@@ -260,6 +260,7 @@ public sealed partial class DashboardPage : BasePage
         quick.Children.Add(ActionButton(T("dashboard.scanUpdates"), Symbol.Download, async (_, _) => await MainWindow.ScanWingetAsync(_wingetResultPanel)));
         quick.Children.Add(ActionButton(T("dashboard.openLogs"), Symbol.OpenFile, (_, _) => MainWindow.OpenFolder_Internal(MainWindow.Paths.LogsDirectory)));
         quick.Children.Add(ActionButton(T("dashboard.export"), Symbol.Save, async (_, _) => await ExportDashboardAsync(status)));
+        quick.Children.Add(ActionButton(T("dashboard.copySpecs"), Symbol.Copy, (_, _) => CopySpecsToClipboard(status)));
         MainContent.Children.Add(quick);
 
         MainContent.Children.Add(_wingetResultPanel);
@@ -592,6 +593,22 @@ public sealed partial class DashboardPage : BasePage
         catch (Exception ex)
         {
             await MainWindow.ShowDialogAsync_Internal(T("dashboard.exportFailed"), InfoBlock(ex.Message), T("common.close"));
+        }
+    }
+
+    private void CopySpecsToClipboard(WinOptimizationApp.Models.DashboardStatus status)
+    {
+        try
+        {
+            var summary = DashboardExportService.FormatSystemSpecsSummary(status, MainWindow.Localization.CurrentLanguage);
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(summary);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            MainWindow.SetStatusText(T("dashboard.copiedSpecs"), isBusy: false);
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText($"Copy failed: {ex.Message}", isBusy: false);
         }
     }
 

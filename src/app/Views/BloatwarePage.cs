@@ -13,7 +13,10 @@ namespace WinOptimizationApp.Views;
 public sealed partial class BloatwarePage : BasePage
 {
     private StackPanel? _resultPanel;
+    private TextBox? _searchBox;
     private Button? _scanButton;
+    private Button? _selectAllButton;
+    private Button? _clearSelectionButton;
     private Button? _removeButton;
     private List<InstalledApp> _apps = [];
     private bool _isWorking;
@@ -30,6 +33,14 @@ public sealed partial class BloatwarePage : BasePage
         AddHeader(T("bloatware.title"), T("bloatware.subtitle"));
 
         _resultPanel = new StackPanel { Spacing = 8 };
+
+        _searchBox = new TextBox
+        {
+            PlaceholderText = T("bloatware.searchPlaceholder"),
+            Height = 36
+        };
+        ConfigureSearch(_searchBox, "bloatware-search", RenderApps);
+
         var actions = new AdaptiveWrapPanel { Spacing = 10 };
 
         _scanButton = ActionButton(T("common.scan"), Symbol.Find, async (_, _) =>
@@ -38,6 +49,13 @@ public sealed partial class BloatwarePage : BasePage
         });
         actions.Children.Add(_scanButton);
 
+        _selectAllButton = ActionButton(T("bloatware.selectAll"), Symbol.SelectAll, (_, _) => SelectAllFilteredApps());
+        actions.Children.Add(_selectAllButton);
+
+        _clearSelectionButton = ActionButton(T("bloatware.clearSelection"), Symbol.Clear, (_, _) => ClearSelection());
+        _clearSelectionButton.IsEnabled = false;
+        actions.Children.Add(_clearSelectionButton);
+
         _removeButton = ActionButton(T("bloatware.removeSelected"), Symbol.Delete, async (_, _) =>
         {
             await RemoveSelectedAppsAsync();
@@ -45,6 +63,7 @@ public sealed partial class BloatwarePage : BasePage
         _removeButton.IsEnabled = false;
         actions.Children.Add(_removeButton);
 
+        MainContent.Children.Add(_searchBox);
         MainContent.Children.Add(actions);
         MainContent.Children.Add(_resultPanel);
     }
@@ -103,6 +122,37 @@ public sealed partial class BloatwarePage : BasePage
         RenderApps();
     }
 
+    private List<InstalledApp> FilteredApps()
+    {
+        var query = _searchBox?.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return _apps;
+        }
+
+        return _apps.Where(a =>
+            a.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            a.Id.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            a.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase)
+        ).ToList();
+    }
+
+    private void SelectAllFilteredApps()
+    {
+        var filtered = FilteredApps();
+        foreach (var app in filtered)
+        {
+            _selectedIds.Add(app.Id);
+        }
+        RenderApps();
+    }
+
+    private void ClearSelection()
+    {
+        _selectedIds.Clear();
+        RenderApps();
+    }
+
     private void RenderApps()
     {
         if (_resultPanel == null) return;
@@ -111,15 +161,28 @@ public sealed partial class BloatwarePage : BasePage
         if (_apps.Count == 0)
         {
             _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
+            UpdateRemoveButton();
             return;
         }
 
-        _resultPanel.Children.Add(SectionTitle(F("bloatware.detected", _apps.Count)));
+        var filtered = FilteredApps();
+        if (filtered.Count == 0)
+        {
+            _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
+            UpdateRemoveButton();
+            return;
+        }
 
-        foreach (var app in _apps)
+        _resultPanel.Children.Add(SectionTitle(filtered.Count == _apps.Count
+            ? F("bloatware.detected", _apps.Count)
+            : F("bloatware.detectedFiltered", filtered.Count, _apps.Count)));
+
+        foreach (var app in filtered)
         {
             _resultPanel.Children.Add(AppRow(app));
         }
+
+        UpdateRemoveButton();
     }
 
     private Border AppRow(InstalledApp app)
@@ -141,7 +204,7 @@ public sealed partial class BloatwarePage : BasePage
         var checkbox = new CheckBox
         {
             VerticalAlignment = VerticalAlignment.Center,
-            IsChecked = false
+            IsChecked = _selectedIds.Contains(app.Id)
         };
         checkbox.Checked += (_, _) => { _selectedIds.Add(app.Id); UpdateRemoveButton(); };
         checkbox.Unchecked += (_, _) => { _selectedIds.Remove(app.Id); UpdateRemoveButton(); };
@@ -169,13 +232,26 @@ public sealed partial class BloatwarePage : BasePage
         if (_removeButton != null)
         {
             _removeButton.IsEnabled = _selectedIds.Count > 0 && !_isWorking;
-            _removeButton.Content = F("bloatware.removeSelectedCount", _selectedIds.Count);
+            _removeButton.Content = _selectedIds.Count > 0
+                ? F("bloatware.removeSelectedCount", _selectedIds.Count)
+                : T("bloatware.removeSelected");
+        }
+        if (_clearSelectionButton != null)
+        {
+            _clearSelectionButton.IsEnabled = _selectedIds.Count > 0 && !_isWorking;
+        }
+        if (_selectAllButton != null)
+        {
+            _selectAllButton.IsEnabled = !_isWorking && _apps.Count > 0;
         }
     }
 
     private void SetControlsEnabled(bool isEnabled)
     {
         if (_scanButton != null) _scanButton.IsEnabled = isEnabled;
+        if (_searchBox != null) _searchBox.IsEnabled = isEnabled;
+        if (_selectAllButton != null) _selectAllButton.IsEnabled = isEnabled && _apps.Count > 0;
+        if (_clearSelectionButton != null) _clearSelectionButton.IsEnabled = isEnabled && _selectedIds.Count > 0;
         if (_removeButton != null) _removeButton.IsEnabled = isEnabled && _selectedIds.Count > 0;
     }
 

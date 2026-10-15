@@ -77,6 +77,14 @@ public sealed partial class ToolboxPage : BasePage
         };
         pivot.Items.Add(uninstallerTab);
 
+        // 4. System Tools Tab
+        var systemToolsTab = new PivotItem
+        {
+            Header = T("toolbox.tab.system"),
+            Content = CreateSystemToolsLayout()
+        };
+        pivot.Items.Add(systemToolsTab);
+
         MainContent.Children.Add(pivot);
     }
 
@@ -1088,6 +1096,151 @@ public sealed partial class ToolboxPage : BasePage
         finally
         {
             MainWindow.SetStatusText(T("common.ready"), isBusy: false);
+        }
+    }
+
+    #endregion
+
+    #region System Tools Layout
+
+    private ScrollViewer CreateSystemToolsLayout()
+    {
+        var panel = new StackPanel { Spacing = 16, Padding = new Thickness(0, 12, 0, 12) };
+
+        // 1. System Restore Point Group
+        panel.Children.Add(SectionTitle(T("systemTools.restorePointTitle")));
+        panel.Children.Add(InfoBlock(T("systemTools.restorePointDesc")));
+
+        var restoreCard = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
+        };
+
+        var restoreGrid = new Grid { ColumnSpacing = 12 };
+        restoreGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        restoreGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var restoreInput = new TextBox
+        {
+            PlaceholderText = T("systemTools.restorePointPlaceholder"),
+            Height = 36
+        };
+        Grid.SetColumn(restoreInput, 0);
+        restoreGrid.Children.Add(restoreInput);
+
+        Button? restoreBtn = null;
+        restoreBtn = ActionButton(T("systemTools.createRestorePoint"), Symbol.Add, async (_, _) =>
+        {
+            restoreBtn!.IsEnabled = false;
+            MainWindow.SetStatusText(T("systemTools.creatingRestorePoint"), isBusy: true);
+            try
+            {
+                var (success, msg) = await MainWindow.RestorePoint.CreateManualRestorePointAsync(restoreInput.Text);
+                MainWindow.SetStatusText(success ? T("systemTools.restorePointCreated") : msg, isBusy: false);
+                await MainWindow.ShowDialogAsync_Internal(
+                    success ? T("run.completed") : T("common.error"),
+                    InfoBlock(success ? F("systemTools.restorePointSuccess", msg) : msg),
+                    T("common.close"));
+                if (success)
+                {
+                    restoreInput.Text = string.Empty;
+                }
+            }
+            finally
+            {
+                restoreBtn.IsEnabled = true;
+            }
+        });
+        Grid.SetColumn(restoreBtn, 1);
+        restoreGrid.Children.Add(restoreBtn);
+
+        restoreCard.Child = restoreGrid;
+        panel.Children.Add(restoreCard);
+
+        // 2. System Maintenance & Repair Group
+        panel.Children.Add(SectionTitle(T("systemTools.maintenanceToolsTitle")));
+
+        var maintenanceToolsGrid = new StackPanel { Spacing = 10 };
+
+        maintenanceToolsGrid.Children.Add(Card(
+            T("systemTools.rebuildIconCache"),
+            T("systemTools.rebuildIconCacheDesc"),
+            T("common.run"),
+            async (_, _) => await RunSystemToolActionAsync("RebuildIconCache")));
+
+        maintenanceToolsGrid.Children.Add(Card(
+            T("systemTools.resetStoreCache"),
+            T("systemTools.resetStoreCacheDesc"),
+            T("common.run"),
+            async (_, _) => await RunSystemToolActionAsync("ResetStoreCache")));
+
+        maintenanceToolsGrid.Children.Add(Card(
+            T("systemTools.resetTcpIp"),
+            T("systemTools.resetTcpIpDesc"),
+            T("common.run"),
+            async (_, _) => await RunSystemToolActionAsync("ResetTcpIp")));
+
+        maintenanceToolsGrid.Children.Add(Card(
+            T("systemTools.clearArp"),
+            T("systemTools.clearArpDesc"),
+            T("common.run"),
+            async (_, _) => await RunSystemToolActionAsync("ClearArp")));
+
+        panel.Children.Add(maintenanceToolsGrid);
+
+        // 3. Windows Administrative Tools Group
+        panel.Children.Add(SectionTitle(T("systemTools.adminToolsTitle")));
+        panel.Children.Add(InfoBlock(T("systemTools.adminToolsDesc")));
+
+        var adminToolsPanel = new AdaptiveWrapPanel { Spacing = 10 };
+
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolTaskMgr"), Symbol.ShowResults, (_, _) => SystemMaintenanceService.LaunchAdminTool("taskmgr")));
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolDevMgmt"), Symbol.Setting, (_, _) => SystemMaintenanceService.LaunchAdminTool("devmgmt")));
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolDiskMgmt"), Symbol.Save, (_, _) => SystemMaintenanceService.LaunchAdminTool("diskmgmt")));
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolServices"), Symbol.Repair, (_, _) => SystemMaintenanceService.LaunchAdminTool("services")));
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolResMon"), Symbol.Target, (_, _) => SystemMaintenanceService.LaunchAdminTool("resmon")));
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolEventVwr"), Symbol.Document, (_, _) => SystemMaintenanceService.LaunchAdminTool("eventvwr")));
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolDxDiag"), Symbol.Video, (_, _) => SystemMaintenanceService.LaunchAdminTool("dxdiag")));
+        adminToolsPanel.Children.Add(ActionButton(T("systemTools.toolSysProps"), Symbol.Home, (_, _) => SystemMaintenanceService.LaunchAdminTool("sysdm")));
+
+        panel.Children.Add(adminToolsPanel);
+
+        return new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+    }
+
+    private async Task RunSystemToolActionAsync(string toolAction)
+    {
+        MainWindow.SetStatusText(T("common.loading"), isBusy: true);
+        try
+        {
+            var success = toolAction switch
+            {
+                "RebuildIconCache" => await MainWindow.SystemMaintenance.RebuildIconCacheAsync(),
+                "ResetStoreCache" => await MainWindow.SystemMaintenance.ResetStoreCacheAsync(),
+                "ResetTcpIp" => await MainWindow.SystemMaintenance.ResetTcpIpStackAsync(),
+                "ClearArp" => await MainWindow.SystemMaintenance.ClearArpCacheAsync(),
+                _ => false
+            };
+
+            MainWindow.SetStatusText(success ? T("run.completed") : T("common.error"), isBusy: false);
+            await MainWindow.ShowDialogAsync_Internal(
+                success ? T("run.completed") : T("common.error"),
+                InfoBlock(success ? T("systemTools.actionSuccess") : T("network.actionFailedNeedsAdmin")),
+                T("common.close"));
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText(ex.Message, isBusy: false);
+            await MainWindow.ShowDialogAsync_Internal(T("common.error"), InfoBlock(ex.Message), T("common.close"));
         }
     }
 

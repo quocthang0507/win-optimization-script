@@ -50,6 +50,8 @@ public sealed class MainWindow : Window
     internal Winapp2CleanupService Winapp2Cleanup { get; }
     internal OneClickMaintenanceService OneClickMaintenance { get; }
     internal ScheduledMaintenanceService ScheduledMaintenance { get; }
+    internal RestorePointService RestorePoint { get; }
+    internal SystemMaintenanceService SystemMaintenance { get; }
     internal AppSessionState SessionState { get; } = new();
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
@@ -64,7 +66,9 @@ public sealed class MainWindow : Window
         Cleanup = new CleanupService(Commands);
         Status = new SystemStatusService(Commands, Reports);
         Winget = new WingetService(Commands);
-        Execution = new MaintenanceExecutionService(Cleanup, Commands, Paths, Reports, new RestorePointService(Commands));
+        RestorePoint = new RestorePointService(Commands);
+        SystemMaintenance = new SystemMaintenanceService(Commands);
+        Execution = new MaintenanceExecutionService(Cleanup, Commands, Paths, Reports, RestorePoint);
         StorageCleanup = new StorageCleanupService(Reports);
         RegistryCleaner = new RegistryCleanerService(Commands);
         NetworkOptimizer = new NetworkOptimizationService(Commands);

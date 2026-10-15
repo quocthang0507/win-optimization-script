@@ -135,4 +135,31 @@ public static class DashboardExportService
         var value = localization.Get(key);
         return value == key ? fallback : value;
     }
+
+    public static string FormatSystemSpecsSummary(DashboardStatus status, AppLanguage language = AppLanguage.English)
+    {
+        var localization = new LocalizationService(language);
+        var ramUsed = status.TotalRamBytes > status.AvailableRamBytes ? status.TotalRamBytes - status.AvailableRamBytes : 0;
+        var builder = new StringBuilder();
+
+        builder.AppendLine($"OS: {status.WindowsVersion} ({status.OSArchitecture})");
+        builder.AppendLine($"Device: {status.MachineName} (User: {status.UserName})");
+        builder.AppendLine($"CPU: {status.CpuName} ({status.ProcessorCount} Cores)");
+        builder.AppendLine($"RAM: {Formatters.FormatBytes((long)ramUsed)} / {Formatters.FormatBytes((long)status.TotalRamBytes)} ({status.MemoryLoadPercent}%)");
+        builder.AppendLine($".NET Runtime: {status.DotNetRuntime} ({status.ProcessArchitecture})");
+        builder.AppendLine($"Uptime: {Formatters.FormatDuration(status.Uptime, language)}");
+        builder.AppendLine($"System Drive: {status.SystemDrive} ({Formatters.FormatBytes(status.SystemDriveFreeBytes)} free of {Formatters.FormatBytes(status.SystemDriveTotalBytes)})");
+
+        if (status.Drives.Count > 1)
+        {
+            builder.AppendLine("Drives:");
+            foreach (var drive in status.Drives)
+            {
+                var label = string.IsNullOrWhiteSpace(drive.Label) ? "" : $" ({drive.Label})";
+                builder.AppendLine($"  - {drive.Name}{label}: {Formatters.FormatBytes(drive.FreeBytes)} free of {Formatters.FormatBytes(drive.TotalBytes)}");
+            }
+        }
+
+        return builder.ToString().TrimEnd();
+    }
 }
