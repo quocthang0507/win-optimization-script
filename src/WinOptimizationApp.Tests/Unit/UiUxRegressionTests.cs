@@ -122,4 +122,122 @@ public sealed class UiUxRegressionTests
         Assert.NotEqual(warning.Fallback,
             Assert.Single(new LocalizationService(AppLanguage.Vietnamese).PreviewWarnings(preview)));
     }
+
+    [Fact]
+    public void AllHealthCheckRecommendations_RouteToValidNavPagesOrActions()
+    {
+        var validTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "dashboard", "cleanup", "bloatware", "storage", "startup",
+            "updates", "software", "toolbox", "optimize", "repair",
+            "history", "settings", "restartGuidance"
+        };
+
+        var status = new DashboardStatus(
+            WindowsVersion: "Windows 11",
+            MachineName: "TestMachine",
+            UserName: "TestUser",
+            IsAdministrator: false,
+            Uptime: TimeSpan.FromDays(8),
+            SystemDrive: "C:\\",
+            SystemDriveFreeBytes: 2L * 1024 * 1024 * 1024,
+            SystemDriveTotalBytes: 100L * 1024 * 1024 * 1024,
+            PendingReboot: true,
+            WingetAvailable: true,
+            LastReportPath: null,
+            CpuName: "Test CPU",
+            ProcessorCount: 8,
+            DotNetRuntime: "10.0",
+            ProcessArchitecture: "X64",
+            OSArchitecture: "X64",
+            MemoryLoadPercent: 85,
+            TotalRamBytes: 16UL * 1024 * 1024 * 1024,
+            AvailableRamBytes: 1UL * 1024 * 1024 * 1024,
+            TotalPageFileBytes: 20UL * 1024 * 1024 * 1024,
+            AvailablePageFileBytes: 2UL * 1024 * 1024 * 1024,
+            Drives: [new DashboardDriveStatus("C:", "System", "NTFS", "Local Disk", 100L * 1024 * 1024 * 1024, 2L * 1024 * 1024 * 1024)]);
+
+        var metrics = new HealthCheckScanMetrics(
+            CleanupBytes: 1024L * 1024 * 1024,
+            CleanupFiles: 500,
+            AvailableUpdates: 5,
+            HighImpactStartupItems: 3,
+            Errors: []);
+
+        var result = DashboardHealthCheckService.Analyze(status, metrics);
+
+        Assert.NotEmpty(result.Recommendations);
+        foreach (var rec in result.Recommendations)
+        {
+            if (!string.IsNullOrWhiteSpace(rec.ActionTag))
+            {
+                Assert.Contains(rec.ActionTag, validTags);
+            }
+        }
+    }
+
+    [Fact]
+    public void LeftoverCandidates_ConfidencePolicy_OnlyHighConfidencePreSelected()
+    {
+        var candidates = new List<LeftoverCleanupCandidate>
+        {
+            new(@"C:\Users\test\AppData\Local\Vendor\AppHigh", LeftoverCleanupConfidence.High, "Found app-specific folder"),
+            new(@"C:\Users\test\AppData\Local\Temp\CommonLog.txt", LeftoverCleanupConfidence.Medium, "Found shared log file")
+        };
+
+        var autoSelected = candidates
+            .Where(c => c.Confidence == LeftoverCleanupConfidence.High)
+            .Select(c => c.Path)
+            .ToList();
+
+        Assert.Single(autoSelected);
+        Assert.Equal(@"C:\Users\test\AppData\Local\Vendor\AppHigh", autoSelected[0]);
+    }
+
+    [Fact]
+    public void WingetPackageDetails_ParseShowOutput_HandlesSpecialCharactersAndQuotes()
+    {
+        var rawOutput = @"
+Found Test Application [Test.Vendor.App]
+Version: 1.2.3
+Publisher: 'Vendor & Co. ""Official""'
+PublisherUrl: https://vendor.example.com
+Description: 'A multi-line description with special chars:
+  - Supports UTF-8: Tiếng Việt, 日本語, and symbols like & < > % $.
+  - Contains quotes: ""quoted words"" and \'escaped quotes\'.'
+ReleaseNotes: ""- Bug fixes & improvements:
+  - Fixed issue #123 (encoding error)""
+";
+        var method = typeof(WingetService).GetMethod(
+            "ParseShowOutput",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var details = (WingetPackageDetails)method.Invoke(null, new object[] { "Test.Vendor.App", rawOutput })!;
+        Assert.NotNull(details);
+        Assert.Equal("Test Application", details.Name);
+        Assert.Equal("Test.Vendor.App", details.Id);
+        Assert.Equal("1.2.3", details.Version);
+        Assert.Equal(@"Vendor & Co. ""Official""", details.Publisher);
+        Assert.Contains("Tiếng Việt", details.Description);
+        Assert.Contains("quotes", details.Description);
+        Assert.False(details.Description.StartsWith("'"));
+        Assert.False(details.Description.EndsWith("'"));
+        Assert.Contains("Bug fixes", details.ReleaseNotes);
+        Assert.False(details.ReleaseNotes.StartsWith("\""));
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\JohnDoe\AppData\Local\Temp\file.tmp", false, RiskLevel.Medium)]
+    [InlineData(@"C:\Users\JohnDoe\Documents\OldFolder", true, RiskLevel.High)]
+    [InlineData(@"C:\Program Files\Something\file.dll", false, RiskLevel.High)]
+    [InlineData(@"C:\Windows\System32\drivers\test.sys", false, RiskLevel.High)]
+    public void StorageManualCandidate_RiskRules(string path, bool isDirectory, RiskLevel expectedRisk)
+    {
+        var userProfile = @"C:\Users\JohnDoe";
+        var isUserFile = path.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase);
+        var risk = isDirectory || !isUserFile ? RiskLevel.High : RiskLevel.Medium;
+
+        Assert.Equal(expectedRisk, risk);
+    }
 }

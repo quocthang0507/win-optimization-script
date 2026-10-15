@@ -117,6 +117,7 @@
     <Compile Include="..\app\Services\HeadlessCommandLine.cs" Link="Production\Services\HeadlessCommandLine.cs" />
     <Compile Include="..\app\Services\HeadlessMaintenanceRunner.cs" Link="Production\Services\HeadlessMaintenanceRunner.cs" />
     <Compile Include="..\app\Services\ScheduledMaintenanceService.cs" Link="Production\Services\ScheduledMaintenanceService.cs" />
+    <Compile Include="..\app\Services\StatusStateService.cs" Link="Production\Services\StatusStateService.cs" />
   </ItemGroup>
 
   <ItemGroup>

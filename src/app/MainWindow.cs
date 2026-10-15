@@ -1233,15 +1233,7 @@ public sealed class MainWindow : Window
         var brush = GetStatusBrush(text);
         _statusText.Foreground = brush;
 
-        var inferredBusy = !string.IsNullOrEmpty(text)
-            && text != T("common.ready")
-            && text != T("settings.saved")
-            && text != T("update.latest")
-            && !text.Contains(T("run.completed"))
-            && !text.Contains(T("storage.scanCanceled"))
-            && !text.Contains("Canceled")
-            && !text.Contains("Hủy");
-        var isBusy = isBusyOverride ?? inferredBusy;
+        var isBusy = isBusyOverride ?? StatusStateService.InferIsBusy(text);
 
         _statusProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
         _statusProgress.Foreground = brush;
@@ -1249,25 +1241,14 @@ public sealed class MainWindow : Window
 
     private SolidColorBrush GetStatusBrush(string text)
     {
-        if (string.IsNullOrEmpty(text))
+        var state = StatusStateService.GetVisualState(text);
+        return state switch
         {
-            return new SolidColorBrush(Colors.Gray);
-        }
-
-        // Ready, Saved, Completed (e.g. Sẵn sàng, Đã lưu cài đặt, Đã hoàn tất)
-        if (text == T("common.ready") || text == T("settings.saved") || text == T("update.latest") || text.Contains(T("run.completed")))
-        {
-            return new SolidColorBrush(Colors.MediumSeaGreen);
-        }
-
-        // Stopping (e.g. Đang dừng quét, Đang dừng...)
-        if (text.Contains(T("storage.stopping")) || text.Contains("dừng") || text.Contains("Stopping") || text.Contains("Canceled") || text.Contains("Hủy"))
-        {
-            return new SolidColorBrush(Colors.DarkOrange);
-        }
-
-        // Scanning, Running, Loading, Cleaning (e.g. Đang tải..., Đang quét..., Đang chạy..., Đang dọn...)
-        return new SolidColorBrush(Colors.DeepSkyBlue);
+            StatusVisualState.Ready or StatusVisualState.Success => new SolidColorBrush(Colors.MediumSeaGreen),
+            StatusVisualState.Warning => new SolidColorBrush(Colors.DarkOrange),
+            StatusVisualState.Busy => new SolidColorBrush(Colors.DeepSkyBlue),
+            _ => new SolidColorBrush(Colors.Gray)
+        };
     }
 
     private static SolidColorBrush RiskBrush(RiskLevel risk)

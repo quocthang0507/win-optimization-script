@@ -326,7 +326,7 @@ public sealed partial class MaintenancePage : BasePage
             }
             catch (Exception ex)
             {
-                MainWindow.SetStatusText(F("winapp2.operationFailed", ex.Message));
+                MainWindow.SetStatusText(F("winapp2.operationFailed", ex.Message), isBusy: false);
             }
             finally
             {
@@ -355,13 +355,24 @@ public sealed partial class MaintenancePage : BasePage
     {
         var customDatabase = IsCustomWinapp2DatabaseActive();
         MainWindow.SetStatusText(T("winapp2.scanning"));
-        var preview = await MainWindow.Winapp2Cleanup.PreviewAsync(
-            selectedEntries,
-            MainWindow.Settings.ProtectedPaths,
-            restrictCustomDatabase: customDatabase);
+        Winapp2CleanupPreview preview;
+        try
+        {
+            preview = await MainWindow.Winapp2Cleanup.PreviewAsync(
+                selectedEntries,
+                MainWindow.Settings.ProtectedPaths,
+                restrictCustomDatabase: customDatabase);
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText(F("winapp2.operationFailed", ex.Message), isBusy: false);
+            await MainWindow.ShowDialogAsync_Internal(T("winapp2.title"), InfoBlock(ex.Message), T("common.close"));
+            return;
+        }
+
         if (preview.Candidates.Count == 0)
         {
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
             await MainWindow.ShowDialogAsync_Internal(T("winapp2.title"), InfoBlock(T("winapp2.nothingFound")), T("common.close"));
             return;
         }
@@ -424,13 +435,19 @@ public sealed partial class MaintenancePage : BasePage
         }
 
         MainWindow.SetStatusText(T("winapp2.cleaning"));
-        var result = await MainWindow.Winapp2Cleanup.RunAsync(
-            preview,
-            selectedEntries.Count,
-            MainWindow.Settings.ProtectedPaths,
-            restrictCustomDatabase: customDatabase);
-        MainWindow.SetStatusText(T("common.ready"));
-        await MainWindow.ShowRunResultAsync_Internal(result);
+        try
+        {
+            var result = await MainWindow.Winapp2Cleanup.RunAsync(
+                preview,
+                selectedEntries.Count,
+                MainWindow.Settings.ProtectedPaths,
+                restrictCustomDatabase: customDatabase);
+            await MainWindow.ShowRunResultAsync_Internal(result);
+        }
+        finally
+        {
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
+        }
     }
 
     private Border OneClickPanel()
@@ -639,6 +656,7 @@ public sealed partial class MaintenancePage : BasePage
         _oneClickProgress.Visibility = Visibility.Visible;
         _oneClickStatus.Visibility = Visibility.Visible;
         _oneClickStatus.Text = T("oneClick.analyzing");
+        MainWindow.SetStatusText(_oneClickStatus.Text, isBusy: true);
         SetOneClickSelectionsEnabled(false);
 
         var progress = new Progress<OneClickProgress>(value =>
@@ -647,9 +665,11 @@ public sealed partial class MaintenancePage : BasePage
             _oneClickProgress.Maximum = Math.Max(1, value.Total);
             _oneClickProgress.Value = value.Current;
             var task = MainWindow.Catalog.GetById(value.TaskId);
-            _oneClickStatus.Text = F(
+            var statusMsg = F(
                 value.IsRunning ? "oneClick.runningProgress" : "oneClick.scanningProgress",
                 value.Current, value.Total, MainWindow.TaskLabel_Internal(task));
+            _oneClickStatus.Text = statusMsg;
+            MainWindow.SetStatusText(statusMsg, isBusy: true);
         });
 
         try
@@ -661,6 +681,7 @@ public sealed partial class MaintenancePage : BasePage
             _oneClickProgress.Visibility = Visibility.Collapsed;
             _oneClickStopButton.IsEnabled = false;
             _oneClickStatus.Text = T("oneClick.awaitingConfirmation");
+            MainWindow.SetStatusText(_oneClickStatus.Text, isBusy: false);
             if (!await ConfirmOneClickAsync(preview))
             {
                 _oneClickState.Finish(OneClickPhase.Cancelled);
@@ -709,7 +730,7 @@ public sealed partial class MaintenancePage : BasePage
             UpdateOneClickSelectionSummary();
             _oneClickCancellation?.Dispose();
             _oneClickCancellation = null;
-            MainWindow.SetStatusText(_oneClickStatus.Text);
+            MainWindow.SetStatusText(_oneClickStatus.Text, isBusy: false);
         }
     }
 

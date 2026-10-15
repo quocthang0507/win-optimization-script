@@ -73,7 +73,7 @@ public sealed partial class DashboardPage : BasePage
         finally
         {
             _isRefreshing = false;
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
         }
     }
 
@@ -586,7 +586,7 @@ public sealed partial class DashboardPage : BasePage
         try
         {
             var path = await DashboardExportService.SaveMarkdownAsync(status, MainWindow.Paths.LogsDirectory, MainWindow.Localization.CurrentLanguage);
-            MainWindow.SetStatusText(F("dashboard.exported", path));
+            MainWindow.SetStatusText(F("dashboard.exported", path), isBusy: false);
             await MainWindow.ShowDialogAsync_Internal(T("dashboard.exportedTitle"), InfoBlock(path), T("common.close"));
         }
         catch (Exception ex)

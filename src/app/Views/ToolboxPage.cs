@@ -346,7 +346,7 @@ public sealed partial class ToolboxPage : BasePage
         {
             _registryScanBtn.IsEnabled = true;
             _registryCancelBtn.IsEnabled = false;
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
         }
     }
 
@@ -493,7 +493,7 @@ public sealed partial class ToolboxPage : BasePage
         }
         finally
         {
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
         }
     }
 
@@ -606,7 +606,7 @@ public sealed partial class ToolboxPage : BasePage
         finally
         {
             DisableNetworkButtons(true);
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
             await RefreshNetworkAdaptersAsync();
         }
     }
@@ -1010,36 +1010,33 @@ public sealed partial class ToolboxPage : BasePage
                     if (await MainWindow.ShowThemedDialogAsync(leftoversDialog) == ContentDialogResult.Primary)
                     {
                         var selectedPaths = selectedLeftoverPaths.ToList();
-                        if (selectedPaths.Count == 0)
+                        if (selectedPaths.Count > 0)
                         {
-                            MainWindow.SetStatusText(T("common.ready"));
-                            return;
-                        }
-
-                        MainWindow.SetStatusText(T("storage.cleaning"));
-                        var cleanupStarted = DateTimeOffset.Now;
-                        var cleanSuccess = await MainWindow.Uninstaller.DeleteLeftoversAsync(selectedPaths);
-                        await MainWindow.SaveOperationReportAsync(new TaskRunResult(
-                            "software.leftovers.recycle",
-                            "Move Software Leftovers to Recycle Bin",
-                            cleanupStarted,
-                            DateTimeOffset.Now,
-                            cleanSuccess,
-                            0,
-                            cleanSuccess ? selectedPaths.Count : 0,
-                            cleanSuccess ? 0 : selectedPaths.Count,
-                            cleanSuccess ? selectedPaths : [],
-                            cleanSuccess ? [] : ["One or more leftover paths were blocked or could not be moved."]));
-                        if (cleanSuccess)
-                        {
-                            var completeDialog = new ContentDialog
+                            MainWindow.SetStatusText(T("storage.cleaning"));
+                            var cleanupStarted = DateTimeOffset.Now;
+                            var cleanSuccess = await MainWindow.Uninstaller.DeleteLeftoversAsync(selectedPaths);
+                            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
+                                "software.leftovers.recycle",
+                                "Move Software Leftovers to Recycle Bin",
+                                cleanupStarted,
+                                DateTimeOffset.Now,
+                                cleanSuccess,
+                                0,
+                                cleanSuccess ? selectedPaths.Count : 0,
+                                cleanSuccess ? 0 : selectedPaths.Count,
+                                cleanSuccess ? selectedPaths : [],
+                                cleanSuccess ? [] : ["One or more leftover paths were blocked or could not be moved."]));
+                            if (cleanSuccess)
                             {
-                                Title = T("run.completed"),
-                                Content = new TextBlock { Text = T("uninstaller.leftoversDeleted") },
-                                CloseButtonText = T("common.close"),
-                                XamlRoot = XamlRoot
-                            };
-                            await MainWindow.ShowThemedDialogAsync(completeDialog);
+                                var completeDialog = new ContentDialog
+                                {
+                                    Title = T("run.completed"),
+                                    Content = new TextBlock { Text = T("uninstaller.leftoversDeleted") },
+                                    CloseButtonText = T("common.close"),
+                                    XamlRoot = XamlRoot
+                                };
+                                await MainWindow.ShowThemedDialogAsync(completeDialog);
+                            }
                         }
                     }
                 }
@@ -1090,7 +1087,7 @@ public sealed partial class ToolboxPage : BasePage
         }
         finally
         {
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
         }
     }
 

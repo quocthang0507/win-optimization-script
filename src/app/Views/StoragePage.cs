@@ -1365,9 +1365,15 @@ public sealed partial class StoragePage : BasePage
         }
 
         MainWindow.SetStatusText(T("storage.cleaning"));
-        var result = await MainWindow.StorageCleanup.CleanupAsync(candidates, MainWindow.Settings.ProtectedPaths);
-        await MainWindow.ShowRunResultAsync_Internal(result);
-        MainWindow.SetStatusText(T("common.ready"));
+        try
+        {
+            var result = await MainWindow.StorageCleanup.CleanupAsync(candidates, MainWindow.Settings.ProtectedPaths);
+            await MainWindow.ShowRunResultAsync_Internal(result);
+        }
+        finally
+        {
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
+        }
     }
 
     private StorageCleanupCandidate CreateManualCandidate(DiskItem item)

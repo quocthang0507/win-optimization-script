@@ -200,11 +200,11 @@ public sealed partial class OptimizePage : BasePage
                 MainWindow.SetCachedTweakState(response);
                 _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
                 toggle.IsOn = response.IsEnabled;
-                MainWindow.SetStatusText(F("optimize.applied", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title)));
+                MainWindow.SetStatusText(F("optimize.applied", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title)), isBusy: false);
             }
             catch (Exception ex)
             {
-                MainWindow.SetStatusText(F("optimize.applyFailed", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title), ex.Message));
+                MainWindow.SetStatusText(F("optimize.applyFailed", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title), ex.Message), isBusy: false);
                 _isLoadingState = true;
                 toggle.IsOn = !toggle.IsOn; // Revert visually
                 _isLoadingState = false;
@@ -277,11 +277,11 @@ public sealed partial class OptimizePage : BasePage
         {
             await MainWindow.RefreshTweakStatesAsync();
             ApplyCachedTweakStates();
-            MainWindow.SetStatusText(T("optimize.statesLoaded"));
+            MainWindow.SetStatusText(T("optimize.statesLoaded"), isBusy: false);
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText(F("optimize.statesLoadFailed", ex.Message));
+            MainWindow.SetStatusText(F("optimize.statesLoadFailed", ex.Message), isBusy: false);
         }
         finally
         {
@@ -342,7 +342,7 @@ public sealed partial class OptimizePage : BasePage
 
         var json = JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(file.Path, json);
-        MainWindow.SetStatusText(F("optimize.exported", file.Path));
+        MainWindow.SetStatusText(F("optimize.exported", file.Path), isBusy: false);
     }
 
     private async Task ImportProfileAsync()
@@ -367,7 +367,7 @@ public sealed partial class OptimizePage : BasePage
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText(F("optimize.importFailed", ex.Message));
+            MainWindow.SetStatusText(F("optimize.importFailed", ex.Message), isBusy: false);
         }
     }
 
@@ -429,11 +429,11 @@ public sealed partial class OptimizePage : BasePage
             _appliedRevision = MainWindow.SessionState.TweakStatesRevision;
             await MainWindow.SaveOperationReportAsync(new TaskRunResult("tweaks.profile", label, started,
                 DateTimeOffset.Now, errors.Count == 0, 0, 0, 0, messages, errors));
-            MainWindow.SetStatusText(F("optimize.profileComplete", plan.Changes.Count - errors.Count, errors.Count));
+            MainWindow.SetStatusText(F("optimize.profileComplete", plan.Changes.Count - errors.Count, errors.Count), isBusy: false);
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText(F("optimize.importFailed", ex.Message));
+            MainWindow.SetStatusText(F("optimize.importFailed", ex.Message), isBusy: false);
         }
         finally
         {

@@ -643,7 +643,7 @@ public sealed partial class SettingsPage : BasePage
 
             if (!AppSettingsService.TryImport(file.Path, MainWindow.Settings, out var imported) || imported is null)
             {
-                MainWindow.SetStatusText(F("settings.importFailed", file.Path));
+                MainWindow.SetStatusText(F("settings.importFailed", file.Path), isBusy: false);
                 return;
             }
 

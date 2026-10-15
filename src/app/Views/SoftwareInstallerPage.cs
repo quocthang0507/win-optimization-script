@@ -334,7 +334,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
             _isInstalling = false;
             RenderApps();
             SetControlsEnabled(true);
-            SetOperationStatus(F("software.installSummary", succeeded, failed));
+            SetOperationStatus(F("software.installSummary", succeeded, failed), isBusy: false);
             await MainWindow.SaveOperationReportAsync(new TaskRunResult(
                 "software.install",
                 "Software Installation",
@@ -349,13 +349,20 @@ public sealed partial class SoftwareInstallerPage : BasePage
         }
     }
 
-    private void SetOperationStatus(string text)
+    private void SetOperationStatus(string text, bool? isBusy = null)
     {
         if (_operationStatus != null)
         {
             _operationStatus.Text = text;
             _operationStatus.Visibility = Visibility.Visible;
         }
-        MainWindow.SetStatusText(text);
+        if (isBusy.HasValue)
+        {
+            MainWindow.SetStatusText(text, isBusy.Value);
+        }
+        else
+        {
+            MainWindow.SetStatusText(text);
+        }
     }
 }

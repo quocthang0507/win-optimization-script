@@ -142,17 +142,17 @@ public sealed partial class HistoryPage : BasePage
             if (failures == 0)
             {
                 MainWindow.TweakSnapshots.Delete(path);
-                MainWindow.SetStatusText(T("history.undoComplete"));
+                MainWindow.SetStatusText(T("history.undoComplete"), isBusy: false);
                 await OnNavigatedToAsync();
             }
             else
             {
-                MainWindow.SetStatusText(F("history.undoFailed", failures));
+                MainWindow.SetStatusText(F("history.undoFailed", failures), isBusy: false);
             }
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText(F("history.undoError", ex.Message));
+            MainWindow.SetStatusText(F("history.undoError", ex.Message), isBusy: false);
         }
         finally
         {
@@ -198,7 +198,7 @@ public sealed partial class HistoryPage : BasePage
                 }
             }
 
-            MainWindow.SetStatusText(T("history.cleared"));
+            MainWindow.SetStatusText(T("history.cleared"), isBusy: false);
             await OnNavigatedToAsync();
         }
         catch (Exception ex)

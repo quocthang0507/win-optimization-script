@@ -158,10 +158,16 @@ public sealed partial class UpdatesPage : BasePage
         MainWindow.SetStatusText(T("updates.scanning"));
         SetUpdateControlsEnabled(false);
         _resultPanel.Children.Clear();
-        await MainWindow.RefreshUpdatesStateAsync();
-        ApplyCachedUpdatesState();
-        SetUpdateControlsEnabled(true);
-        MainWindow.SetStatusText(T("common.ready"));
+        try
+        {
+            await MainWindow.RefreshUpdatesStateAsync();
+            ApplyCachedUpdatesState();
+        }
+        finally
+        {
+            SetUpdateControlsEnabled(true);
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
+        }
     }
 
     private void ApplyCachedUpdatesState()

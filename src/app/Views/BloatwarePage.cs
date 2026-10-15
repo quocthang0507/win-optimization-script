@@ -71,10 +71,16 @@ public sealed partial class BloatwarePage : BasePage
         _resultPanel.Children.Clear();
         _selectedIds.Clear();
         
-        await MainWindow.RefreshAppxStateAsync();
-        ApplyCachedAppxState();
-        SetControlsEnabled(true);
-        MainWindow.SetStatusText(T("common.ready"));
+        try
+        {
+            await MainWindow.RefreshAppxStateAsync();
+            ApplyCachedAppxState();
+        }
+        finally
+        {
+            SetControlsEnabled(true);
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
+        }
     }
 
     private void ApplyCachedAppxState()
@@ -240,7 +246,7 @@ public sealed partial class BloatwarePage : BasePage
                 reportMessages,
                 reportErrors));
             await ScanAppsAsync(); // Rescan
-            MainWindow.SetStatusText(F("bloatware.summary", succeeded, failed));
+            MainWindow.SetStatusText(F("bloatware.summary", succeeded, failed), isBusy: false);
         }
     }
 }

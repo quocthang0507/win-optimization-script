@@ -190,7 +190,7 @@ public sealed partial class StartupPage : BasePage
         finally
         {
             _isRefreshing = false;
-            MainWindow.SetStatusText(T("common.ready"));
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
         }
     }
 
