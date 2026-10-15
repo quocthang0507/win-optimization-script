@@ -165,4 +165,57 @@ public sealed class ReportService
         ];
         return true;
     }
+
+    public IReadOnlyList<TaskRunResult> GetRecentReports(int maxCount = 20)
+    {
+        if (!Directory.Exists(LogsDirectory) || maxCount <= 0)
+        {
+            return [];
+        }
+
+        var results = new List<TaskRunResult>();
+        try
+        {
+            var files = new DirectoryInfo(LogsDirectory)
+                .EnumerateFiles("maintenance-*.json", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .Take(maxCount);
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    var json = File.ReadAllText(file.FullName);
+                    var result = JsonSerializer.Deserialize<TaskRunResult>(json);
+                    if (result != null)
+                    {
+                        results.Add(result);
+                    }
+                }
+                catch
+                {
+                    // Ignore corrupted individual report files
+                }
+            }
+        }
+        catch
+        {
+            // Ignore directory enumeration failures
+        }
+
+        return results;
+    }
+
+    public OptimizationHistorySummary GetHistorySummary()
+    {
+        var reports = GetRecentReports(100);
+        long totalFreed = reports.Sum(r => Math.Max(0, r.FreedBytes));
+        int totalFiles = reports.Sum(r => Math.Max(0, r.FilesRemoved));
+        return new OptimizationHistorySummary(
+            totalFreed,
+            totalFiles,
+            reports.Count,
+            reports.FirstOrDefault()?.FinishedAt
+        );
+    }
 }

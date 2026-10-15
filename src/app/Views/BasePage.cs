@@ -26,6 +26,10 @@ public abstract partial class BasePage : UserControl
         return Task.CompletedTask;
     }
 
+    public virtual void OnNavigatedFrom()
+    {
+    }
+
     protected string T(string key)
     {
         return MainWindow.Translate(key);

@@ -86,6 +86,110 @@ public sealed class ReportServiceTests : IDisposable
         Assert.Equal(0, new ReportService(new PathService(_root)).PruneReports(30));
     }
 
+    [Fact]
+    public async Task GetRecentReports_ReturnsDeserializedReportsInDescendingOrder()
+    {
+        var service = new ReportService(new PathService(_root));
+        var result1 = new TaskRunResult(
+            "cleanup.temp",
+            "Temporary files",
+            DateTimeOffset.UtcNow.AddMinutes(-10),
+            DateTimeOffset.UtcNow.AddMinutes(-9),
+            true,
+            1000,
+            5,
+            0,
+            ["Success"],
+            []);
+        var result2 = new TaskRunResult(
+            "cleanup.cache",
+            "Cache files",
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            DateTimeOffset.UtcNow.AddMinutes(-4),
+            true,
+            2500,
+            10,
+            0,
+            ["Success"],
+            []);
+
+        await service.SaveAsync(result1);
+        await Task.Delay(50);
+        await service.SaveAsync(result2);
+
+        var recent = service.GetRecentReports(10);
+        Assert.NotNull(recent);
+        Assert.True(recent.Count >= 2);
+        Assert.Equal("cleanup.cache", recent[0].TaskId);
+        Assert.Equal("cleanup.temp", recent[1].TaskId);
+    }
+
+    [Fact]
+    public void GetRecentReports_SkipsCorruptedFilesAndToleratesMissingDirectory()
+    {
+        var emptyService = new ReportService(new PathService(Path.Combine(_root, "nonexistent")));
+        Assert.Empty(emptyService.GetRecentReports(10));
+        Assert.Empty(emptyService.GetRecentReports(0));
+
+        var service = new ReportService(new PathService(_root));
+        Directory.CreateDirectory(service.LogsDirectory);
+        File.WriteAllText(Path.Combine(service.LogsDirectory, "maintenance-corrupted.json"), "{ invalid json");
+
+        var reports = service.GetRecentReports(10);
+        Assert.NotNull(reports);
+        Assert.Empty(reports);
+    }
+
+    [Fact]
+    public async Task GetHistorySummary_AggregatesFreedBytesAndFilesRemoved()
+    {
+        var service = new ReportService(new PathService(_root));
+        var result1 = new TaskRunResult(
+            "cleanup.temp",
+            "Temporary files",
+            DateTimeOffset.UtcNow.AddMinutes(-10),
+            DateTimeOffset.UtcNow.AddMinutes(-9),
+            true,
+            3000,
+            7,
+            0,
+            ["Success"],
+            []);
+        var result2 = new TaskRunResult(
+            "cleanup.logs",
+            "Log files",
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            DateTimeOffset.UtcNow.AddMinutes(-4),
+            true,
+            5000,
+            12,
+            0,
+            ["Success"],
+            []);
+
+        await service.SaveAsync(result1);
+        await service.SaveAsync(result2);
+
+        var summary = service.GetHistorySummary();
+        Assert.NotNull(summary);
+        Assert.Equal(8000, summary.TotalFreedBytes);
+        Assert.Equal(19, summary.TotalFilesRemoved);
+        Assert.Equal(2, summary.TotalRuns);
+        Assert.NotNull(summary.LastRunAt);
+    }
+
+    [Fact]
+    public void GetHistorySummary_ReturnsZeroWhenNoReports()
+    {
+        var service = new ReportService(new PathService(_root));
+        var summary = service.GetHistorySummary();
+        Assert.NotNull(summary);
+        Assert.Equal(0, summary.TotalFreedBytes);
+        Assert.Equal(0, summary.TotalFilesRemoved);
+        Assert.Equal(0, summary.TotalRuns);
+        Assert.Null(summary.LastRunAt);
+    }
+
     private static string WriteFile(string directory, string name, DateTimeOffset lastWrite)
     {
         var path = Path.Combine(directory, name);

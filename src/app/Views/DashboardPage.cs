@@ -9,20 +9,183 @@ public sealed partial class DashboardPage : BasePage
     private int _renderedRevision = -1;
     private bool _isRefreshing;
 
+    private DispatcherTimer? _liveMetricsTimer;
+    private bool _isUpdatingMetrics;
+    private TextBlock? _cpuValueText;
+    private ProgressBar? _cpuProgressBar;
+    private TextBlock? _ramPercentText;
+    private TextBlock? _ramValueText;
+    private ProgressBar? _ramProgressBar;
+    private TextBlock? _diskPercentText;
+    private TextBlock? _diskValueText;
+    private ProgressBar? _diskProgressBar;
+    private TextBlock? _networkDownText;
+    private TextBlock? _networkUpText;
+    private readonly List<Microsoft.UI.Xaml.Shapes.Rectangle> _cpuSparklineBars = [];
+    private readonly Queue<double> _cpuHistory = new();
+    private const int SparklineCapacity = 20;
+
     public DashboardPage(MainWindow mainWindow) : base(mainWindow)
     {
         _wingetResultPanel = new StackPanel { Spacing = 8 };
+        Unloaded += (_, _) => StopLiveMonitoring();
     }
 
     public override Task OnNavigatedToAsync()
     {
-        if (_renderedRevision == MainWindow.SessionState.DashboardRevision && MainContent.Children.Count > 0)
+        if (_renderedRevision != MainWindow.SessionState.DashboardRevision || MainContent.Children.Count == 0)
         {
-            return Task.CompletedTask;
+            RenderCachedDashboard();
         }
 
-        RenderCachedDashboard();
+        StartLiveMonitoring();
         return Task.CompletedTask;
+    }
+
+    public override void OnNavigatedFrom()
+    {
+        StopLiveMonitoring();
+    }
+
+    private void StartLiveMonitoring()
+    {
+        if (_liveMetricsTimer != null)
+        {
+            _liveMetricsTimer.Stop();
+        }
+
+        _liveMetricsTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1.5)
+        };
+        _liveMetricsTimer.Tick += async (_, _) => await UpdateLiveMetricsAsync();
+        _liveMetricsTimer.Start();
+
+        _ = UpdateLiveMetricsAsync();
+    }
+
+    private void StopLiveMonitoring()
+    {
+        if (_liveMetricsTimer != null)
+        {
+            _liveMetricsTimer.Stop();
+            _liveMetricsTimer = null;
+        }
+    }
+
+    private async Task UpdateLiveMetricsAsync()
+    {
+        if (_isUpdatingMetrics || _liveMetricsTimer == null)
+        {
+            return;
+        }
+
+        _isUpdatingMetrics = true;
+        try
+        {
+            var metrics = await MainWindow.PerformanceMonitoring.GetMetricsAsync();
+            if (_liveMetricsTimer == null)
+            {
+                return;
+            }
+
+            UpdateLiveTelemetryControls(metrics);
+        }
+        catch
+        {
+            // Best effort telemetry update; never crash UI
+        }
+        finally
+        {
+            _isUpdatingMetrics = false;
+        }
+    }
+
+    private void UpdateLiveTelemetryControls(SystemMetrics metrics)
+    {
+        if (_cpuValueText != null)
+        {
+            _cpuValueText.Text = $"{metrics.CpuUsagePercent:F1}%";
+        }
+        if (_cpuProgressBar != null)
+        {
+            _cpuProgressBar.Value = Math.Clamp(metrics.CpuUsagePercent, 0, 100);
+            _cpuProgressBar.Foreground = Brush(metrics.CpuUsagePercent > 85 ? Colors.OrangeRed : metrics.CpuUsagePercent > 65 ? Colors.Goldenrod : Colors.MediumPurple);
+        }
+        UpdateCpuSparkline(metrics.CpuUsagePercent);
+
+        if (_ramPercentText != null)
+        {
+            _ramPercentText.Text = $"{metrics.RamUsagePercent:F1}%";
+        }
+        if (_ramValueText != null)
+        {
+            _ramValueText.Text = $"{Formatters.FormatBytes(metrics.RamUsedBytes)} / {Formatters.FormatBytes(metrics.RamTotalBytes)}";
+        }
+        if (_ramProgressBar != null)
+        {
+            _ramProgressBar.Value = Math.Clamp(metrics.RamUsagePercent, 0, 100);
+            _ramProgressBar.Foreground = Brush(metrics.RamUsagePercent > 85 ? Colors.OrangeRed : metrics.RamUsagePercent > 70 ? Colors.Goldenrod : Colors.DarkCyan);
+        }
+
+        if (_diskPercentText != null)
+        {
+            _diskPercentText.Text = $"{metrics.DiskUsagePercent:F1}%";
+        }
+        if (_diskValueText != null)
+        {
+            var used = metrics.DiskTotalBytes - metrics.DiskFreeBytes;
+            _diskValueText.Text = $"{Formatters.FormatBytes(used)} / {Formatters.FormatBytes(metrics.DiskTotalBytes)}";
+        }
+        if (_diskProgressBar != null)
+        {
+            _diskProgressBar.Value = Math.Clamp(metrics.DiskUsagePercent, 0, 100);
+            _diskProgressBar.Foreground = Brush(metrics.DiskUsagePercent > 90 ? Colors.OrangeRed : metrics.DiskUsagePercent > 75 ? Colors.Goldenrod : Colors.SteelBlue);
+        }
+
+        if (_networkDownText != null)
+        {
+            _networkDownText.Text = $"↓ {FormatSpeed(metrics.DownloadBytesPerSecond)}";
+        }
+        if (_networkUpText != null)
+        {
+            _networkUpText.Text = $"↑ {FormatSpeed(metrics.UploadBytesPerSecond)}";
+        }
+    }
+
+    private void UpdateCpuSparkline(double cpu)
+    {
+        if (_cpuSparklineBars.Count == 0) return;
+
+        _cpuHistory.Enqueue(cpu);
+        while (_cpuHistory.Count > _cpuSparklineBars.Count)
+        {
+            _cpuHistory.Dequeue();
+        }
+
+        var historyArray = _cpuHistory.ToArray();
+        var offset = _cpuSparklineBars.Count - historyArray.Length;
+
+        for (int i = 0; i < offset; i++)
+        {
+            _cpuSparklineBars[i].Height = 2;
+            _cpuSparklineBars[i].Opacity = 0.25;
+        }
+
+        for (int i = 0; i < historyArray.Length; i++)
+        {
+            var barIndex = offset + i;
+            var val = historyArray[i];
+            var height = Math.Max(2.0, Math.Min(28.0, val * 28.0 / 100.0));
+            _cpuSparklineBars[barIndex].Height = height;
+            _cpuSparklineBars[barIndex].Opacity = 0.35 + (0.65 * (i + 1) / historyArray.Length);
+            _cpuSparklineBars[barIndex].Fill = Brush(val > 85 ? Colors.OrangeRed : val > 65 ? Colors.Goldenrod : Colors.MediumPurple);
+        }
+    }
+
+    private static string FormatSpeed(double bytesPerSec)
+    {
+        return $"{Formatters.FormatBytes((long)Math.Max(0, bytesPerSec))}/s";
     }
 
     private void RenderCachedDashboard()
@@ -106,149 +269,12 @@ public sealed partial class DashboardPage : BasePage
 
         MainContent.Children.Add(grid);
 
-        // Hardware & Resources Section
-        MainContent.Children.Add(SectionTitle(T("dashboard.hardware")));
+        // Live System Telemetry (B3)
+        MainContent.Children.Add(LiveMonitorPanel(status));
 
-        var hardwareCard = new Border
-        {
-            Padding = new Thickness(20),
-            CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(1),
-            BorderBrush = ThemeBorderBrush(),
-            Background = ThemeCardBackground()
-        };
+        // Optimization History & Impact (B3)
+        MainContent.Children.Add(OptimizationHistoryPanel());
 
-        var hardwareStack = new StackPanel { Spacing = 20 };
-
-        // 1. CPU Processor Name
-        var cpuGrid = new Grid { ColumnSpacing = 16 };
-        cpuGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        cpuGrid.ColumnDefinitions.Add(new ColumnDefinition());
-
-        var cpuIcon = new FontIcon
-        {
-            Glyph = "\uE950", // CPU
-            FontSize = 26,
-            Foreground = Brush(Colors.MediumPurple),
-            FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetColumn(cpuIcon, 0);
-        cpuGrid.Children.Add(cpuIcon);
-
-        var cpuInfo = new StackPanel { Spacing = 2 };
-        cpuInfo.Children.Add(new TextBlock { Text = T("dashboard.cpu"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        cpuInfo.Children.Add(new TextBlock { Text = status.CpuName, Opacity = 0.8, TextWrapping = TextWrapping.Wrap });
-        Grid.SetColumn(cpuInfo, 1);
-        cpuGrid.Children.Add(cpuInfo);
-        hardwareStack.Children.Add(cpuGrid);
-
-        // 2. RAM Memory capacity progress bar
-        var ramUsed = status.TotalRamBytes - status.AvailableRamBytes;
-        double ramPercent = status.TotalRamBytes > 0 ? (ramUsed * 100.0 / status.TotalRamBytes) : 0;
-
-        var ramGrid = new Grid { ColumnSpacing = 16 };
-        ramGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        ramGrid.ColumnDefinitions.Add(new ColumnDefinition());
-
-        var ramIcon = new FontIcon
-        {
-            Glyph = "\uE964", // RAM
-            FontSize = 26,
-            Foreground = Brush(Colors.DarkCyan),
-            FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetColumn(ramIcon, 0);
-        ramGrid.Children.Add(ramIcon);
-
-        var ramInfo = new StackPanel { Spacing = 6 };
-        var ramHeader = new Grid();
-        ramHeader.ColumnDefinitions.Add(new ColumnDefinition());
-        ramHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var ramTitle = new TextBlock { Text = T("dashboard.ram"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-        var ramText = new TextBlock
-        {
-            Text = $"{Formatters.FormatBytes((long)ramUsed)} / {Formatters.FormatBytes((long)status.TotalRamBytes)} ({ramPercent:F1}%)",
-            Opacity = 0.8
-        };
-        Grid.SetColumn(ramTitle, 0);
-        Grid.SetColumn(ramText, 1);
-        ramHeader.Children.Add(ramTitle);
-        ramHeader.Children.Add(ramText);
-
-        var ramProgress = new ProgressBar
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = ramPercent,
-            Height = 10,
-            CornerRadius = new CornerRadius(5),
-            Foreground = Brush(ramPercent > 85 ? Colors.OrangeRed : ramPercent > 70 ? Colors.Goldenrod : Colors.DarkCyan)
-        };
-
-        ramInfo.Children.Add(ramHeader);
-        ramInfo.Children.Add(ramProgress);
-        Grid.SetColumn(ramInfo, 1);
-        ramGrid.Children.Add(ramInfo);
-        hardwareStack.Children.Add(ramGrid);
-
-        // 3. Disk Space capacity progress bar
-        var diskTotal = status.SystemDriveTotalBytes;
-        var diskFree = status.SystemDriveFreeBytes;
-        var diskUsed = diskTotal - diskFree;
-        double diskPercent = diskTotal > 0 ? (diskUsed * 100.0 / diskTotal) : 0;
-
-        var diskGrid = new Grid { ColumnSpacing = 16 };
-        diskGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        diskGrid.ColumnDefinitions.Add(new ColumnDefinition());
-
-        var diskIcon = new FontIcon
-        {
-            Glyph = "\uE7F1", // Disk Storage
-            FontSize = 26,
-            Foreground = Brush(Colors.SteelBlue),
-            FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetColumn(diskIcon, 0);
-        diskGrid.Children.Add(diskIcon);
-
-        var diskInfo = new StackPanel { Spacing = 6 };
-        var diskHeader = new Grid();
-        diskHeader.ColumnDefinitions.Add(new ColumnDefinition());
-        diskHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var diskTitle = new TextBlock { Text = $"{T("dashboard.storage")} ({status.SystemDrive})", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-        var diskText = new TextBlock
-        {
-            Text = $"{Formatters.FormatBytes(diskUsed)} / {Formatters.FormatBytes(diskTotal)} ({diskPercent:F1}%)",
-            Opacity = 0.8
-        };
-        Grid.SetColumn(diskTitle, 0);
-        Grid.SetColumn(diskText, 1);
-        diskHeader.Children.Add(diskTitle);
-        diskHeader.Children.Add(diskText);
-
-        var diskProgress = new ProgressBar
-        {
-            Minimum = 0,
-            Maximum = 100,
-            Value = diskPercent,
-            Height = 10,
-            CornerRadius = new CornerRadius(5),
-            Foreground = Brush(diskPercent > 85 ? Colors.OrangeRed : diskPercent > 70 ? Colors.Goldenrod : Colors.SteelBlue)
-        };
-
-        diskInfo.Children.Add(diskHeader);
-        diskInfo.Children.Add(diskProgress);
-        Grid.SetColumn(diskInfo, 1);
-        diskGrid.Children.Add(diskInfo);
-        hardwareStack.Children.Add(diskGrid);
-
-        hardwareCard.Child = hardwareStack;
-        MainContent.Children.Add(hardwareCard);
         MainContent.Children.Add(SystemDetailsPanel(status));
         MainContent.Children.Add(DriveOverviewPanel(status));
 
@@ -608,7 +634,7 @@ public sealed partial class DashboardPage : BasePage
         }
         catch (Exception ex)
         {
-            MainWindow.SetStatusText($"Copy failed: {ex.Message}", isBusy: false);
+            MainWindow.SetStatusText(F("dashboard.copyFailed", ex.Message), isBusy: false);
         }
     }
 
@@ -771,5 +797,615 @@ public sealed partial class DashboardPage : BasePage
 
         card.Child = grid;
         return card;
+    }
+
+    private Border LiveMonitorPanel(DashboardStatus status)
+    {
+        var panel = new StackPanel { Spacing = 16 };
+
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleStack = new StackPanel { Spacing = 2 };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = T("dashboard.liveMonitor"),
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = T("dashboard.liveMonitorSubtitle"),
+            Opacity = 0.7,
+            FontSize = 12
+        });
+        Grid.SetColumn(titleStack, 0);
+        headerGrid.Children.Add(titleStack);
+
+        var liveBadge = new Border
+        {
+            Background = Brush(Color.FromArgb(24, 60, 179, 113)),
+            BorderBrush = Brush(Colors.MediumSeaGreen),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(10, 4, 10, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children =
+                {
+                    new Microsoft.UI.Xaml.Shapes.Ellipse
+                    {
+                        Width = 8,
+                        Height = 8,
+                        Fill = Brush(Colors.MediumSeaGreen)
+                    },
+                    new TextBlock
+                    {
+                        Text = "LIVE",
+                        FontSize = 11,
+                        FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                        Foreground = Brush(Colors.MediumSeaGreen)
+                    }
+                }
+            }
+        };
+        Grid.SetColumn(liveBadge, 1);
+        headerGrid.Children.Add(liveBadge);
+
+        panel.Children.Add(headerGrid);
+
+        var grid = new Grid { ColumnSpacing = 12, RowSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+
+        var cpuCard = CreateLiveCpuCard(status.CpuName);
+        Grid.SetRow(cpuCard, 0); Grid.SetColumn(cpuCard, 0);
+        grid.Children.Add(cpuCard);
+
+        var ramUsed = status.TotalRamBytes - status.AvailableRamBytes;
+        double ramPercent = status.TotalRamBytes > 0 ? (ramUsed * 100.0 / status.TotalRamBytes) : 0;
+        var ramCard = CreateLiveRamCard(ramUsed, status.TotalRamBytes, ramPercent);
+        Grid.SetRow(ramCard, 0); Grid.SetColumn(ramCard, 1);
+        grid.Children.Add(ramCard);
+
+        var diskUsed = status.SystemDriveTotalBytes - status.SystemDriveFreeBytes;
+        double diskPercent = status.SystemDriveTotalBytes > 0 ? (diskUsed * 100.0 / status.SystemDriveTotalBytes) : 0;
+        var diskCard = CreateLiveDiskCard(status.SystemDrive, diskUsed, status.SystemDriveTotalBytes, diskPercent);
+        Grid.SetRow(diskCard, 1); Grid.SetColumn(diskCard, 0);
+        grid.Children.Add(diskCard);
+
+        var networkCard = CreateLiveNetworkCard();
+        Grid.SetRow(networkCard, 1); Grid.SetColumn(networkCard, 1);
+        grid.Children.Add(networkCard);
+
+        panel.Children.Add(grid);
+
+        return new Border
+        {
+            Padding = new Thickness(18),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Child = panel
+        };
+    }
+
+    private Border CreateLiveCpuCard(string cpuName)
+    {
+        var card = new Border
+        {
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = Brush(Color.FromArgb(14, Colors.MediumPurple.R, Colors.MediumPurple.G, Colors.MediumPurple.B))
+        };
+
+        var rootGrid = new Grid { RowSpacing = 8 };
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Grid { ColumnSpacing = 10 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var icon = new FontIcon
+        {
+            Glyph = "\uE950",
+            FontSize = 22,
+            Foreground = Brush(Colors.MediumPurple),
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(icon, 0);
+        header.Children.Add(icon);
+
+        var titleStack = new StackPanel { Spacing = 1 };
+        titleStack.Children.Add(new TextBlock { Text = T("dashboard.cpu"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 14 });
+        titleStack.Children.Add(new TextBlock { Text = cpuName, Opacity = 0.7, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap });
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+        Grid.SetRow(header, 0);
+        rootGrid.Children.Add(header);
+
+        var midGrid = new Grid { ColumnSpacing = 12, Height = 34 };
+        midGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        midGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        _cpuValueText = new TextBlock
+        {
+            Text = "--%",
+            FontSize = 26,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Foreground = Brush(Colors.MediumPurple),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(_cpuValueText, 0);
+        midGrid.Children.Add(_cpuValueText);
+
+        var sparklineStack = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 2,
+            Height = 30,
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        _cpuSparklineBars.Clear();
+        for (int i = 0; i < SparklineCapacity; i++)
+        {
+            var bar = new Microsoft.UI.Xaml.Shapes.Rectangle
+            {
+                Width = 3,
+                Height = 2,
+                RadiusX = 1,
+                RadiusY = 1,
+                Fill = Brush(Colors.MediumPurple),
+                Opacity = 0.25,
+                VerticalAlignment = VerticalAlignment.Bottom
+            };
+            _cpuSparklineBars.Add(bar);
+            sparklineStack.Children.Add(bar);
+        }
+        Grid.SetColumn(sparklineStack, 1);
+        midGrid.Children.Add(sparklineStack);
+        Grid.SetRow(midGrid, 1);
+        rootGrid.Children.Add(midGrid);
+
+        _cpuProgressBar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Height = 6,
+            CornerRadius = new CornerRadius(3),
+            Foreground = Brush(Colors.MediumPurple)
+        };
+        Grid.SetRow(_cpuProgressBar, 2);
+        rootGrid.Children.Add(_cpuProgressBar);
+
+        card.Child = rootGrid;
+        return card;
+    }
+
+    private Border CreateLiveRamCard(ulong usedBytes, ulong totalBytes, double initialPercent)
+    {
+        var card = new Border
+        {
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = Brush(Color.FromArgb(14, Colors.DarkCyan.R, Colors.DarkCyan.G, Colors.DarkCyan.B))
+        };
+
+        var rootGrid = new Grid { RowSpacing = 8 };
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Grid { ColumnSpacing = 10 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var icon = new FontIcon
+        {
+            Glyph = "\uE964",
+            FontSize = 22,
+            Foreground = Brush(Colors.DarkCyan),
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(icon, 0);
+        header.Children.Add(icon);
+
+        var titleStack = new StackPanel { Spacing = 1 };
+        titleStack.Children.Add(new TextBlock { Text = T("dashboard.ram"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 14 });
+        _ramValueText = new TextBlock
+        {
+            Text = $"{Formatters.FormatBytes((long)usedBytes)} / {Formatters.FormatBytes((long)totalBytes)}",
+            Opacity = 0.7,
+            FontSize = 11
+        };
+        titleStack.Children.Add(_ramValueText);
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+        Grid.SetRow(header, 0);
+        rootGrid.Children.Add(header);
+
+        var midGrid = new Grid { Height = 34 };
+        _ramPercentText = new TextBlock
+        {
+            Text = $"{initialPercent:F1}%",
+            FontSize = 26,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Foreground = Brush(Colors.DarkCyan),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        midGrid.Children.Add(_ramPercentText);
+        Grid.SetRow(midGrid, 1);
+        rootGrid.Children.Add(midGrid);
+
+        _ramProgressBar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = initialPercent,
+            Height = 6,
+            CornerRadius = new CornerRadius(3),
+            Foreground = Brush(initialPercent > 85 ? Colors.OrangeRed : initialPercent > 70 ? Colors.Goldenrod : Colors.DarkCyan)
+        };
+        Grid.SetRow(_ramProgressBar, 2);
+        rootGrid.Children.Add(_ramProgressBar);
+
+        card.Child = rootGrid;
+        return card;
+    }
+
+    private Border CreateLiveDiskCard(string driveLetter, long usedBytes, long totalBytes, double initialPercent)
+    {
+        var card = new Border
+        {
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = Brush(Color.FromArgb(14, Colors.SteelBlue.R, Colors.SteelBlue.G, Colors.SteelBlue.B))
+        };
+
+        var rootGrid = new Grid { RowSpacing = 8 };
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Grid { ColumnSpacing = 10 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var icon = new FontIcon
+        {
+            Glyph = "\uE7F1",
+            FontSize = 22,
+            Foreground = Brush(Colors.SteelBlue),
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(icon, 0);
+        header.Children.Add(icon);
+
+        var titleStack = new StackPanel { Spacing = 1 };
+        titleStack.Children.Add(new TextBlock { Text = $"{T("dashboard.storage")} ({driveLetter})", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 14 });
+        _diskValueText = new TextBlock
+        {
+            Text = $"{Formatters.FormatBytes(usedBytes)} / {Formatters.FormatBytes(totalBytes)}",
+            Opacity = 0.7,
+            FontSize = 11
+        };
+        titleStack.Children.Add(_diskValueText);
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+        Grid.SetRow(header, 0);
+        rootGrid.Children.Add(header);
+
+        var midGrid = new Grid { Height = 34 };
+        _diskPercentText = new TextBlock
+        {
+            Text = $"{initialPercent:F1}%",
+            FontSize = 26,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Foreground = Brush(Colors.SteelBlue),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        midGrid.Children.Add(_diskPercentText);
+        Grid.SetRow(midGrid, 1);
+        rootGrid.Children.Add(midGrid);
+
+        _diskProgressBar = new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = initialPercent,
+            Height = 6,
+            CornerRadius = new CornerRadius(3),
+            Foreground = Brush(initialPercent > 90 ? Colors.OrangeRed : initialPercent > 75 ? Colors.Goldenrod : Colors.SteelBlue)
+        };
+        Grid.SetRow(_diskProgressBar, 2);
+        rootGrid.Children.Add(_diskProgressBar);
+
+        card.Child = rootGrid;
+        return card;
+    }
+
+    private Border CreateLiveNetworkCard()
+    {
+        var card = new Border
+        {
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = Brush(Color.FromArgb(14, Colors.MediumSeaGreen.R, Colors.MediumSeaGreen.G, Colors.MediumSeaGreen.B))
+        };
+
+        var rootGrid = new Grid { RowSpacing = 8 };
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Grid { ColumnSpacing = 10 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var icon = new FontIcon
+        {
+            Glyph = "\uE839",
+            FontSize = 22,
+            Foreground = Brush(Colors.MediumSeaGreen),
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(icon, 0);
+        header.Children.Add(icon);
+
+        var titleStack = new StackPanel { Spacing = 1 };
+        titleStack.Children.Add(new TextBlock { Text = T("dashboard.networkActivity"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 14 });
+        titleStack.Children.Add(new TextBlock { Text = "Realtime I/O", Opacity = 0.7, FontSize = 11 });
+        Grid.SetColumn(titleStack, 1);
+        header.Children.Add(titleStack);
+        Grid.SetRow(header, 0);
+        rootGrid.Children.Add(header);
+
+        var speedGrid = new Grid { Height = 34, ColumnSpacing = 8 };
+        speedGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        speedGrid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var downStack = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        downStack.Children.Add(new TextBlock { Text = T("dashboard.networkDownload"), Opacity = 0.65, FontSize = 10 });
+        _networkDownText = new TextBlock
+        {
+            Text = "↓ 0 B/s",
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = Brush(Colors.MediumSeaGreen)
+        };
+        downStack.Children.Add(_networkDownText);
+        Grid.SetColumn(downStack, 0);
+        speedGrid.Children.Add(downStack);
+
+        var upStack = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        upStack.Children.Add(new TextBlock { Text = T("dashboard.networkUpload"), Opacity = 0.65, FontSize = 10 });
+        _networkUpText = new TextBlock
+        {
+            Text = "↑ 0 B/s",
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = Brush(Colors.DeepSkyBlue)
+        };
+        upStack.Children.Add(_networkUpText);
+        Grid.SetColumn(upStack, 1);
+        speedGrid.Children.Add(upStack);
+
+        Grid.SetRow(speedGrid, 1);
+        rootGrid.Children.Add(speedGrid);
+
+        var pulseLine = new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Height = 3,
+            RadiusX = 1.5,
+            RadiusY = 1.5,
+            Fill = Brush(Colors.MediumSeaGreen),
+            Opacity = 0.5
+        };
+        Grid.SetRow(pulseLine, 2);
+        rootGrid.Children.Add(pulseLine);
+
+        card.Child = rootGrid;
+        return card;
+    }
+
+    private Border OptimizationHistoryPanel()
+    {
+        var summary = MainWindow.Reports.GetHistorySummary();
+        var recentReports = MainWindow.Reports.GetRecentReports(3);
+
+        var panel = new StackPanel { Spacing = 14 };
+
+        var titleStack = new StackPanel { Spacing = 2 };
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = T("dashboard.historyTrend"),
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        titleStack.Children.Add(new TextBlock
+        {
+            Text = T("dashboard.historySubtitle"),
+            Opacity = 0.7,
+            FontSize = 12
+        });
+        panel.Children.Add(titleStack);
+
+        var metricsGrid = new Grid { ColumnSpacing = 12 };
+        metricsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        metricsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        metricsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var freedCard = CreateSummaryStatCard(
+            T("dashboard.totalFreed"),
+            Formatters.FormatBytes(summary.TotalFreedBytes),
+            T("dashboard.totalFreedDesc"),
+            Colors.MediumSeaGreen,
+            "\uE74E");
+        Grid.SetColumn(freedCard, 0);
+        metricsGrid.Children.Add(freedCard);
+
+        var filesCard = CreateSummaryStatCard(
+            T("dashboard.totalCleanedFiles"),
+            $"{summary.TotalFilesRemoved:N0}",
+            T("dashboard.totalCleanedFilesDesc"),
+            Colors.MediumPurple,
+            "\uE74D");
+        Grid.SetColumn(filesCard, 1);
+        metricsGrid.Children.Add(filesCard);
+
+        var runsCard = CreateSummaryStatCard(
+            T("dashboard.totalRuns"),
+            $"{summary.TotalRuns:N0}",
+            summary.LastRunAt.HasValue
+                ? $"{T("dashboard.lastRun")}: {summary.LastRunAt.Value.LocalDateTime:MM/dd HH:mm}"
+                : T("dashboard.totalRunsDesc"),
+            Colors.SteelBlue,
+            "\uE9D9");
+        Grid.SetColumn(runsCard, 2);
+        metricsGrid.Children.Add(runsCard);
+
+        panel.Children.Add(metricsGrid);
+
+        if (recentReports.Count > 0)
+        {
+            var runsList = new StackPanel { Spacing = 8, Margin = new Thickness(0, 4, 0, 0) };
+            foreach (var report in recentReports)
+            {
+                runsList.Children.Add(CreateRecentRunRow(report));
+            }
+            panel.Children.Add(runsList);
+        }
+        else
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = T("dashboard.noHistory"),
+                Opacity = 0.65,
+                FontSize = 13,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+        }
+
+        return new Border
+        {
+            Padding = new Thickness(18),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Child = panel
+        };
+    }
+
+    private static Border CreateSummaryStatCard(string title, string value, string detail, Color color, string glyph)
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = Brush(Color.FromArgb(14, color.R, color.G, color.B))
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var icon = new FontIcon
+        {
+            Glyph = glyph,
+            FontSize = 24,
+            Foreground = Brush(color),
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(icon, 0);
+        grid.Children.Add(icon);
+
+        var stack = new StackPanel { Spacing = 2 };
+        stack.Children.Add(new TextBlock { Text = title, Opacity = 0.7, FontSize = 12 });
+        stack.Children.Add(new TextBlock { Text = value, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = Brush(color) });
+        stack.Children.Add(new TextBlock { Text = detail, Opacity = 0.65, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
+        Grid.SetColumn(stack, 1);
+        grid.Children.Add(stack);
+
+        border.Child = grid;
+        return border;
+    }
+
+    private Border CreateRecentRunRow(TaskRunResult result)
+    {
+        var row = new Border
+        {
+            Padding = new Thickness(12, 8, 12, 8),
+            CornerRadius = new CornerRadius(6),
+            Background = Brush(Color.FromArgb(8, 128, 128, 128))
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var statusDot = new Microsoft.UI.Xaml.Shapes.Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = Brush(result.Success ? Colors.MediumSeaGreen : Colors.DarkOrange),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(statusDot, 0);
+        grid.Children.Add(statusDot);
+
+        var titleStack = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(new TextBlock { Text = result.TaskLabel, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 13 });
+        titleStack.Children.Add(new TextBlock { Text = $"{result.FinishedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss} • {result.FilesRemoved:N0} files", Opacity = 0.65, FontSize = 11 });
+        Grid.SetColumn(titleStack, 1);
+        grid.Children.Add(titleStack);
+
+        var freedBadge = new Border
+        {
+            Background = Brush(Color.FromArgb(20, Colors.MediumSeaGreen.R, Colors.MediumSeaGreen.G, Colors.MediumSeaGreen.B)),
+            BorderBrush = Brush(Colors.MediumSeaGreen),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8, 2, 8, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = result.FreedBytes > 0 ? $"+{Formatters.FormatBytes(result.FreedBytes)}" : "0 B",
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = Brush(Colors.MediumSeaGreen)
+            }
+        };
+        Grid.SetColumn(freedBadge, 2);
+        grid.Children.Add(freedBadge);
+
+        row.Child = grid;
+        return row;
     }
 }

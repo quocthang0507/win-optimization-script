@@ -1,30 +1,41 @@
-using WinOptimizationApp.Models;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using System.Linq;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Microsoft.UI;
-using System;
+using WinOptimizationApp.Models;
+using WinOptimizationApp.ViewModels;
 
 namespace WinOptimizationApp.Views;
 
 public sealed partial class BloatwarePage : BasePage
 {
-    private StackPanel? _resultPanel;
     private TextBox? _searchBox;
     private Button? _scanButton;
     private Button? _selectAllButton;
     private Button? _clearSelectionButton;
     private Button? _removeButton;
-    private List<InstalledApp> _apps = [];
-    private bool _isWorking;
-    private readonly HashSet<string> _selectedIds = new();
+    private TextBlock? _headerText;
+    private TextBlock? _emptyTextBlock;
+    private ListView? _listView;
     private int _appliedRevision = -1;
+
+    public BloatwareViewModel ViewModel { get; }
 
     public BloatwarePage(MainWindow mainWindow) : base(mainWindow)
     {
+        ViewModel = new BloatwareViewModel(
+            mainWindow.Uninstaller,
+            mainWindow.Operations,
+            mainWindow.SaveOperationReportAsync,
+            T,
+            F);
+
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                UpdateControlStates();
+            });
+        };
+
         RenderPage();
     }
 
@@ -32,14 +43,15 @@ public sealed partial class BloatwarePage : BasePage
     {
         AddHeader(T("bloatware.title"), T("bloatware.subtitle"));
 
-        _resultPanel = new StackPanel { Spacing = 8 };
-
         _searchBox = new TextBox
         {
             PlaceholderText = T("bloatware.searchPlaceholder"),
             Height = 36
         };
-        ConfigureSearch(_searchBox, "bloatware-search", RenderApps);
+        ConfigureSearch(_searchBox, "bloatware-search", () =>
+        {
+            ViewModel.SearchQuery = _searchBox.Text ?? string.Empty;
+        });
 
         var actions = new AdaptiveWrapPanel { Spacing = 10 };
 
@@ -49,10 +61,16 @@ public sealed partial class BloatwarePage : BasePage
         });
         actions.Children.Add(_scanButton);
 
-        _selectAllButton = ActionButton(T("bloatware.selectAll"), Symbol.SelectAll, (_, _) => SelectAllFilteredApps());
+        _selectAllButton = ActionButton(T("bloatware.selectAll"), Symbol.SelectAll, (_, _) =>
+        {
+            ViewModel.SelectAllFiltered();
+        });
         actions.Children.Add(_selectAllButton);
 
-        _clearSelectionButton = ActionButton(T("bloatware.clearSelection"), Symbol.Clear, (_, _) => ClearSelection());
+        _clearSelectionButton = ActionButton(T("bloatware.clearSelection"), Symbol.Clear, (_, _) =>
+        {
+            ViewModel.ClearSelection();
+        });
         _clearSelectionButton.IsEnabled = false;
         actions.Children.Add(_clearSelectionButton);
 
@@ -65,7 +83,38 @@ public sealed partial class BloatwarePage : BasePage
 
         MainContent.Children.Add(_searchBox);
         MainContent.Children.Add(actions);
-        MainContent.Children.Add(_resultPanel);
+
+        _headerText = SectionTitle(T("bloatware.detected"));
+        _headerText.Visibility = Visibility.Collapsed;
+        MainContent.Children.Add(_headerText);
+
+        _emptyTextBlock = InfoBlock(T("common.noMatches"));
+        _emptyTextBlock.Visibility = Visibility.Collapsed;
+        MainContent.Children.Add(_emptyTextBlock);
+
+        _listView = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.None,
+            ItemsSource = ViewModel.FilteredItems,
+            MaxHeight = 680
+        };
+
+        _listView.ContainerContentChanging += (sender, args) =>
+        {
+            if (args.Item is BloatwareItemViewModel item)
+            {
+                if (args.ItemContainer.Content is not Border border)
+                {
+                    args.ItemContainer.Content = CreateAppRow(item);
+                }
+                else
+                {
+                    UpdateAppRow(border, item);
+                }
+            }
+        };
+
+        MainContent.Children.Add(_listView);
     }
 
     public override async Task OnNavigatedToAsync()
@@ -81,15 +130,22 @@ public sealed partial class BloatwarePage : BasePage
         }
     }
 
+    private void ApplyCachedAppxState()
+    {
+        var state = MainWindow.SessionState;
+        _appliedRevision = state.AppxRevision;
+        ViewModel.LoadApps(state.AppxPackages, state.AppxError);
+        UpdateControlStates();
+    }
+
     private async Task ScanAppsAsync()
     {
-        if (_resultPanel == null || _isWorking) return;
+        if (ViewModel.IsWorking)
+        {
+            return;
+        }
 
         MainWindow.SetStatusText(T("bloatware.scanning"));
-        SetControlsEnabled(false);
-        _resultPanel.Children.Clear();
-        _selectedIds.Clear();
-        
         try
         {
             await MainWindow.RefreshAppxStateAsync();
@@ -97,95 +153,77 @@ public sealed partial class BloatwarePage : BasePage
         }
         finally
         {
-            SetControlsEnabled(true);
             MainWindow.SetStatusText(T("common.ready"), isBusy: false);
         }
     }
 
-    private void ApplyCachedAppxState()
+    private async Task RemoveSelectedAppsAsync()
     {
-        if (_resultPanel == null)
+        if (ViewModel.IsWorking || ViewModel.SelectedCount == 0)
         {
             return;
         }
 
-        var state = MainWindow.SessionState;
-        _apps = state.AppxPackages.ToList();
-        _appliedRevision = state.AppxRevision;
-        if (!string.IsNullOrWhiteSpace(state.AppxError))
+        var dialog = new ContentDialog
         {
-            _resultPanel.Children.Clear();
-            _resultPanel.Children.Add(InfoBlock(F("bloatware.scanFailed", state.AppxError)));
+            Title = T("bloatware.confirmTitle"),
+            Content = F("bloatware.confirmBody", ViewModel.SelectedCount),
+            PrimaryButtonText = T("bloatware.remove"),
+            CloseButtonText = T("common.cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
+        };
+
+        if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary)
+        {
             return;
         }
 
-        RenderApps();
+        var (succeeded, failed) = await ViewModel.RemoveSelectedAppsAsync();
+        await MainWindow.RefreshAppxStateAsync();
+        ApplyCachedAppxState();
+        MainWindow.SetStatusText(F("bloatware.summary", succeeded, failed), isBusy: false);
     }
 
-    private List<InstalledApp> FilteredApps()
+    private void UpdateControlStates()
     {
-        var query = _searchBox?.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(query))
+        if (_scanButton != null) _scanButton.IsEnabled = !ViewModel.IsWorking;
+        if (_searchBox != null) _searchBox.IsEnabled = !ViewModel.IsWorking;
+        if (_selectAllButton != null) _selectAllButton.IsEnabled = ViewModel.CanSelectAll;
+        if (_clearSelectionButton != null) _clearSelectionButton.IsEnabled = ViewModel.CanClearSelection;
+        if (_removeButton != null) _removeButton.IsEnabled = ViewModel.CanRemove;
+
+        if (_emptyTextBlock != null)
         {
-            return _apps;
+            if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
+            {
+                _emptyTextBlock.Text = F("bloatware.scanFailed", ViewModel.ErrorMessage);
+                _emptyTextBlock.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _emptyTextBlock.Text = T("common.noMatches");
+                _emptyTextBlock.Visibility = ViewModel.FilteredCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
 
-        return _apps.Where(a =>
-            a.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-            a.Id.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-            a.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase)
-        ).ToList();
+        if (_headerText != null)
+        {
+            if (ViewModel.FilteredCount > 0)
+            {
+                _headerText.Text = ViewModel.FilteredCount == ViewModel.TotalCount
+                    ? F("bloatware.detected", ViewModel.TotalCount)
+                    : F("bloatware.detectedFiltered", ViewModel.FilteredCount, ViewModel.TotalCount);
+                _headerText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _headerText.Visibility = Visibility.Collapsed;
+            }
+        }
     }
 
-    private void SelectAllFilteredApps()
-    {
-        var filtered = FilteredApps();
-        foreach (var app in filtered)
-        {
-            _selectedIds.Add(app.Id);
-        }
-        RenderApps();
-    }
-
-    private void ClearSelection()
-    {
-        _selectedIds.Clear();
-        RenderApps();
-    }
-
-    private void RenderApps()
-    {
-        if (_resultPanel == null) return;
-        _resultPanel.Children.Clear();
-
-        if (_apps.Count == 0)
-        {
-            _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
-            UpdateRemoveButton();
-            return;
-        }
-
-        var filtered = FilteredApps();
-        if (filtered.Count == 0)
-        {
-            _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
-            UpdateRemoveButton();
-            return;
-        }
-
-        _resultPanel.Children.Add(SectionTitle(filtered.Count == _apps.Count
-            ? F("bloatware.detected", _apps.Count)
-            : F("bloatware.detectedFiltered", filtered.Count, _apps.Count)));
-
-        foreach (var app in filtered)
-        {
-            _resultPanel.Children.Add(AppRow(app));
-        }
-
-        UpdateRemoveButton();
-    }
-
-    private Border AppRow(InstalledApp app)
+    private Border CreateAppRow(BloatwareItemViewModel item)
     {
         var border = new Border
         {
@@ -194,7 +232,8 @@ public sealed partial class BloatwarePage : BasePage
             BorderThickness = new Thickness(1),
             BorderBrush = ThemeBorderBrush(),
             Background = ThemeCardBackground(),
-            Margin = new Thickness(0, 4, 0, 4)
+            Margin = new Thickness(0, 4, 0, 4),
+            Tag = item
         };
 
         var grid = new Grid { ColumnSpacing = 12 };
@@ -204,125 +243,65 @@ public sealed partial class BloatwarePage : BasePage
         var checkbox = new CheckBox
         {
             VerticalAlignment = VerticalAlignment.Center,
-            IsChecked = _selectedIds.Contains(app.Id)
+            IsChecked = item.IsSelected
         };
-        checkbox.Checked += (_, _) => { _selectedIds.Add(app.Id); UpdateRemoveButton(); };
-        checkbox.Unchecked += (_, _) => { _selectedIds.Remove(app.Id); UpdateRemoveButton(); };
+        checkbox.Checked += (_, _) => item.IsSelected = true;
+        checkbox.Unchecked += (_, _) => item.IsSelected = false;
         Grid.SetColumn(checkbox, 0);
         grid.Children.Add(checkbox);
 
         var details = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        details.Children.Add(new TextBlock { Text = app.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        details.Children.Add(new TextBlock
+        var nameBlock = new TextBlock
         {
-            Text = $"{app.Publisher} / {app.Version}",
+            Text = item.Name,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
+        var descBlock = new TextBlock
+        {
+            Text = item.Details,
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.7
-        });
-        
+        };
+        details.Children.Add(nameBlock);
+        details.Children.Add(descBlock);
         Grid.SetColumn(details, 1);
         grid.Children.Add(details);
 
         border.Child = grid;
+
+        item.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(BloatwareItemViewModel.IsSelected))
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (checkbox.IsChecked != item.IsSelected)
+                    {
+                        checkbox.IsChecked = item.IsSelected;
+                    }
+                });
+            }
+        };
+
         return border;
     }
 
-    private void UpdateRemoveButton()
+    private void UpdateAppRow(Border border, BloatwareItemViewModel item)
     {
-        if (_removeButton != null)
+        border.Tag = item;
+        if (border.Child is Grid grid)
         {
-            _removeButton.IsEnabled = _selectedIds.Count > 0 && !_isWorking;
-            _removeButton.Content = _selectedIds.Count > 0
-                ? F("bloatware.removeSelectedCount", _selectedIds.Count)
-                : T("bloatware.removeSelected");
-        }
-        if (_clearSelectionButton != null)
-        {
-            _clearSelectionButton.IsEnabled = _selectedIds.Count > 0 && !_isWorking;
-        }
-        if (_selectAllButton != null)
-        {
-            _selectAllButton.IsEnabled = !_isWorking && _apps.Count > 0;
-        }
-    }
-
-    private void SetControlsEnabled(bool isEnabled)
-    {
-        if (_scanButton != null) _scanButton.IsEnabled = isEnabled;
-        if (_searchBox != null) _searchBox.IsEnabled = isEnabled;
-        if (_selectAllButton != null) _selectAllButton.IsEnabled = isEnabled && _apps.Count > 0;
-        if (_clearSelectionButton != null) _clearSelectionButton.IsEnabled = isEnabled && _selectedIds.Count > 0;
-        if (_removeButton != null) _removeButton.IsEnabled = isEnabled && _selectedIds.Count > 0;
-    }
-
-    private async Task RemoveSelectedAppsAsync()
-    {
-        if (_resultPanel == null || _isWorking || _selectedIds.Count == 0) return;
-
-        var selectedApps = _apps.Where(a => _selectedIds.Contains(a.Id)).ToList();
-        var dialog = new ContentDialog
-        {
-            Title = T("bloatware.confirmTitle"),
-            Content = F("bloatware.confirmBody", selectedApps.Count),
-            PrimaryButtonText = T("bloatware.remove"),
-            CloseButtonText = T("common.cancel"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
-        };
-
-        if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary) return;
-
-        _isWorking = true;
-        SetControlsEnabled(false);
-        var started = DateTimeOffset.Now;
-        var succeeded = 0;
-        var failed = 0;
-        var reportMessages = new List<string>();
-        var reportErrors = new List<string>();
-
-        try
-        {
-            for (var index = 0; index < selectedApps.Count; index++)
+            if (grid.Children[0] is CheckBox cb)
             {
-                var app = selectedApps[index];
-                MainWindow.SetStatusText(F("bloatware.removing", index + 1, selectedApps.Count, app.Name));
-                try
-                {
-                    var ok = await MainWindow.Uninstaller.RemoveAppxPackageAsync(app);
-                    if (ok)
-                    {
-                        succeeded++;
-                        reportMessages.Add($"{app.Name} ({app.Id}): removed");
-                    }
-                    else
-                    {
-                        failed++;
-                        reportErrors.Add($"{app.Name} ({app.Id}): Windows rejected removal");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    reportErrors.Add($"{app.Name} ({app.Id}): {ex.Message}");
-                }
+                cb.IsChecked = item.IsSelected;
             }
-        }
-        finally
-        {
-            _isWorking = false;
-            await MainWindow.SaveOperationReportAsync(new TaskRunResult(
-                "software.appx.remove",
-                "Windows App Removal",
-                started,
-                DateTimeOffset.Now,
-                failed == 0,
-                0,
-                succeeded,
-                failed,
-                reportMessages,
-                reportErrors));
-            await ScanAppsAsync(); // Rescan
-            MainWindow.SetStatusText(F("bloatware.summary", succeeded, failed), isBusy: false);
+
+            if (grid.Children[1] is StackPanel sp && sp.Children.Count >= 2)
+            {
+                if (sp.Children[0] is TextBlock nameBlock) nameBlock.Text = item.Name;
+                if (sp.Children[1] is TextBlock descBlock) descBlock.Text = item.Details;
+            }
         }
     }
 }

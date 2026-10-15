@@ -9,4 +9,7 @@ public enum LeftoverCleanupConfidence
 public sealed record LeftoverCleanupCandidate(
     string Path,
     LeftoverCleanupConfidence Confidence,
-    string Reason);
+    string Reason)
+{
+    public bool IsAutoSelectRecommended => Confidence == LeftoverCleanupConfidence.High;
+}

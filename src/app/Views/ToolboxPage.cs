@@ -983,7 +983,7 @@ public sealed partial class ToolboxPage : BasePage
                                 Opacity = 0.8,
                                 TextWrapping = TextWrapping.Wrap
                             },
-                            IsChecked = candidate.Confidence == LeftoverCleanupConfidence.High
+                            IsChecked = candidate.IsAutoSelectRecommended
                         };
                         candidateCheckbox.Checked += (_, _) => selectedLeftoverPaths.Add(candidate.Path);
                         candidateCheckbox.Unchecked += (_, _) => selectedLeftoverPaths.Remove(candidate.Path);
@@ -1219,22 +1219,71 @@ public sealed partial class ToolboxPage : BasePage
 
     private async Task RunSystemToolActionAsync(string toolAction)
     {
+        if (toolAction == "RebuildIconCache")
+        {
+            var confirmation = new ContentDialog
+            {
+                Title = T("systemTools.confirmRebuildIconCacheTitle"),
+                Content = new TextBlock
+                {
+                    Text = T("systemTools.confirmRebuildIconCacheMessage"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                PrimaryButtonText = T("common.run"),
+                CloseButtonText = T("common.cancel"),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot
+            };
+            if (await MainWindow.ShowThemedDialogAsync(confirmation) != ContentDialogResult.Primary)
+            {
+                return;
+            }
+        }
+        else if (toolAction == "ResetTcpIp")
+        {
+            var confirmation = new ContentDialog
+            {
+                Title = T("systemTools.confirmResetTcpIpTitle"),
+                Content = new TextBlock
+                {
+                    Text = T("systemTools.confirmResetTcpIpMessage"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                PrimaryButtonText = T("common.run"),
+                CloseButtonText = T("common.cancel"),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot
+            };
+            if (await MainWindow.ShowThemedDialogAsync(confirmation) != ContentDialogResult.Primary)
+            {
+                return;
+            }
+        }
+
         MainWindow.SetStatusText(T("common.loading"), isBusy: true);
         try
         {
-            var success = toolAction switch
+            var result = toolAction switch
             {
                 "RebuildIconCache" => await MainWindow.SystemMaintenance.RebuildIconCacheAsync(),
                 "ResetStoreCache" => await MainWindow.SystemMaintenance.ResetStoreCacheAsync(),
                 "ResetTcpIp" => await MainWindow.SystemMaintenance.ResetTcpIpStackAsync(),
                 "ClearArp" => await MainWindow.SystemMaintenance.ClearArpCacheAsync(),
-                _ => false
+                _ => new SystemToolResult(SystemToolOutcome.Failed)
             };
 
-            MainWindow.SetStatusText(success ? T("run.completed") : T("common.error"), isBusy: false);
+            var (statusKey, message) = result.Outcome switch
+            {
+                SystemToolOutcome.Succeeded => ("run.completed", T("systemTools.actionSuccess")),
+                SystemToolOutcome.Started => ("run.completed", T("systemTools.actionStarted")),
+                SystemToolOutcome.NeedsAdmin => ("common.error", T("systemTools.needsAdmin")),
+                _ => ("common.error", string.IsNullOrWhiteSpace(result.Detail) ? T("common.error") : result.Detail)
+            };
+
+            MainWindow.SetStatusText(T(statusKey), isBusy: false);
             await MainWindow.ShowDialogAsync_Internal(
-                success ? T("run.completed") : T("common.error"),
-                InfoBlock(success ? T("systemTools.actionSuccess") : T("network.actionFailedNeedsAdmin")),
+                T(statusKey),
+                InfoBlock(message),
                 T("common.close"));
         }
         catch (Exception ex)

@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="coverlet.collector" Version="10.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -119,6 +120,13 @@
     <Compile Include="..\app\Services\ScheduledMaintenanceService.cs" Link="Production\Services\ScheduledMaintenanceService.cs" />
     <Compile Include="..\app\Services\StatusStateService.cs" Link="Production\Services\StatusStateService.cs" />
     <Compile Include="..\app\Services\SystemMaintenanceService.cs" Link="Production\Services\SystemMaintenanceService.cs" />
+    <Compile Include="..\app\Models\OperationModels.cs" Link="Production\Models\OperationModels.cs" />
+    <Compile Include="..\app\Services\OperationService.cs" Link="Production\Services\OperationService.cs" />
+    <Compile Include="..\app\ViewModels\BloatwareViewModel.cs" Link="Production\ViewModels\BloatwareViewModel.cs" />
+    <Compile Include="..\app\ViewModels\StartupViewModel.cs" Link="Production\ViewModels\StartupViewModel.cs" />
+    <Compile Include="..\app\Models\CommandItem.cs" Link="Production\Models\CommandItem.cs" />
+    <Compile Include="..\app\Services\CommandPaletteService.cs" Link="Production\Services\CommandPaletteService.cs" />
+    <Compile Include="..\app\Models\OptimizationHistorySummary.cs" Link="Production\Models\OptimizationHistorySummary.cs" />
   </ItemGroup>
 
   <ItemGroup>

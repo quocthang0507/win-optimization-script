@@ -1,22 +1,47 @@
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using WinOptimizationApp.Models;
+using WinOptimizationApp.ViewModels;
 
 namespace WinOptimizationApp.Views;
 
 public sealed partial class StartupPage : BasePage
 {
-    private bool _isRefreshing;
-    private StackPanel? _resultPanel;
     private TextBox? _searchBox;
     private ComboBox? _statusFilterBox;
     private ComboBox? _impactFilterBox;
     private ComboBox? _sourceFilterBox;
     private ComboBox? _sortBox;
     private CheckBox? _actionableOnlyBox;
-    private List<StartupEntry> _startupEntries = [];
+    private TextBlock? _countTitle;
+    private TextBlock? _highMetricText;
+    private TextBlock? _mediumMetricText;
+    private TextBlock? _lowMetricText;
+    private TextBlock? _emptyBlock;
+    private ListView? _listView;
     private int _appliedRevision = -1;
+
+    public StartupViewModel ViewModel { get; }
 
     public StartupPage(MainWindow mainWindow) : base(mainWindow)
     {
+        ViewModel = new StartupViewModel(
+            mainWindow.Startup,
+            mainWindow.Operations,
+            mainWindow.SaveOperationReportAsync,
+            T,
+            F);
+
+        ViewModel.PropertyChanged += (_, _) =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                UpdateSummaryAndHeaders();
+            });
+        };
+
         RenderStartupPage();
     }
 
@@ -24,7 +49,6 @@ public sealed partial class StartupPage : BasePage
     {
         AddHeader(T("startup.title"), T("startup.subtitle"));
 
-        _resultPanel = new StackPanel { Spacing = 8 };
         var scanButton = ActionButton(T("startup.scan"), Symbol.Find, async (_, _) =>
         {
             await RefreshListAsync();
@@ -33,7 +57,40 @@ public sealed partial class StartupPage : BasePage
         MainContent.Children.Add(scanButton);
         MainContent.Children.Add(StartupOptionsPanel());
         MainContent.Children.Add(InfoBlock(T("startup.previewOnly")));
-        MainContent.Children.Add(_resultPanel);
+
+        _countTitle = SectionTitle(string.Empty);
+        _countTitle.Visibility = Visibility.Collapsed;
+        MainContent.Children.Add(_countTitle);
+
+        MainContent.Children.Add(CreateStartupSummaryCards());
+
+        _emptyBlock = InfoBlock(T("common.noMatches"));
+        _emptyBlock.Visibility = Visibility.Collapsed;
+        MainContent.Children.Add(_emptyBlock);
+
+        _listView = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.None,
+            ItemsSource = ViewModel.FilteredEntries,
+            MaxHeight = 650
+        };
+
+        _listView.ContainerContentChanging += (sender, args) =>
+        {
+            if (args.Item is StartupEntry entry)
+            {
+                if (args.ItemContainer.Content is not Border border)
+                {
+                    args.ItemContainer.Content = CreateStartupRow(entry);
+                }
+                else
+                {
+                    UpdateStartupRow(border, entry);
+                }
+            }
+        };
+
+        MainContent.Children.Add(_listView);
     }
 
     public override async Task OnNavigatedToAsync()
@@ -62,7 +119,10 @@ public sealed partial class StartupPage : BasePage
             PlaceholderText = T("startup.searchPlaceholder"),
             Height = 36
         };
-        ConfigureSearch(_searchBox, "startup-search", RenderStartupEntries);
+        ConfigureSearch(_searchBox, "startup-search", () =>
+        {
+            ViewModel.SearchQuery = _searchBox.Text ?? string.Empty;
+        });
         searchRow.Children.Add(_searchBox);
 
         var resetButton = ActionButton(T("common.resetFilters"), Symbol.Refresh, (_, _) => ResetStartupFilters());
@@ -77,36 +137,39 @@ public sealed partial class StartupPage : BasePage
             T("startup.allStatuses"),
             T("startup.enabled"),
             T("startup.disabled")
-        ]);
+        ], index => ViewModel.StatusFilter = (StartupStatusFilter)index);
+
         _impactFilterBox = FilterBox(T("startup.impactFilter"), 150,
         [
             T("startup.allImpacts"),
             T("startup.highImpact"),
             T("startup.mediumImpact"),
             T("startup.lowImpact")
-        ]);
+        ], index => ViewModel.ImpactFilter = (StartupImpactFilter)index);
+
         _sourceFilterBox = FilterBox(T("startup.sourceFilter"), 180,
         [
             T("startup.allSources"),
             T("startup.userSource"),
             T("startup.machineSource"),
             T("startup.startupFolderSource")
-        ]);
+        ], index => ViewModel.SourceFilter = (StartupSourceFilter)index);
+
         _sortBox = FilterBox(T("startup.sort"), 180,
         [
             T("startup.sortImpact"),
             T("startup.sortName"),
             T("startup.sortSource"),
             T("startup.sortStatus")
-        ]);
+        ], index => ViewModel.SortOrder = (StartupSortOrder)index);
 
         _actionableOnlyBox = new CheckBox
         {
             Content = T("startup.actionableOnly"),
             VerticalAlignment = VerticalAlignment.Bottom
         };
-        _actionableOnlyBox.Checked += (_, _) => RenderStartupEntries();
-        _actionableOnlyBox.Unchecked += (_, _) => RenderStartupEntries();
+        _actionableOnlyBox.Checked += (_, _) => ViewModel.ActionableOnly = true;
+        _actionableOnlyBox.Unchecked += (_, _) => ViewModel.ActionableOnly = false;
 
         filterRow.Children.Add(_statusFilterBox);
         filterRow.Children.Add(_impactFilterBox);
@@ -118,7 +181,7 @@ public sealed partial class StartupPage : BasePage
         return panel;
     }
 
-    private ComboBox FilterBox(string header, double minWidth, IReadOnlyList<string> items)
+    private static ComboBox FilterBox(string header, double minWidth, IReadOnlyList<string> items, Action<int> onSelectionChanged)
     {
         var box = new ComboBox
         {
@@ -132,7 +195,7 @@ public sealed partial class StartupPage : BasePage
         }
 
         box.SelectedIndex = 0;
-        box.SelectionChanged += (_, _) => RenderStartupEntries();
+        box.SelectionChanged += (_, _) => onSelectionChanged(box.SelectedIndex);
         return box;
     }
 
@@ -169,19 +232,17 @@ public sealed partial class StartupPage : BasePage
         }
 
         CancelDebouncedUiAction("startup-search");
-        RenderStartupEntries();
+        ViewModel.ResetFilters();
     }
 
     private async Task RefreshListAsync()
     {
-        if (_resultPanel == null || _isRefreshing)
+        if (ViewModel.IsRefreshing)
         {
             return;
         }
 
-        _isRefreshing = true;
         MainWindow.SetStatusText(T("startup.scanning"));
-        _resultPanel.Children.Clear();
         try
         {
             await MainWindow.RefreshStartupStateAsync();
@@ -189,165 +250,117 @@ public sealed partial class StartupPage : BasePage
         }
         finally
         {
-            _isRefreshing = false;
             MainWindow.SetStatusText(T("common.ready"), isBusy: false);
         }
     }
 
     private void ApplyCachedStartupState()
     {
-        if (_resultPanel == null)
-        {
-            return;
-        }
-
         var state = MainWindow.SessionState;
-        _startupEntries = state.StartupEntries.ToList();
         _appliedRevision = state.StartupRevision;
-        if (!string.IsNullOrWhiteSpace(state.StartupError))
-        {
-            _resultPanel.Children.Clear();
-            _resultPanel.Children.Add(InfoBlock(F("startup.scanFailed", state.StartupError)));
-            return;
-        }
-
-        RenderStartupEntries();
+        ViewModel.LoadEntries(state.StartupEntries, state.StartupError);
+        UpdateSummaryAndHeaders();
     }
 
-    private void RenderStartupEntries()
+    private void UpdateSummaryAndHeaders()
     {
-        if (_resultPanel == null)
+        if (_countTitle != null)
         {
-            return;
+            if (ViewModel.TotalCount > 0)
+            {
+                _countTitle.Text = F("startup.entriesFiltered", ViewModel.FilteredCount, ViewModel.TotalCount);
+                _countTitle.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _countTitle.Visibility = Visibility.Collapsed;
+            }
         }
 
-        _resultPanel.Children.Clear();
-        var entries = SortStartupEntries(FilterStartupEntries(_startupEntries)).ToList();
-        _resultPanel.Children.Add(SectionTitle(F("startup.entriesFiltered", entries.Count, _startupEntries.Count)));
-        _resultPanel.Children.Add(StartupSummary(entries));
-
-        if (entries.Count == 0)
+        if (_highMetricText != null)
         {
-            _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
-            return;
+            var count = ViewModel.FilteredEntries.Count(e => e.Impact == StartupImpactLevel.High);
+            _highMetricText.Text = count.ToString("N0");
         }
 
-        foreach (var entry in entries)
+        if (_mediumMetricText != null)
         {
-            _resultPanel.Children.Add(StartupRow(entry));
+            var count = ViewModel.FilteredEntries.Count(e => e.Impact == StartupImpactLevel.Medium);
+            _mediumMetricText.Text = count.ToString("N0");
         }
-    }
 
-    private IEnumerable<StartupEntry> FilterStartupEntries(IEnumerable<StartupEntry> entries)
-    {
-        var query = _searchBox?.Text?.Trim() ?? string.Empty;
-        var statusIndex = _statusFilterBox?.SelectedIndex ?? 0;
-        var impactIndex = _impactFilterBox?.SelectedIndex ?? 0;
-        var sourceIndex = _sourceFilterBox?.SelectedIndex ?? 0;
-        var actionableOnly = _actionableOnlyBox?.IsChecked == true;
-
-        foreach (var entry in entries)
+        if (_lowMetricText != null)
         {
-            if (!MatchesStartupQuery(entry, query))
-            {
-                continue;
-            }
+            var count = ViewModel.FilteredEntries.Count(e => e.Impact == StartupImpactLevel.Low);
+            _lowMetricText.Text = count.ToString("N0");
+        }
 
-            if (statusIndex == 1 && !entry.Enabled)
+        if (_emptyBlock != null)
+        {
+            if (!string.IsNullOrWhiteSpace(ViewModel.ErrorMessage))
             {
-                continue;
+                _emptyBlock.Text = F("startup.scanFailed", ViewModel.ErrorMessage);
+                _emptyBlock.Visibility = Visibility.Visible;
             }
-
-            if (statusIndex == 2 && entry.Enabled)
+            else
             {
-                continue;
+                _emptyBlock.Text = T("common.noMatches");
+                _emptyBlock.Visibility = ViewModel.FilteredCount == 0 ? Visibility.Visible : Visibility.Collapsed;
             }
-
-            if (impactIndex == 1 && entry.Impact != StartupImpactLevel.High)
-            {
-                continue;
-            }
-
-            if (impactIndex == 2 && entry.Impact != StartupImpactLevel.Medium)
-            {
-                continue;
-            }
-
-            if (impactIndex == 3 && entry.Impact != StartupImpactLevel.Low)
-            {
-                continue;
-            }
-
-            if (sourceIndex == 1 && !IsUserStartupSource(entry.Source))
-            {
-                continue;
-            }
-
-            if (sourceIndex == 2 && !IsMachineStartupSource(entry.Source))
-            {
-                continue;
-            }
-
-            if (sourceIndex == 3 && !entry.Source.Contains("Startup folder", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (actionableOnly && !CanToggleStartupEntry(entry))
-            {
-                continue;
-            }
-
-            yield return entry;
         }
     }
 
-    private IEnumerable<StartupEntry> SortStartupEntries(IEnumerable<StartupEntry> entries)
+    private Border CreateStartupSummaryCards()
     {
-        return (_sortBox?.SelectedIndex ?? 0) switch
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        _highMetricText = AddSummaryMetric(grid, 0, T("startup.highImpact"), "0", Colors.OrangeRed);
+        _mediumMetricText = AddSummaryMetric(grid, 1, T("startup.mediumImpact"), "0", Colors.DarkOrange);
+        _lowMetricText = AddSummaryMetric(grid, 2, T("startup.lowImpact"), "0", Colors.SeaGreen);
+
+        return new Border
         {
-            1 => entries.OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase),
-            2 => entries
-                .OrderBy(entry => entry.Source, StringComparer.CurrentCultureIgnoreCase)
-                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase),
-            3 => entries
-                .OrderByDescending(entry => entry.Enabled)
-                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase),
-            _ => entries
-                .OrderByDescending(entry => entry.Impact)
-                .ThenByDescending(entry => entry.Enabled)
-                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Child = grid
         };
     }
 
-    private static bool MatchesStartupQuery(StartupEntry entry, string query)
+    private static TextBlock AddSummaryMetric(Grid grid, int column, string label, string value, Color color)
     {
-        return string.IsNullOrWhiteSpace(query)
-            || entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || entry.Source.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || entry.Command.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || entry.RiskHint.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || entry.Recommendation.Contains(query, StringComparison.OrdinalIgnoreCase);
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(new TextBlock { Text = label, Opacity = 0.7 });
+        var textBlock = new TextBlock
+        {
+            Text = value,
+            FontSize = 24,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = Brush(color)
+        };
+        stack.Children.Add(textBlock);
+
+        var card = new Border
+        {
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = Brush(Color.FromArgb(16, color.R, color.G, color.B)),
+            Child = stack
+        };
+
+        Grid.SetColumn(card, column);
+        grid.Children.Add(card);
+        return textBlock;
     }
 
-    private static bool IsUserStartupSource(string source)
-    {
-        return source.Contains("HKCU", StringComparison.OrdinalIgnoreCase)
-            || source.Contains("User Startup", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsMachineStartupSource(string source)
-    {
-        return source.Contains("HKLM", StringComparison.OrdinalIgnoreCase)
-            || source.Contains("Common Startup", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool CanToggleStartupEntry(StartupEntry entry)
-    {
-        return entry.Enabled ? entry.CanDisable : entry.CanRollback;
-    }
-
-    private Border StartupRow(StartupEntry entry)
+    private Border CreateStartupRow(StartupEntry entry)
     {
         var row = new Grid { ColumnSpacing = 12 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
@@ -355,27 +368,32 @@ public sealed partial class StartupPage : BasePage
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        row.Children.Add(ImpactBadge(entry.Impact));
+        var badge = ImpactBadge(entry.Impact);
+        Grid.SetColumn(badge, 0);
+        row.Children.Add(badge);
 
         var info = new StackPanel { Spacing = 4 };
-        info.Children.Add(new TextBlock
+        var nameBlock = new TextBlock
         {
             Text = entry.Name,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        info.Children.Add(new TextBlock
+        };
+        var sourceBlock = new TextBlock
         {
             Text = $"{entry.Source} / {(entry.Enabled ? T("startup.enabled") : T("startup.disabled"))}",
             Opacity = 0.72,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        info.Children.Add(new TextBlock
+        };
+        var cmdBlock = new TextBlock
         {
             Text = entry.Command,
             Opacity = 0.62,
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        info.Children.Add(nameBlock);
+        info.Children.Add(sourceBlock);
+        info.Children.Add(cmdBlock);
         ToolTipService.SetToolTip(info, entry.Command);
         Grid.SetColumn(info, 1);
         row.Children.Add(info);
@@ -387,99 +405,75 @@ public sealed partial class StartupPage : BasePage
             Opacity = 0.66,
             FontSize = 12
         });
-        recommendation.Children.Add(new TextBlock
+        var recBlock = new TextBlock
         {
             Text = LocalizedStartupRecommendation(entry.Recommendation),
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.82
-        });
+        };
+        recommendation.Children.Add(recBlock);
         Grid.SetColumn(recommendation, 2);
         row.Children.Add(recommendation);
 
         var actionsPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
-        // Enable/Disable Button
         var toggleBtn = new Button
         {
             Content = entry.Enabled ? T("startup.disable") : T("startup.enable"),
             MinWidth = 86,
-            IsEnabled = CanToggleStartupEntry(entry)
+            IsEnabled = StartupViewModel.CanToggleStartupEntry(entry)
         };
 
         toggleBtn.Click += async (_, _) =>
         {
-            if (entry.Enabled)
+            var currentEntry = (StartupEntry)((Button)toggleBtn).Tag;
+            if (currentEntry.Enabled && currentEntry.Impact == StartupImpactLevel.High)
             {
-                if (entry.Impact == StartupImpactLevel.High)
+                var confirmDialog = new ContentDialog
                 {
-                    var confirmDialog = new ContentDialog
+                    Title = T("startup.confirmDisableTitle"),
+                    Content = new TextBlock
                     {
-                        Title = T("startup.confirmDisableTitle"),
-                        Content = new TextBlock
-                        {
-                            Text = F("startup.confirmDisableMessage", entry.Name),
-                            TextWrapping = TextWrapping.Wrap
-                        },
-                        PrimaryButtonText = T("startup.disable"),
-                        CloseButtonText = T("common.cancel"),
-                        DefaultButton = ContentDialogButton.Close,
-                        XamlRoot = XamlRoot
-                    };
+                        Text = F("startup.confirmDisableMessage", currentEntry.Name),
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    PrimaryButtonText = T("startup.disable"),
+                    CloseButtonText = T("common.cancel"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot
+                };
 
-                    var res = await MainWindow.ShowThemedDialogAsync(confirmDialog);
-                    if (res != ContentDialogResult.Primary)
-                    {
-                        return;
-                    }
+                if (await MainWindow.ShowThemedDialogAsync(confirmDialog) != ContentDialogResult.Primary)
+                {
+                    return;
                 }
+            }
 
-                MainWindow.SetStatusText(T("common.loading"));
-                var started = DateTimeOffset.Now;
-                var ok = await MainWindow.Startup.DisableAsync(entry);
-                await SaveStartupChangeReportAsync(entry, enabled: false, ok, started);
-                if (ok)
-                {
-                    await RefreshListAsync();
-                }
-                else
-                {
-                    MainWindow.SetStatusText(T("common.ready"));
-                    await MainWindow.ShowDialogAsync_Internal(
-                        T("startup.actionFailedTitle"),
-                        InfoBlock(T("startup.actionFailed")),
-                        T("common.close"));
-                }
+            var ok = await ViewModel.ToggleEntryAsync(currentEntry);
+            if (ok)
+            {
+                await MainWindow.RefreshStartupStateAsync();
+                ApplyCachedStartupState();
             }
             else
             {
-                MainWindow.SetStatusText(T("common.loading"));
-                var started = DateTimeOffset.Now;
-                var ok = await MainWindow.Startup.EnableAsync(entry);
-                await SaveStartupChangeReportAsync(entry, enabled: true, ok, started);
-                if (ok)
-                {
-                    await RefreshListAsync();
-                }
-                else
-                {
-                    MainWindow.SetStatusText(T("common.ready"));
-                    await MainWindow.ShowDialogAsync_Internal(
-                        T("startup.actionFailedTitle"),
-                        InfoBlock(T("startup.actionFailed")),
-                        T("common.close"));
-                }
+                await MainWindow.ShowDialogAsync_Internal(
+                    T("startup.actionFailedTitle"),
+                    InfoBlock(T("startup.actionFailed")),
+                    T("common.close"));
             }
         };
+        toggleBtn.Tag = entry;
         actionsPanel.Children.Add(toggleBtn);
 
-        // Open Location Button
         var open = new Button
         {
             Content = T("common.openLocation"),
-            MinWidth = 124
+            MinWidth = 124,
+            Tag = entry.Command
         };
         ToolTipService.SetToolTip(open, T("common.openLocation"));
-        open.Click += (_, _) => MainWindow.OpenContainingFolder_Internal(entry.Command);
+        open.Click += (_, _) => MainWindow.OpenContainingFolder_Internal((string)open.Tag);
         actionsPanel.Children.Add(open);
 
         Grid.SetColumn(actionsPanel, 3);
@@ -492,24 +486,55 @@ public sealed partial class StartupPage : BasePage
             BorderThickness = new Thickness(1),
             BorderBrush = ThemeBorderBrush(),
             Background = ThemeCardBackground(),
-            Child = row
+            Margin = new Thickness(0, 4, 0, 4),
+            Child = row,
+            Tag = entry
         };
     }
 
-    private Task SaveStartupChangeReportAsync(StartupEntry entry, bool enabled, bool success, DateTimeOffset started)
+    private void UpdateStartupRow(Border border, StartupEntry entry)
     {
-        var action = enabled ? "enabled" : "disabled";
-        return MainWindow.SaveOperationReportAsync(new TaskRunResult(
-            "startup.change",
-            "Startup Change",
-            started,
-            DateTimeOffset.Now,
-            success,
-            0,
-            success ? 1 : 0,
-            success ? 0 : 1,
-            success ? [$"{entry.Name}: {action}"] : [],
-            success ? [] : [$"{entry.Name}: could not be {action}"]));
+        border.Tag = entry;
+        if (border.Child is not Grid row || row.Children.Count < 4)
+        {
+            return;
+        }
+
+        // Replace impact badge at column 0
+        row.Children[0] = ImpactBadge(entry.Impact);
+        Grid.SetColumn((FrameworkElement)row.Children[0], 0);
+
+        // Update info at column 1
+        if (row.Children[1] is StackPanel info && info.Children.Count >= 3)
+        {
+            if (info.Children[0] is TextBlock nameBlock) nameBlock.Text = entry.Name;
+            if (info.Children[1] is TextBlock sourceBlock)
+                sourceBlock.Text = $"{entry.Source} / {(entry.Enabled ? T("startup.enabled") : T("startup.disabled"))}";
+            if (info.Children[2] is TextBlock cmdBlock) cmdBlock.Text = entry.Command;
+            ToolTipService.SetToolTip(info, entry.Command);
+        }
+
+        // Update recommendation at column 2
+        if (row.Children[2] is StackPanel rec && rec.Children.Count >= 2 && rec.Children[1] is TextBlock recBlock)
+        {
+            recBlock.Text = LocalizedStartupRecommendation(entry.Recommendation);
+        }
+
+        // Update actions at column 3
+        if (row.Children[3] is StackPanel actionsPanel && actionsPanel.Children.Count >= 2)
+        {
+            if (actionsPanel.Children[0] is Button toggleBtn)
+            {
+                toggleBtn.Content = entry.Enabled ? T("startup.disable") : T("startup.enable");
+                toggleBtn.IsEnabled = StartupViewModel.CanToggleStartupEntry(entry);
+                toggleBtn.Tag = entry;
+            }
+
+            if (actionsPanel.Children[1] is Button openBtn)
+            {
+                openBtn.Tag = entry.Command;
+            }
+        }
     }
 
     private string LocalizedStartupRecommendation(string recommendation)
@@ -533,46 +558,6 @@ public sealed partial class StartupPage : BasePage
 
         var value = T(key);
         return value == key ? recommendation : value;
-    }
-
-    private Border StartupSummary(IReadOnlyList<StartupEntry> entries)
-    {
-        var high = entries.Count(entry => entry.Impact == StartupImpactLevel.High);
-        var medium = entries.Count(entry => entry.Impact == StartupImpactLevel.Medium);
-        var low = entries.Count(entry => entry.Impact == StartupImpactLevel.Low);
-
-        var grid = new Grid { ColumnSpacing = 12 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
-        AddSummaryMetric(grid, 0, T("startup.highImpact"), high.ToString("N0"), Colors.OrangeRed);
-        AddSummaryMetric(grid, 1, T("startup.mediumImpact"), medium.ToString("N0"), Colors.DarkOrange);
-        AddSummaryMetric(grid, 2, T("startup.lowImpact"), low.ToString("N0"), Colors.SeaGreen);
-
-        return new Border
-        {
-            Padding = new Thickness(14),
-            CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(1),
-            BorderBrush = ThemeBorderBrush(),
-            Background = ThemeCardBackground(),
-            Child = grid
-        };
-    }
-
-    private static void AddSummaryMetric(Grid grid, int column, string label, string value, Color color)
-    {
-        var stack = new StackPanel { Spacing = 4 };
-        stack.Children.Add(new TextBlock { Text = label, Opacity = 0.7 });
-        stack.Children.Add(new TextBlock
-        {
-            Text = value,
-            FontSize = 24,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = Brush(color)
-        });
-        Grid.SetColumn(stack, column);
-        grid.Children.Add(stack);
     }
 
     private Border ImpactBadge(StartupImpactLevel impact)

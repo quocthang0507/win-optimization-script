@@ -8,6 +8,7 @@ public sealed class MainWindow : Window
 {
     private readonly IpcClient _ipcClient = new();
     private readonly Dictionary<string, NavigationViewItem> _navItems = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, NavigationViewItem> _navParents = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _pageScrollOffsets = new(StringComparer.OrdinalIgnoreCase);
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _statusText;
@@ -52,6 +53,7 @@ public sealed class MainWindow : Window
     internal ScheduledMaintenanceService ScheduledMaintenance { get; }
     internal RestorePointService RestorePoint { get; }
     internal SystemMaintenanceService SystemMaintenance { get; }
+    internal OperationService Operations { get; } = new();
     internal AppSessionState SessionState { get; } = new();
     internal NavigationView Navigation_Internal { get; }
     internal static ElementTheme CurrentElementTheme { get; private set; } = ElementTheme.Default;
@@ -91,7 +93,7 @@ public sealed class MainWindow : Window
         var initialStatus = T("common.ready");
         if (SystemStatusService.IsAdministrator())
         {
-            initialStatus += Settings.Language == AppLanguage.Vietnamese ? " (Quyền Admin)" : " (Admin)";
+            initialStatus += T("common.adminBadge");
         }
 
         _statusText = new TextBlock
@@ -102,6 +104,9 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        Operations.ActiveOperationsChanged += OnOperationsChanged;
+        Operations.OperationProgressChanged += OnOperationProgressChanged;
 
         _runnerConnectionTask = Task.CompletedTask;
         var runnerPipeName = GetRunnerPipeName();
@@ -188,17 +193,24 @@ public sealed class MainWindow : Window
 
         AddNavItem("dashboard", "nav.dashboard", Symbol.Home);
         AddNavSeparator();
-        AddNavItem("cleanup", "nav.cleanup", Symbol.Delete);
-        AddNavItem("bloatware", "nav.bloatware", Symbol.AllApps);
-        AddNavItem("storage", "nav.storage", Symbol.View);
-        AddNavSeparator();
-        AddNavItem("software", "nav.software", Symbol.Shop);
-        AddNavItem("updates", "nav.updates", Symbol.Download);
-        AddNavItem("startup", "nav.startup", Symbol.List);
-        AddNavSeparator();
-        AddNavItem("optimize", "nav.optimize", Symbol.Setting);
-        AddNavItem("repair", "nav.repair", Symbol.Refresh);
-        AddNavItem("toolbox", "nav.toolbox", Symbol.Repair);
+
+        var cleanupGroup = AddNavGroup("cleanup_group", "nav.group.cleanup", Symbol.Delete);
+        AddNavChildItem(cleanupGroup, "cleanup", "nav.cleanup", Symbol.Delete);
+        AddNavChildItem(cleanupGroup, "storage", "nav.storage", Symbol.View);
+
+        var optimizeGroup = AddNavGroup("optimize_group", "nav.group.optimize", Symbol.Setting);
+        AddNavChildItem(optimizeGroup, "optimize", "nav.optimize", Symbol.Setting);
+        AddNavChildItem(optimizeGroup, "startup", "nav.startup", Symbol.List);
+
+        var appsGroup = AddNavGroup("apps_group", "nav.group.apps", Symbol.AllApps);
+        AddNavChildItem(appsGroup, "updates", "nav.updates", Symbol.Download);
+        AddNavChildItem(appsGroup, "software", "nav.software", Symbol.Shop);
+        AddNavChildItem(appsGroup, "bloatware", "nav.bloatware", Symbol.AllApps);
+
+        var toolsGroup = AddNavGroup("tools_group", "nav.group.tools", Symbol.Repair);
+        AddNavChildItem(toolsGroup, "repair", "nav.repair", Symbol.Refresh);
+        AddNavChildItem(toolsGroup, "toolbox", "nav.toolbox", Symbol.Repair);
+
         AddNavSeparator();
         AddNavItem("history", "nav.history", Symbol.Document);
         AddNavItem("settings", "nav.settings", Symbol.Setting, isFooter: true);
@@ -212,9 +224,26 @@ public sealed class MainWindow : Window
 
             if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
             {
+                var targetTag = tag switch
+                {
+                    "cleanup_group" => "cleanup",
+                    "optimize_group" => "optimize",
+                    "apps_group" => "updates",
+                    "tools_group" => "repair",
+                    _ => tag
+                };
+
+                if (targetTag != tag && _navItems.TryGetValue(targetTag, out var childItem))
+                {
+                    item.IsExpanded = true;
+                    _suppressNavigationSelectionChanged = true;
+                    Navigation_Internal.SelectedItem = childItem;
+                    _suppressNavigationSelectionChanged = false;
+                }
+
                 try
                 {
-                    await NavigateAsync(tag);
+                    await NavigateAsync(targetTag);
                 }
                 catch (Exception ex)
                 {
@@ -230,18 +259,63 @@ public sealed class MainWindow : Window
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
+        var paletteAccelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator
+        {
+            Key = Windows.System.VirtualKey.K,
+            Modifiers = Windows.System.VirtualKeyModifiers.Control
+        };
+        paletteAccelerator.Invoked += async (s, e) =>
+        {
+            e.Handled = true;
+            await CommandPaletteDialog.ShowAsync(this);
+        };
+        rootGrid.KeyboardAccelerators.Add(paletteAccelerator);
+
         Grid.SetRow(Navigation_Internal, 0);
         rootGrid.Children.Add(Navigation_Internal);
 
-        var statusBar = new Border
+        var paletteButton = new Button
         {
-            Padding = new Thickness(0, 4, 28, 8),
-            Child = new StackPanel
+            Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Spacing = 12,
-                Children = { _statusProgress, _statusText }
+                Spacing = 6,
+                Children =
+                {
+                    new FontIcon { Glyph = "\uE721", FontSize = 12 },
+                    new TextBlock { Text = "Ctrl + K", FontSize = 12, Opacity = 0.8 }
+                }
+            },
+            Padding = new Thickness(10, 4, 10, 4),
+            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128))
+        };
+        ToolTipService.SetToolTip(paletteButton, Translate("commandPalette.title"));
+        paletteButton.Click += async (_, _) => await CommandPaletteDialog.ShowAsync(this);
+
+        var statusBar = new Border
+        {
+            Padding = new Thickness(24, 4, 28, 8),
+            Child = new Grid
+            {
+                Children =
+                {
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        Children = { paletteButton }
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 12,
+                        Children = { _statusProgress, _statusText }
+                    }
+                }
             }
         };
         Grid.SetRow(statusBar, 1);
@@ -256,6 +330,10 @@ public sealed class MainWindow : Window
             {
                 // Widget is running — hide the main window instead of exiting.
                 _isHidden = true;
+                if (_scrollViewer.Content is BasePage activePage)
+                {
+                    activePage.OnNavigatedFrom();
+                }
                 try
                 {
                     var hwnd = WindowNative.GetWindowHandle(this);
@@ -269,9 +347,14 @@ public sealed class MainWindow : Window
             }
 
             _isClosing = true;
+            if (_scrollViewer.Content is BasePage closingPage)
+            {
+                closingPage.OnNavigatedFrom();
+            }
             _shutdownCts.Cancel();
             ToggleWidget(false);
             _ipcClient.Disconnect();
+            Operations.Dispose();
             Application.Current.Exit();
         };
     }
@@ -763,7 +846,19 @@ public sealed class MainWindow : Window
     {
         if (_navItems.TryGetValue(tag, out var item))
         {
-            Navigation_Internal.SelectedItem = item;
+            if (_navParents.TryGetValue(tag, out var parent))
+            {
+                parent.IsExpanded = true;
+            }
+
+            if (!ReferenceEquals(Navigation_Internal.SelectedItem, item))
+            {
+                Navigation_Internal.SelectedItem = item;
+            }
+            else
+            {
+                await NavigateAsync(tag);
+            }
         }
         else
         {
@@ -774,6 +869,12 @@ public sealed class MainWindow : Window
     internal async Task NavigateAsync(string tag)
     {
         CaptureCurrentPageScrollPosition();
+
+        if (_scrollViewer.Content is BasePage activePage)
+        {
+            activePage.OnNavigatedFrom();
+        }
+
         _currentPageTag = tag;
         var scrollRestoreVersion = ++_scrollRestoreVersion;
         _scrollViewer.Content = null;
@@ -1228,8 +1329,7 @@ public sealed class MainWindow : Window
             var isAdmin = SystemStatusService.IsAdministrator();
             if (isAdmin)
             {
-                var isVi = Localization.CurrentLanguage == AppLanguage.Vietnamese;
-                displayText += isVi ? " (Quyền Admin)" : " (Admin)";
+                displayText += T("common.adminBadge");
             }
         }
 
@@ -1237,9 +1337,61 @@ public sealed class MainWindow : Window
         var brush = GetStatusBrush(text);
         _statusText.Foreground = brush;
 
-        var isBusy = isBusyOverride ?? StatusStateService.InferIsBusy(text);
+        var isBusy = isBusyOverride ?? (Operations.HasActiveOperations || StatusStateService.InferIsBusy(text));
 
         _statusProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        _statusProgress.Foreground = brush;
+    }
+
+    private void OnOperationsChanged()
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (Operations.HasActiveOperations)
+            {
+                var currentOp = Operations.ActiveOperations.LastOrDefault();
+                if (currentOp != null)
+                {
+                    UpdateStatusBarFromOperation(currentOp);
+                }
+            }
+            else
+            {
+                _statusProgress.Visibility = Visibility.Collapsed;
+                _statusProgress.IsIndeterminate = true;
+                _statusProgress.Value = 0;
+            }
+        });
+    }
+
+    private void OnOperationProgressChanged(OperationHandle op)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (op.IsActive)
+            {
+                UpdateStatusBarFromOperation(op);
+            }
+        });
+    }
+
+    private void UpdateStatusBarFromOperation(OperationHandle op)
+    {
+        _statusProgress.Visibility = Visibility.Visible;
+        if (op.ProgressPercent.HasValue)
+        {
+            _statusProgress.IsIndeterminate = false;
+            _statusProgress.Value = op.ProgressPercent.Value;
+        }
+        else
+        {
+            _statusProgress.IsIndeterminate = true;
+        }
+
+        var text = string.IsNullOrWhiteSpace(op.CurrentStep) ? op.Title : $"{op.Title}: {op.CurrentStep}";
+        _statusText.Text = text;
+        var brush = GetStatusBrush(text);
+        _statusText.Foreground = brush;
         _statusProgress.Foreground = brush;
     }
 
@@ -1373,19 +1525,50 @@ public sealed class MainWindow : Window
         return tag switch
         {
             "dashboard" => "nav.dashboard",
+            "cleanup_group" => "nav.group.cleanup",
             "cleanup" => "nav.cleanup",
             "bloatware" => "nav.bloatware",
             "storage" => "nav.storage",
+            "optimize_group" => "nav.group.optimize",
             "startup" => "nav.startup",
+            "apps_group" => "nav.group.apps",
             "updates" => "nav.updates",
             "software" => "nav.software",
             "optimize" => "nav.optimize",
+            "tools_group" => "nav.group.tools",
             "repair" => "nav.repair",
             "toolbox" => "nav.toolbox",
             "history" => "nav.history",
             "settings" => "nav.settings",
             _ => tag
         };
+    }
+
+    private NavigationViewItem AddNavGroup(string groupTag, string localizationKey, Symbol symbol)
+    {
+        var groupItem = new NavigationViewItem
+        {
+            Content = T(localizationKey),
+            Tag = groupTag,
+            Icon = new SymbolIcon(symbol),
+            SelectsOnInvoked = false
+        };
+        _navItems[groupTag] = groupItem;
+        Navigation_Internal.MenuItems.Add(groupItem);
+        return groupItem;
+    }
+
+    private void AddNavChildItem(NavigationViewItem parent, string tag, string localizationKey, Symbol symbol)
+    {
+        var childItem = new NavigationViewItem
+        {
+            Content = T(localizationKey),
+            Tag = tag,
+            Icon = new SymbolIcon(symbol)
+        };
+        _navItems[tag] = childItem;
+        _navParents[tag] = parent;
+        parent.MenuItems.Add(childItem);
     }
 
     private void AddNavItem(string tag, string localizationKey, Symbol symbol, bool isFooter = false)
@@ -1540,6 +1723,10 @@ public sealed class MainWindow : Window
             // Best effort restore.
         }
         Activate();
+        if (_scrollViewer.Content is BasePage currentPage)
+        {
+            _ = currentPage.OnNavigatedToAsync();
+        }
     }
 
     internal void ExitApp()
@@ -1549,6 +1736,7 @@ public sealed class MainWindow : Window
         _shutdownCts.Cancel();
         ToggleWidget(false);
         _ipcClient.Disconnect();
+        Operations.Dispose();
         try
         {
             Close();

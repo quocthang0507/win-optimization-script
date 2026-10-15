@@ -1378,9 +1378,7 @@ public sealed partial class StoragePage : BasePage
 
     private StorageCleanupCandidate CreateManualCandidate(DiskItem item)
     {
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var isUserFile = item.FullPath.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase);
-        var risk = item.IsDirectory || !isUserFile ? RiskLevel.High : RiskLevel.Medium;
+        var risk = StorageCleanupCandidate.EvaluateManualCandidateRisk(item.FullPath, item.IsDirectory);
 
         return new StorageCleanupCandidate(
             $"manual:{item.FullPath}",

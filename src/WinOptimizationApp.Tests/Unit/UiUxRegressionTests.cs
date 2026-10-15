@@ -179,19 +179,11 @@ public sealed class UiUxRegressionTests
     [Fact]
     public void LeftoverCandidates_ConfidencePolicy_OnlyHighConfidencePreSelected()
     {
-        var candidates = new List<LeftoverCleanupCandidate>
-        {
-            new(@"C:\Users\test\AppData\Local\Vendor\AppHigh", LeftoverCleanupConfidence.High, "Found app-specific folder"),
-            new(@"C:\Users\test\AppData\Local\Temp\CommonLog.txt", LeftoverCleanupConfidence.Medium, "Found shared log file")
-        };
+        var highCandidate = new LeftoverCleanupCandidate(@"C:\Users\test\AppData\Local\Vendor\AppHigh", LeftoverCleanupConfidence.High, "Found app-specific folder");
+        var mediumCandidate = new LeftoverCleanupCandidate(@"C:\Users\test\AppData\Local\Temp\CommonLog.txt", LeftoverCleanupConfidence.Medium, "Found shared log file");
 
-        var autoSelected = candidates
-            .Where(c => c.Confidence == LeftoverCleanupConfidence.High)
-            .Select(c => c.Path)
-            .ToList();
-
-        Assert.Single(autoSelected);
-        Assert.Equal(@"C:\Users\test\AppData\Local\Vendor\AppHigh", autoSelected[0]);
+        Assert.True(highCandidate.IsAutoSelectRecommended);
+        Assert.False(mediumCandidate.IsAutoSelectRecommended);
     }
 
     [Fact]
@@ -234,10 +226,7 @@ ReleaseNotes: ""- Bug fixes & improvements:
     [InlineData(@"C:\Windows\System32\drivers\test.sys", false, RiskLevel.High)]
     public void StorageManualCandidate_RiskRules(string path, bool isDirectory, RiskLevel expectedRisk)
     {
-        var userProfile = @"C:\Users\JohnDoe";
-        var isUserFile = path.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase);
-        var risk = isDirectory || !isUserFile ? RiskLevel.High : RiskLevel.Medium;
-
+        var risk = StorageCleanupCandidate.EvaluateManualCandidateRisk(path, isDirectory, @"C:\Users\JohnDoe");
         Assert.Equal(expectedRisk, risk);
     }
 }

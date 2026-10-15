@@ -5,10 +5,12 @@ namespace WinOptimizationApp.Services;
 public sealed class RestorePointService
 {
     private readonly CommandRunner _commands;
+    private readonly Func<bool> _isAdministrator;
 
-    public RestorePointService(CommandRunner commands)
+    public RestorePointService(CommandRunner commands, Func<bool>? isAdministrator = null)
     {
         _commands = commands;
+        _isAdministrator = isAdministrator ?? SystemStatusService.IsAdministrator;
     }
 
     public async Task<string> TryCreateAsync(MaintenanceTask task, CancellationToken cancellationToken = default)
@@ -18,7 +20,7 @@ public sealed class RestorePointService
             return "Restore point not required for this task.";
         }
 
-        if (!SystemStatusService.IsAdministrator())
+        if (!_isAdministrator())
         {
             return "Restore point skipped: app is not running as Administrator.";
         }
@@ -34,14 +36,16 @@ public sealed class RestorePointService
         string? description = null,
         CancellationToken cancellationToken = default)
     {
-        if (!SystemStatusService.IsAdministrator())
+        if (!_isAdministrator())
         {
             return (false, "Administrator privileges required to create a System Restore Point.");
         }
 
-        var desc = string.IsNullOrWhiteSpace(description)
-            ? $"WinOptimizationApp-Manual-{DateTime.Now:yyyyMMdd-HHmmss}"
-            : description.Trim().Replace("'", "''").Replace("\"", "");
+        var desc = SanitizeDescription(description);
+        if (desc.Length == 0)
+        {
+            desc = $"WinOptimizationApp-Manual-{DateTime.Now:yyyyMMdd-HHmmss}";
+        }
 
         var command = $"Checkpoint-Computer -Description '{desc}' -RestorePointType MODIFY_SETTINGS";
         var result = await _commands.RunCaptureAsync(
@@ -60,4 +64,37 @@ public sealed class RestorePointService
 
         return (false, string.IsNullOrWhiteSpace(error) ? $"Failed with exit code {result.ExitCode}" : error);
     }
+
+    /// <summary>
+    /// Keeps only characters that are safe inside a single-quoted PowerShell string passed on a
+    /// command line (letters, digits, space and <c>-_.,()</c>), collapses whitespace and caps length.
+    /// </summary>
+    public static string SanitizeDescription(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return string.Empty;
+        }
+
+        var builder = new System.Text.StringBuilder(description.Length);
+        var lastWasSpace = false;
+        foreach (var ch in description.Trim())
+        {
+            if (char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' or ',' or '(' or ')')
+            {
+                builder.Append(ch);
+                lastWasSpace = false;
+            }
+            else if (char.IsWhiteSpace(ch) && !lastWasSpace)
+            {
+                builder.Append(' ');
+                lastWasSpace = true;
+            }
+        }
+
+        var sanitized = builder.ToString().Trim();
+        return sanitized.Length > MaxDescriptionLength ? sanitized[..MaxDescriptionLength].TrimEnd() : sanitized;
+    }
+
+    private const int MaxDescriptionLength = 64;
 }
