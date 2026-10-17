@@ -23,6 +23,9 @@ public sealed partial class StartupPage : BasePage
     private ListView? _listView;
     private int _appliedRevision = -1;
 
+    private Border? _bootBanner;
+    private bool _bootSummaryLoaded;
+
     public StartupViewModel ViewModel { get; }
 
     public StartupPage(MainWindow mainWindow) : base(mainWindow)
@@ -48,6 +51,17 @@ public sealed partial class StartupPage : BasePage
     private void RenderStartupPage()
     {
         AddHeader(T("startup.title"), T("startup.subtitle"));
+
+        _bootBanner = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Visibility = Visibility.Collapsed
+        };
+        MainContent.Children.Add(_bootBanner);
 
         var scanButton = ActionButton(T("startup.scan"), Symbol.Find, async (_, _) =>
         {
@@ -95,6 +109,12 @@ public sealed partial class StartupPage : BasePage
 
     public override async Task OnNavigatedToAsync()
     {
+        if (!_bootSummaryLoaded)
+        {
+            _bootSummaryLoaded = true;
+            _ = LoadBootTimeSummaryAsync();
+        }
+
         if (!MainWindow.SessionState.StartupLoaded)
         {
             await MainWindow.RefreshStartupStateAsync();
@@ -103,6 +123,64 @@ public sealed partial class StartupPage : BasePage
         if (_appliedRevision != MainWindow.SessionState.StartupRevision)
         {
             ApplyCachedStartupState();
+        }
+    }
+
+    private async Task LoadBootTimeSummaryAsync()
+    {
+        try
+        {
+            var summary = await MainWindow.BootAnalyzer.GetBootTimeSummaryAsync();
+            if (_bootBanner is null || summary.LastBoot is null)
+            {
+                return;
+            }
+
+            var latest = summary.LastBoot;
+            var ratingColor = summary.Rating switch
+            {
+                BootSpeedRating.Fast => Colors.SeaGreen,
+                BootSpeedRating.Normal => Colors.DarkOrange,
+                BootSpeedRating.Slow => Colors.IndianRed,
+                _ => Colors.SlateGray
+            };
+            var ratingLabel = summary.Rating switch
+            {
+                BootSpeedRating.Fast => T("startup.bootFast"),
+                BootSpeedRating.Normal => T("startup.bootModerate"),
+                BootSpeedRating.Slow => T("startup.bootSlow"),
+                _ => T("common.ready")
+            };
+
+            var stack = new StackPanel { Spacing = 4 };
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            titleRow.Children.Add(new TextBlock
+            {
+                Text = F("startup.bootSummaryTitle", latest.TotalBootSeconds.ToString("0.0")),
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            titleRow.Children.Add(Badge(ratingLabel, new SolidColorBrush(ratingColor)));
+            stack.Children.Add(titleRow);
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = F(
+                    "startup.bootSummaryDetails",
+                    latest.MainPathSeconds.ToString("0.0"),
+                    latest.PostBootSeconds.ToString("0.0"),
+                    summary.AverageBootSeconds.ToString("0.0")),
+                FontSize = 12,
+                Opacity = 0.75,
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            _bootBanner.Child = stack;
+            _bootBanner.Visibility = Visibility.Visible;
+        }
+        catch
+        {
+            // Event log telemetry is optional.
         }
     }
 

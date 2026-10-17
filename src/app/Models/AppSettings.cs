@@ -38,4 +38,11 @@ public sealed class AppSettings
 
     /// <summary>Maintenance reports older than this many days are removed; 0 keeps reports forever.</summary>
     public int ReportRetentionDays { get; set; }
+
+    public bool AutopilotEnabled { get; set; }
+
+    public int AutopilotMinFreeSpaceGb { get; set; } = 15;
+
+    public bool AutopilotCleanTempFiles { get; set; } = true;
 }
+

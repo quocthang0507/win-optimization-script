@@ -156,6 +156,15 @@ public sealed class AppSettingsService
             settings.ReportRetentionDays = 0;
         }
 
+        if (settings.AutopilotMinFreeSpaceGb <= 0)
+        {
+            settings.AutopilotMinFreeSpaceGb = 15;
+        }
+        else
+        {
+            settings.AutopilotMinFreeSpaceGb = Math.Clamp(settings.AutopilotMinFreeSpaceGb, 5, 200);
+        }
+
         return settings;
     }
 

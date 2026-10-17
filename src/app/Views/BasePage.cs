@@ -137,6 +137,26 @@ public abstract partial class BasePage : UserControl
         };
     }
 
+    protected static Border Badge(string text, SolidColorBrush foregroundBrush)
+    {
+        var color = foregroundBrush.Color;
+        return new Border
+        {
+            Padding = new Thickness(8, 3, 8, 3),
+            CornerRadius = new CornerRadius(5),
+            Background = Brush(Color.FromArgb(36, color.R, color.G, color.B)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = text,
+                FontSize = 11,
+                Foreground = foregroundBrush,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+    }
+
     protected static Button ActionButton(string text, Symbol symbol, RoutedEventHandler action)
     {
         var button = new Button

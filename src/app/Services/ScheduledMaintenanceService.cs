@@ -42,6 +42,34 @@ public sealed class ScheduledMaintenanceService(CommandRunner commands)
         return eligible.Where(requested.Contains).ToList();
     }
 
+    public static bool ShouldTriggerLowDiskAutopilot(AppSettings settings, long availableFreeBytes)
+    {
+        if (settings is null || !settings.AutopilotEnabled || !settings.AutopilotCleanTempFiles)
+        {
+            return false;
+        }
+
+        var thresholdGb = settings.AutopilotMinFreeSpaceGb <= 0
+            ? 15
+            : Math.Clamp(settings.AutopilotMinFreeSpaceGb, 5, 200);
+        var thresholdBytes = thresholdGb * 1024L * 1024L * 1024L;
+        return availableFreeBytes >= 0 && availableFreeBytes < thresholdBytes;
+    }
+
+    public static long GetSystemDriveFreeSpaceBytes()
+    {
+        try
+        {
+            var systemRoot = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+            var drive = new DriveInfo(systemRoot);
+            return drive.IsReady ? drive.AvailableFreeSpace : -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
     public static DateTime? GetNextRun(
         MaintenanceScheduleFrequency frequency,
         TimeSpan time,

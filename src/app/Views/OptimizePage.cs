@@ -127,14 +127,36 @@ public sealed partial class OptimizePage : BasePage
         if (!tweaks.Any()) _resultPanel.Children.Add(InfoBlock(T("common.noMatches")));
         foreach (var group in groups)
         {
-            _resultPanel.Children.Add(SectionTitle(MainWindow.Localization.TweakCategory(group.Key)));
-            
-            var groupPanel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 0, 0, 10) };
-            foreach (var tweak in group)
+            var groupItems = group.ToList();
+            var enabledCount = groupItems.Count(t => _knownStates.GetValueOrDefault(t.Id));
+            var headerPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            headerPanel.Children.Add(new TextBlock
+            {
+                Text = MainWindow.Localization.TweakCategory(group.Key),
+                FontSize = 16,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            headerPanel.Children.Add(Badge(
+                $"{enabledCount}/{groupItems.Count}",
+                enabledCount > 0 ? new SolidColorBrush(Colors.SeaGreen) : new SolidColorBrush(Colors.SlateGray)));
+
+            var groupPanel = new StackPanel { Spacing = 8 };
+            foreach (var tweak in groupItems)
             {
                 groupPanel.Children.Add(TweakRow(tweak));
             }
-            _resultPanel.Children.Add(groupPanel);
+
+            var expander = new Expander
+            {
+                Header = headerPanel,
+                Content = groupPanel,
+                IsExpanded = true,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            _resultPanel.Children.Add(expander);
         }
     }
 

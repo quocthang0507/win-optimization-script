@@ -161,12 +161,13 @@ public static class CommandPaletteDialog
         AddNav("nav.dashboard", "nav.dashboard", "dashboard.subtitle", "dashboard", "overview", "tổng quan", "health");
         AddNav("nav.cleanup", "nav.cleanup", "oneClick.subtitle", "cleanup", "dọn dẹp", "clean", "rác", "temp", "cache");
         AddNav("nav.optimize", "nav.optimize", "optimize.subtitle", "optimize", "tối ưu", "tweaks", "tinh chỉnh", "windows");
-        AddNav("nav.storage", "nav.storage", "storage.subtitle", "storage", "dung lượng", "ổ đĩa", "disk", "space", "drives");
-        AddNav("nav.winapp2", "nav.winapp2", "winapp2.subtitle", "winapp2", "ứng dụng", "dọn dẹp app", "app cleaning");
+        AddNav("nav.storage", "nav.storage", "storage.subtitle", "storage", "dung lượng", "ổ đĩa", "disk", "space", "drives", "duplicate");
         AddNav("nav.startup", "nav.startup", "startup.subtitle", "startup", "khởi động", "boot", "tự chạy", "programs");
         AddNav("nav.updates", "nav.updates", "updates.subtitle", "updates", "cập nhật", "winget", "upgrade", "software");
         AddNav("nav.software", "nav.software", "software.subtitle", "software", "cài đặt", "install", "packages");
+        AddNav("nav.uninstaller", "nav.uninstaller", "uninstaller.subtitle", "uninstaller", "uninstall", "gỡ cài đặt", "leftover", "win32");
         AddNav("nav.bloatware", "nav.bloatware", "bloatware.subtitle", "bloatware", "gỡ cài đặt", "appx", "windows apps");
+        AddNav("nav.repair", "nav.repair", "maintenance.subtitle", "repair", "sửa chữa", "sfc", "dism", "repair");
         AddNav("nav.toolbox", "nav.toolbox", "toolbox.title", "toolbox", "tiện ích", "công cụ", "network", "registry", "tools");
         AddNav("nav.history", "nav.history", "history.subtitle", "history", "lịch sử", "nhật ký", "reports", "báo cáo");
         AddNav("nav.settings", "nav.settings", "settings.subtitle", "settings", "cài đặt", "giao diện", "ngôn ngữ", "options");
@@ -294,6 +295,41 @@ public static class CommandPaletteDialog
         AddAdminTool("eventvwr", "systemTools.toolEventVwr", "systemTools.adminToolsDesc", "event viewer", "nhật ký sự kiện", "logs");
         AddAdminTool("dxdiag", "systemTools.toolDxDiag", "systemTools.adminToolsDesc", "directx", "diagnostics", "card màn hình", "gpu");
         AddAdminTool("sysdm", "systemTools.toolSysProps", "systemTools.adminToolsDesc", "system properties", "thông tin máy", "cấu hình");
+
+        // 4. All Maintenance Tasks in Catalog
+        foreach (var task in mainWindow.Catalog.All)
+        {
+            var capturedTask = task;
+            list.Add(new CommandItem
+            {
+                Id = $"task.{task.Id}",
+                Title = mainWindow.TaskLabel_Internal(task),
+                Description = mainWindow.TaskDescription_Internal(task),
+                Category = CommandCategory.Maintenance,
+                Keywords = [task.Id, task.Group, task.Label],
+                Glyph = "\uE74D",
+                ExecuteAsync = () => mainWindow.RunTaskAsync(capturedTask)
+            });
+        }
+
+        // 5. All System Tweaks
+        foreach (var tweak in mainWindow.Tweaks.GetAllTweaks())
+        {
+            var titleKey = $"tweaks.items.{tweak.Id}.title";
+            var descKey = $"tweaks.items.{tweak.Id}.desc";
+            var translatedTitle = mainWindow.Translate(titleKey);
+            var translatedDesc = mainWindow.Translate(descKey);
+            list.Add(new CommandItem
+            {
+                Id = $"tweak.{tweak.Id}",
+                Title = translatedTitle == titleKey ? tweak.Title : translatedTitle,
+                Description = translatedDesc == descKey ? tweak.Description : translatedDesc,
+                Category = CommandCategory.Settings,
+                Keywords = [tweak.Id, tweak.Category, tweak.Title, "tweak", "tối ưu"],
+                Glyph = "\uE713",
+                ExecuteAsync = () => mainWindow.NavigateToTagAsync("optimize")
+            });
+        }
 
         return list;
     }

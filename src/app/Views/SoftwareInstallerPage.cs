@@ -21,6 +21,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
     private Button? _clearSelectionButton;
     private TextBlock? _operationStatus;
     private readonly HashSet<string> _selectedIds = new();
+    private readonly HashSet<string> _recentlyInstalledIds = new(StringComparer.OrdinalIgnoreCase);
     private bool _isInstalling;
 
     private readonly List<(string Name, string Id, string Description, string Group)> _curatedApps = [
@@ -174,8 +175,21 @@ public sealed partial class SoftwareInstallerPage : BasePage
         Grid.SetColumn(checkbox, 0);
         grid.Children.Add(checkbox);
 
+        var isInstalled = IsAppInstalled(app.Id, app.Name);
         var details = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        details.Children.Add(new TextBlock { Text = app.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = app.Name,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        if (isInstalled)
+        {
+            titleRow.Children.Add(Badge(T("software.installedBadge"), new SolidColorBrush(Colors.SeaGreen)));
+        }
+        details.Children.Add(titleRow);
         details.Children.Add(new TextBlock
         {
             Text = $"{T($"software.description.{app.Id}")} • {app.Id}",
@@ -320,6 +334,7 @@ public sealed partial class SoftwareInstallerPage : BasePage
                 {
                     succeeded++;
                     _selectedIds.Remove(app.Id);
+                    _recentlyInstalledIds.Add(app.Id);
                     reportMessages.Add($"{app.Name} ({app.Id}): installed");
                 }
                 else
@@ -347,6 +362,30 @@ public sealed partial class SoftwareInstallerPage : BasePage
                 reportMessages,
                 reportErrors));
         }
+    }
+
+    private bool IsAppInstalled(string id, string name)
+    {
+        if (_recentlyInstalledIds.Contains(id))
+        {
+            return true;
+        }
+
+        if (MainWindow.SessionState.UpdatePackages.Any(p =>
+            p.Id.Equals(id, StringComparison.OrdinalIgnoreCase) ||
+            p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (MainWindow.SessionState.AppxPackages.Any(p =>
+            p.Id.Contains(id, StringComparison.OrdinalIgnoreCase) ||
+            p.Name.Contains(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private void SetOperationStatus(string text, bool? isBusy = null)

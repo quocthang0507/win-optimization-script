@@ -91,6 +91,7 @@ public sealed partial class StoragePage : BasePage
         ToolTipService.SetToolTip(_followLinksBox, T("storage.followTooltip"));
 
         _storageResultPanel = new StackPanel { Spacing = 14 };
+        _duplicateResultPanel = new StackPanel { Spacing = 12, Visibility = Visibility.Collapsed };
         _storageProgress = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Visibility = Visibility.Collapsed };
         _storageProgressText = new TextBlock { Opacity = 0.72, TextWrapping = TextWrapping.Wrap };
 
@@ -99,6 +100,12 @@ public sealed partial class StoragePage : BasePage
             await StartDiskScanAsync(_storageRootBox.Text);
         });
         _storageScanButton.VerticalAlignment = VerticalAlignment.Bottom;
+
+        _duplicateScanButton = ActionButton(T("duplicates.scanButton"), Symbol.Copy, async (_, _) =>
+        {
+            await ScanDuplicatesAsync(_storageRootBox.Text);
+        });
+        _duplicateScanButton.VerticalAlignment = VerticalAlignment.Bottom;
 
         _storageStopButton = ActionButton(T("common.stop"), Symbol.Stop, (_, _) =>
         {
@@ -131,6 +138,7 @@ public sealed partial class StoragePage : BasePage
         commandOptions.Children.Add(_followLinksBox);
         commandOptions.Children.Add(browseButton);
         commandOptions.Children.Add(_storageScanButton);
+        commandOptions.Children.Add(_duplicateScanButton);
         commandGrid.Children.Add(commandOptions);
 
         if (!SystemStatusService.IsAdministrator())
@@ -163,6 +171,7 @@ public sealed partial class StoragePage : BasePage
         MainContent.Children.Add(CloudSourcesPanel(CloudStorageDetector.Detect()));
         MainContent.Children.Add(StorageResultFilterPanel());
         MainContent.Children.Add(_storageProgressCard);
+        MainContent.Children.Add(_duplicateResultPanel);
         MainContent.Children.Add(_storageResultPanel);
 
         if (_lastDiskScan is not null)
@@ -1464,6 +1473,191 @@ public sealed partial class StoragePage : BasePage
 
         Grid.SetColumn(block, column);
         return block;
+    }
+
+    private StackPanel? _duplicateResultPanel;
+    private Button? _duplicateScanButton;
+
+    private async Task ScanDuplicatesAsync(string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        {
+            MainWindow.ShowNotification(T("duplicates.title"), T("storage.invalidFolder"), InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (_duplicateScanButton is not null) _duplicateScanButton.IsEnabled = false;
+        if (_storageScanButton is not null) _storageScanButton.IsEnabled = false;
+
+        try
+        {
+            var result = await MainWindow.Operations.RunAsync(
+                T("duplicates.title"),
+                OperationCategory.Storage,
+                async (reporter, token) =>
+                {
+                    var progress = new Progress<string>(msg => reporter.Report(msg));
+                    return await MainWindow.DuplicateFinder.ScanAsync(
+                        rootPath,
+                        minFileSizeBytes: 64 * 1024,
+                        protectedPaths: MainWindow.Settings.ProtectedPaths,
+                        progress: progress,
+                        cancellationToken: token);
+                },
+                canCancel: true,
+                isExclusive: false);
+
+            RenderDuplicateResults(result);
+        }
+        catch (OperationCanceledException)
+        {
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
+        }
+        catch (Exception ex)
+        {
+            MainWindow.ShowNotification(T("duplicates.title"), ex.Message, InfoBarSeverity.Error);
+        }
+        finally
+        {
+            if (_duplicateScanButton is not null) _duplicateScanButton.IsEnabled = true;
+            if (_storageScanButton is not null) _storageScanButton.IsEnabled = true;
+        }
+    }
+
+    private void RenderDuplicateResults(DuplicateScanResult scan)
+    {
+        if (_duplicateResultPanel is null)
+        {
+            return;
+        }
+
+        _duplicateResultPanel.Children.Clear();
+        _duplicateResultPanel.Visibility = Visibility.Visible;
+
+        var headerCard = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
+        };
+
+        var headerStack = new StackPanel { Spacing = 8 };
+        var titleRow = new Grid { ColumnSpacing = 12 };
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = F("duplicates.summaryHeader", scan.Groups.Count, scan.TotalDuplicateFiles, Formatters.FormatBytes(scan.TotalReclaimableBytes)),
+            FontSize = 15,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var closeBtn = ActionButton(T("common.close"), Symbol.Cancel, (_, _) =>
+        {
+            _duplicateResultPanel.Visibility = Visibility.Collapsed;
+            _duplicateResultPanel.Children.Clear();
+        });
+        Grid.SetColumn(closeBtn, 1);
+        titleRow.Children.Add(closeBtn);
+        headerStack.Children.Add(titleRow);
+
+        if (scan.Groups.Count == 0)
+        {
+            headerStack.Children.Add(new TextBlock
+            {
+                Text = T("duplicates.noneFound"),
+                Opacity = 0.72
+            });
+            headerCard.Child = headerStack;
+            _duplicateResultPanel.Children.Add(headerCard);
+            return;
+        }
+
+        var cleanBtn = ActionButton(T("duplicates.cleanSelected"), Symbol.Delete, async (_, _) =>
+        {
+            var candidates = DuplicateFileFinderService.BuildSafeCleanupCandidates(scan.Groups);
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            var runResult = await MainWindow.Operations.RunAsync(
+                T("duplicates.cleanSelected"),
+                OperationCategory.Cleanup,
+                async (reporter, token) =>
+                {
+                    reporter.Report(T("duplicates.cleanSelected"));
+                    return await MainWindow.StorageCleanup.CleanupAsync(
+                        candidates,
+                        MainWindow.Settings.ProtectedPaths,
+                        token);
+                },
+                canCancel: false,
+                isExclusive: true);
+
+            MainWindow.ShowNotification(
+                T("duplicates.title"),
+                F("duplicates.cleanedToast", runResult.FilesRemoved, Formatters.FormatBytes(runResult.FreedBytes)),
+                InfoBarSeverity.Success);
+            await ScanDuplicatesAsync(scan.RootPath);
+        });
+        headerStack.Children.Add(cleanBtn);
+        headerCard.Child = headerStack;
+        _duplicateResultPanel.Children.Add(headerCard);
+
+        foreach (var group in scan.Groups.Take(35))
+        {
+            var groupCard = new Border
+            {
+                Padding = new Thickness(12),
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                BorderBrush = ThemeBorderBrush(),
+                Background = ThemeCardBackground()
+            };
+
+            var groupStack = new StackPanel { Spacing = 6 };
+            var groupTitle = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            groupTitle.Children.Add(new TextBlock
+            {
+                Text = F("duplicates.groupTitle", group.Files.Count, Formatters.FormatBytes(group.FileSizeBytes)),
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            groupTitle.Children.Add(Badge(
+                $"-{Formatters.FormatBytes(group.ReclaimableBytes)}",
+                new SolidColorBrush(Colors.DodgerBlue)));
+            groupStack.Children.Add(groupTitle);
+
+            foreach (var file in group.Files)
+            {
+                var capturedFile = file;
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                var cb = new CheckBox
+                {
+                    Content = file.FullPath,
+                    IsChecked = file.IsSelected
+                };
+                cb.Checked += (_, _) => capturedFile.IsSelected = true;
+                cb.Unchecked += (_, _) => capturedFile.IsSelected = false;
+                row.Children.Add(cb);
+
+                if (file.IsOriginal)
+                {
+                    row.Children.Add(Badge(T("duplicates.originalBadge"), new SolidColorBrush(Colors.SeaGreen)));
+                }
+
+                groupStack.Children.Add(row);
+            }
+
+            groupCard.Child = groupStack;
+            _duplicateResultPanel.Children.Add(groupCard);
+        }
     }
 
     private static string FormatStorageDate(DateTimeOffset value)

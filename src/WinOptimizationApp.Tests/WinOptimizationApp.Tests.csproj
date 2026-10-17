@@ -127,6 +127,11 @@
     <Compile Include="..\app\Models\CommandItem.cs" Link="Production\Models\CommandItem.cs" />
     <Compile Include="..\app\Services\CommandPaletteService.cs" Link="Production\Services\CommandPaletteService.cs" />
     <Compile Include="..\app\Models\OptimizationHistorySummary.cs" Link="Production\Models\OptimizationHistorySummary.cs" />
+    <Compile Include="..\app\Models\DuplicateFileGroup.cs" Link="Production\Models\DuplicateFileGroup.cs" />
+    <Compile Include="..\app\Services\DuplicateFileFinderService.cs" Link="Production\Services\DuplicateFileFinderService.cs" />
+    <Compile Include="..\app\Models\BootTimeMetrics.cs" Link="Production\Models\BootTimeMetrics.cs" />
+    <Compile Include="..\app\Services\BootTimeAnalyzerService.cs" Link="Production\Services\BootTimeAnalyzerService.cs" />
+    <Compile Include="..\app\ViewModels\UninstallerViewModel.cs" Link="Production\ViewModels\UninstallerViewModel.cs" />
   </ItemGroup>
 
   <ItemGroup>

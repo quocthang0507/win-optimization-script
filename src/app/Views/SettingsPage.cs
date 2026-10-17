@@ -29,6 +29,7 @@ public sealed partial class SettingsPage : BasePage
         MainContent.Children.Add(ProtectedPathsCard());
         MainContent.Children.Add(Winapp2DatabaseCard());
         MainContent.Children.Add(ScheduledMaintenanceCard());
+        MainContent.Children.Add(SmartAutopilotCard());
         MainContent.Children.Add(ReportRetentionCard());
         MainContent.Children.Add(SettingsBackupCard());
 
@@ -553,6 +554,85 @@ public sealed partial class SettingsPage : BasePage
         UpdateControlState();
         status.Text = T("common.loading");
         _ = RefreshStatusAsync();
+
+        border.Child = stack;
+        return border;
+    }
+
+    private Border SmartAutopilotCard()
+    {
+        var border = SettingsCardBorder();
+        var stack = new StackPanel { Spacing = 10 };
+
+        var headerGrid = new Grid { ColumnSpacing = 12 };
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel { Spacing = 4 };
+        text.Children.Add(new TextBlock { Text = T("settings.autopilot"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        text.Children.Add(new TextBlock { Text = T("settings.autopilotDescription"), TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        headerGrid.Children.Add(text);
+
+        var toggle = new ToggleSwitch
+        {
+            IsOn = MainWindow.Settings.AutopilotEnabled,
+            OnContent = T("common.yes"),
+            OffContent = T("common.no")
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, T("settings.autopilot"));
+        Grid.SetColumn(toggle, 1);
+        headerGrid.Children.Add(toggle);
+        stack.Children.Add(headerGrid);
+
+        var thresholdRow = new AdaptiveWrapPanel { Spacing = 10 };
+        thresholdRow.Children.Add(new TextBlock
+        {
+            Text = T("settings.autopilotThresholdLabel"),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var thresholdCombo = new ComboBox { MinWidth = 140, IsEnabled = MainWindow.Settings.AutopilotEnabled };
+        int[] thresholds = [10, 15, 25, 50];
+        foreach (var gb in thresholds)
+        {
+            thresholdCombo.Items.Add(new ComboBoxItem
+            {
+                Content = $"{gb} GB",
+                Tag = gb
+            });
+        }
+
+        var currentIndex = Array.IndexOf(thresholds, MainWindow.Settings.AutopilotMinFreeSpaceGb);
+        thresholdCombo.SelectedIndex = currentIndex >= 0 ? currentIndex : 1;
+        thresholdRow.Children.Add(thresholdCombo);
+
+        var cleanTempCheck = new CheckBox
+        {
+            Content = T("settings.autopilotCleanTemp"),
+            IsChecked = MainWindow.Settings.AutopilotCleanTempFiles,
+            IsEnabled = MainWindow.Settings.AutopilotEnabled
+        };
+        thresholdRow.Children.Add(cleanTempCheck);
+        stack.Children.Add(thresholdRow);
+
+        void SaveAutopilotSettings()
+        {
+            MainWindow.Settings.AutopilotEnabled = toggle.IsOn;
+            if (thresholdCombo.SelectedItem is ComboBoxItem { Tag: int gb })
+            {
+                MainWindow.Settings.AutopilotMinFreeSpaceGb = gb;
+            }
+            MainWindow.Settings.AutopilotCleanTempFiles = cleanTempCheck.IsChecked == true;
+            thresholdCombo.IsEnabled = toggle.IsOn;
+            cleanTempCheck.IsEnabled = toggle.IsOn;
+            var saved = MainWindow.SettingsService.Save(MainWindow.Settings);
+            MainWindow.SetStatusText(saved ? T("settings.saved") : F("settings.saveFailed", MainWindow.SettingsService.SettingsPath));
+        }
+
+        toggle.Toggled += (_, _) => SaveAutopilotSettings();
+        thresholdCombo.SelectionChanged += (_, _) => SaveAutopilotSettings();
+        cleanTempCheck.Checked += (_, _) => SaveAutopilotSettings();
+        cleanTempCheck.Unchecked += (_, _) => SaveAutopilotSettings();
 
         border.Child = stack;
         return border;

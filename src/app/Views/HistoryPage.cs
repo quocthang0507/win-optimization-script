@@ -14,6 +14,29 @@ public sealed partial class HistoryPage : BasePage
 
         var logsDir = MainWindow.Paths.LogsDirectory;
         var actions = new AdaptiveWrapPanel { Spacing = 10 };
+        actions.Children.Add(ActionButton(T("systemTools.createRestorePoint"), Symbol.ProtectedDocument, async (sender, _) =>
+        {
+            if (sender is Button btn) btn.IsEnabled = false;
+            try
+            {
+                var (success, msg) = await MainWindow.Operations.RunAsync(
+                    T("systemTools.createRestorePoint"),
+                    Models.OperationCategory.Maintenance,
+                    async (reporter, _) =>
+                    {
+                        reporter.Report(T("systemTools.creatingRestorePoint"));
+                        return await MainWindow.RestorePoint.CreateManualRestorePointAsync("WinOptimizationApp Safety Point");
+                    });
+                MainWindow.ShowNotification(
+                    T("systemTools.createRestorePoint"),
+                    success ? F("systemTools.restorePointSuccess", msg) : msg,
+                    success ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+            }
+            finally
+            {
+                if (sender is Button btn2) btn2.IsEnabled = true;
+            }
+        }));
         actions.Children.Add(ActionButton(T("history.openLogs"), Symbol.OpenFile, (_, _) => MainWindow.OpenFolder_Internal(logsDir)));
         MainContent.Children.Add(actions);
 
@@ -27,41 +50,81 @@ public sealed partial class HistoryPage : BasePage
             }
         }
 
-        if (!Directory.Exists(logsDir))
-        {
-            MainContent.Children.Add(InfoBlock(T("history.empty")));
-            return Task.CompletedTask;
-        }
-
-        var reports = new DirectoryInfo(logsDir)
-            .EnumerateFiles("maintenance-*.json", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(file => file.LastWriteTimeUtc)
-            .Take(30)
-            .Select(file => file.FullName)
-            .ToList();
-
-        if (reports.Count > 0)
+        var parsedReports = MainWindow.Reports.GetRecentReports(30);
+        if (parsedReports.Count > 0)
         {
             actions.Children.Add(ActionButton(T("history.clearAll"), Symbol.Delete, async (_, _) => await ClearAllHistoryAsync(logsDir)));
+            MainContent.Children.Add(SectionTitle(F("history.recentReportsSection", parsedReports.Count)));
+            foreach (var report in parsedReports)
+            {
+                MainContent.Children.Add(ReportCard(report));
+            }
         }
-
-        bool hasReports = false;
-        foreach (var report in reports)
-        {
-            hasReports = true;
-            MainContent.Children.Add(Card(
-                Path.GetFileName(report),
-                report,
-                T("common.open"),
-                (_, _) => MainWindow.OpenFile_Internal(report)));
-        }
-
-        if (!hasReports)
+        else
         {
             MainContent.Children.Add(InfoBlock(T("history.empty")));
         }
 
         return Task.CompletedTask;
+    }
+
+    private Border ReportCard(WinOptimizationApp.Models.TaskRunResult report)
+    {
+        var border = new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground()
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var stack = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = report.TaskLabel,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        titleRow.Children.Add(Badge(
+            report.Success ? T("run.completed") : T("common.warning"),
+            report.Success
+                ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.SeaGreen)
+                : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DarkOrange)));
+        if (report.FreedBytes > 0)
+        {
+            titleRow.Children.Add(Badge(
+                WinOptimizationApp.Services.Formatters.FormatBytes(report.FreedBytes),
+                new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DodgerBlue)));
+        }
+        stack.Children.Add(titleRow);
+
+        var durationSec = Math.Max(0.1, (report.FinishedAt - report.StartedAt).TotalSeconds);
+        stack.Children.Add(new TextBlock
+        {
+            Text = F("history.reportSummaryLine", report.FinishedAt.LocalDateTime.ToString("g"), report.FilesRemoved, durationSec.ToString("0.0")),
+            FontSize = 12,
+            Opacity = 0.72,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        Grid.SetColumn(stack, 0);
+        grid.Children.Add(stack);
+
+        var detailsBtn = ActionButton(T("common.details"), Symbol.Document, async (_, _) =>
+        {
+            await MainWindow.ShowRunResultAsync_Internal(report);
+        });
+        Grid.SetColumn(detailsBtn, 1);
+        grid.Children.Add(detailsBtn);
+
+        border.Child = grid;
+        return border;
     }
 
     private Border TweakSnapshotCard(string path, WinOptimizationApp.Models.TweakSnapshot snapshot)

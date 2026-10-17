@@ -13,6 +13,10 @@ public sealed class MainWindow : Window
     private readonly ScrollViewer _scrollViewer;
     private readonly TextBlock _statusText;
     private readonly ProgressBar _statusProgress;
+    private readonly InfoBar _notificationBar;
+    private readonly DispatcherTimer _notificationTimer;
+    private readonly StackPanel _activityFlyoutContent;
+    private readonly TextBlock _activityCountBadge;
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly Task _runnerConnectionTask;
     private bool _updateCheckStarted;
@@ -40,6 +44,8 @@ public sealed class MainWindow : Window
     internal LocalizationService Localization { get; }
     internal MaintenanceExecutionService Execution { get; }
     internal DiskAnalysisService DiskAnalysis { get; } = new();
+    internal DuplicateFileFinderService DuplicateFinder { get; } = new();
+    internal BootTimeAnalyzerService BootAnalyzer { get; }
     internal StorageCleanupService StorageCleanup { get; }
     internal PerformanceMonitoringService PerformanceMonitoring { get; } = new();
     internal RegistryCleanerService RegistryCleaner { get; }
@@ -75,11 +81,41 @@ public sealed class MainWindow : Window
         RegistryCleaner = new RegistryCleanerService(Commands);
         NetworkOptimizer = new NetworkOptimizationService(Commands);
         Uninstaller = new UninstallerService(Commands);
+        BootAnalyzer = new BootTimeAnalyzerService(Commands);
         Tweaks = new TweakService(Commands);
         TweakSnapshots = new TweakSnapshotService(Paths);
         Winapp2Cleanup = new Winapp2CleanupService(Reports);
         OneClickMaintenance = new OneClickMaintenanceService(Cleanup, Execution, Catalog);
         ScheduledMaintenance = new ScheduledMaintenanceService(Commands);
+
+        _notificationBar = new InfoBar
+        {
+            IsOpen = false,
+            IsClosable = true,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            MaxWidth = 440,
+            Margin = new Thickness(0, 16, 24, 0)
+        };
+        Canvas.SetZIndex(_notificationBar, 100);
+        _notificationTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(4.5)
+        };
+        _notificationTimer.Tick += (_, _) =>
+        {
+            _notificationTimer.Stop();
+            _notificationBar.IsOpen = false;
+        };
+
+        _activityFlyoutContent = new StackPanel { Spacing = 8, MinWidth = 300, MaxWidth = 360 };
+        _activityCountBadge = new TextBlock
+        {
+            Text = "0",
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
 
         _statusProgress = new ProgressBar
         {
@@ -205,6 +241,7 @@ public sealed class MainWindow : Window
         var appsGroup = AddNavGroup("apps_group", "nav.group.apps", Symbol.AllApps);
         AddNavChildItem(appsGroup, "updates", "nav.updates", Symbol.Download);
         AddNavChildItem(appsGroup, "software", "nav.software", Symbol.Shop);
+        AddNavChildItem(appsGroup, "uninstaller", "nav.uninstaller", Symbol.Delete);
         AddNavChildItem(appsGroup, "bloatware", "nav.bloatware", Symbol.AllApps);
 
         var toolsGroup = AddNavGroup("tools_group", "nav.group.tools", Symbol.Repair);
@@ -274,6 +311,9 @@ public sealed class MainWindow : Window
         Grid.SetRow(Navigation_Internal, 0);
         rootGrid.Children.Add(Navigation_Internal);
 
+        Grid.SetRow(_notificationBar, 0);
+        rootGrid.Children.Add(_notificationBar);
+
         var paletteButton = new Button
         {
             Content = new StackPanel
@@ -295,6 +335,37 @@ public sealed class MainWindow : Window
         ToolTipService.SetToolTip(paletteButton, Translate("commandPalette.title"));
         paletteButton.Click += async (_, _) => await CommandPaletteDialog.ShowAsync(this);
 
+        var activityFlyout = new Flyout
+        {
+            Content = new ScrollViewer
+            {
+                MaxHeight = 360,
+                Content = _activityFlyoutContent
+            }
+        };
+        activityFlyout.Opening += (_, _) => RefreshActivityFlyout();
+
+        var activityButton = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                Children =
+                {
+                    new FontIcon { Glyph = "\uE9D9", FontSize = 12 },
+                    _activityCountBadge
+                }
+            },
+            Padding = new Thickness(8, 3, 8, 3),
+            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            Flyout = activityFlyout
+        };
+        ToolTipService.SetToolTip(activityButton, T("activity.title"));
+
         var statusBar = new Border
         {
             Padding = new Thickness(24, 4, 28, 8),
@@ -313,7 +384,7 @@ public sealed class MainWindow : Window
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 12,
-                        Children = { _statusProgress, _statusText }
+                        Children = { _statusProgress, _statusText, activityButton }
                     }
                 }
             }
@@ -446,6 +517,54 @@ public sealed class MainWindow : Window
         }
 
         _ = RunDeferredUpdateCheckAsync();
+        _ = RunSmartAutopilotCheckAsync();
+    }
+
+    private async Task RunSmartAutopilotCheckAsync()
+    {
+        try
+        {
+            await Task.Delay(2500, _shutdownCts.Token);
+            if (_isClosing)
+            {
+                return;
+            }
+
+            var freeBytes = ScheduledMaintenanceService.GetSystemDriveFreeSpaceBytes();
+            if (!ScheduledMaintenanceService.ShouldTriggerLowDiskAutopilot(Settings, freeBytes))
+            {
+                return;
+            }
+
+            var tempTask = Catalog.GetById("cleanup.temp");
+            var result = await Operations.RunAsync(
+                T("settings.autopilot"),
+                OperationCategory.Cleanup,
+                async (reporter, token) =>
+                {
+                    reporter.Report(T("autopilot.runningTempCleanup"));
+                    return await Cleanup.RunAsync(tempTask, Settings.ProtectedPaths, token);
+                },
+                canCancel: true,
+                isExclusive: false,
+                callerToken: _shutdownCts.Token);
+
+            await SaveOperationReportAsync(result);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_isClosing)
+                {
+                    ShowNotification(
+                        T("settings.autopilot"),
+                        F("autopilot.completedToast", Formatters.FormatBytes(result.FreedBytes)),
+                        InfoBarSeverity.Success);
+                }
+            });
+        }
+        catch
+        {
+            // Background autopilot is non-intrusive.
+        }
     }
 
     private async Task RunStartupStageAsync(
@@ -891,6 +1010,7 @@ public sealed class MainWindow : Window
                 "startup" => new StartupPage(this),
                 "updates" => new UpdatesPage(this),
                 "software" => new SoftwareInstallerPage(this),
+                "uninstaller" => new UninstallerPage(this),
                 "toolbox" => new ToolboxPage(this),
                 "optimize" => new OptimizePage(this),
                 "repair" => new MaintenancePage(this, T("nav.repair"), "Repair", includeOptimization: true),
@@ -1343,10 +1463,150 @@ public sealed class MainWindow : Window
         _statusProgress.Foreground = brush;
     }
 
+    internal void ShowNotification(string title, string message, InfoBarSeverity severity = InfoBarSeverity.Informational)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _notificationBar.Title = title;
+            _notificationBar.Message = message;
+            _notificationBar.Severity = severity;
+            _notificationBar.IsOpen = true;
+            _notificationTimer.Stop();
+            _notificationTimer.Start();
+        });
+    }
+
+    private void RefreshActivityFlyout()
+    {
+        _activityFlyoutContent.Children.Clear();
+        _activityFlyoutContent.Children.Add(new TextBlock
+        {
+            Text = T("activity.title"),
+            FontSize = 15,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+
+        var active = Operations.ActiveOperations;
+        if (active.Count > 0)
+        {
+            _activityFlyoutContent.Children.Add(new TextBlock
+            {
+                Text = T("activity.activeSection"),
+                FontSize = 12,
+                Opacity = 0.72,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+
+            foreach (var op in active)
+            {
+                var row = new Grid { ColumnSpacing = 8 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var textStack = new StackPanel { Spacing = 2 };
+                textStack.Children.Add(new TextBlock
+                {
+                    Text = op.Title,
+                    FontSize = 13,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+                if (!string.IsNullOrWhiteSpace(op.CurrentStep))
+                {
+                    textStack.Children.Add(new TextBlock
+                    {
+                        Text = op.CurrentStep,
+                        FontSize = 11,
+                        Opacity = 0.75,
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    });
+                }
+                Grid.SetColumn(textStack, 0);
+                row.Children.Add(textStack);
+
+                if (op.CanCancel)
+                {
+                    var cancelBtn = new Button
+                    {
+                        Content = T("common.cancel"),
+                        Padding = new Thickness(8, 3, 8, 3),
+                        FontSize = 11
+                    };
+                    var capturedOp = op;
+                    cancelBtn.Click += (_, _) => capturedOp.Cancel();
+                    Grid.SetColumn(cancelBtn, 1);
+                    row.Children.Add(cancelBtn);
+                }
+
+                _activityFlyoutContent.Children.Add(row);
+            }
+        }
+
+        var recent = Operations.RecentOperations.Take(8).ToList();
+        if (recent.Count > 0)
+        {
+            _activityFlyoutContent.Children.Add(new TextBlock
+            {
+                Text = T("activity.recentSection"),
+                FontSize = 12,
+                Opacity = 0.72,
+                Margin = new Thickness(0, 4, 0, 0),
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+
+            foreach (var rec in recent)
+            {
+                var statusColor = rec.State switch
+                {
+                    OperationState.Succeeded => Colors.MediumSeaGreen,
+                    OperationState.Canceled => Colors.DarkOrange,
+                    OperationState.Failed => Colors.IndianRed,
+                    _ => Colors.Gray
+                };
+
+                var itemRow = new Grid { ColumnSpacing = 8 };
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                itemRow.Children.Add(new TextBlock
+                {
+                    Text = rec.Title,
+                    FontSize = 12,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                var badge = new TextBlock
+                {
+                    Text = $"{rec.State} ({rec.Elapsed.TotalSeconds:0.0}s)",
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(statusColor),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(badge, 1);
+                itemRow.Children.Add(badge);
+
+                _activityFlyoutContent.Children.Add(itemRow);
+            }
+        }
+
+        if (active.Count == 0 && recent.Count == 0)
+        {
+            _activityFlyoutContent.Children.Add(new TextBlock
+            {
+                Text = T("activity.empty"),
+                FontSize = 12,
+                Opacity = 0.65
+            });
+        }
+    }
+
     private void OnOperationsChanged()
     {
         DispatcherQueue.TryEnqueue(() =>
         {
+            _activityCountBadge.Text = Operations.ActiveOperations.Count.ToString();
+            RefreshActivityFlyout();
             if (Operations.HasActiveOperations)
             {
                 var currentOp = Operations.ActiveOperations.LastOrDefault();
@@ -1534,6 +1794,7 @@ public sealed class MainWindow : Window
             "apps_group" => "nav.group.apps",
             "updates" => "nav.updates",
             "software" => "nav.software",
+            "uninstaller" => "nav.uninstaller",
             "optimize" => "nav.optimize",
             "tools_group" => "nav.group.tools",
             "repair" => "nav.repair",
