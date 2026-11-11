@@ -59,6 +59,11 @@ public sealed class MainWindow : Window
     internal ScheduledMaintenanceService ScheduledMaintenance { get; }
     internal RestorePointService RestorePoint { get; }
     internal SystemMaintenanceService SystemMaintenance { get; }
+    internal StorageSenseService StorageSense { get; }
+    internal PowerManagementService PowerManagement { get; }
+    internal SetupConfigurationService SetupConfiguration { get; }
+    internal ContextMenuService ContextMenus { get; } = new();
+    internal BrowserCookieService BrowserCookies { get; } = new();
     internal OperationService Operations { get; } = new();
     internal AppSessionState SessionState { get; } = new();
     internal NavigationView Navigation_Internal { get; }
@@ -87,6 +92,9 @@ public sealed class MainWindow : Window
         Winapp2Cleanup = new Winapp2CleanupService(Reports);
         OneClickMaintenance = new OneClickMaintenanceService(Cleanup, Execution, Catalog);
         ScheduledMaintenance = new ScheduledMaintenanceService(Commands);
+        StorageSense = new StorageSenseService(Commands);
+        PowerManagement = new PowerManagementService(Commands);
+        SetupConfiguration = new SetupConfigurationService(Tweaks, Catalog);
 
         _notificationBar = new InfoBar
         {
@@ -447,7 +455,11 @@ public sealed class MainWindow : Window
         SetStatus(T("common.loading"));
         reportStartupStatus?.Invoke(T("splash.connectingServices"));
         var retentionDays = Settings.ReportRetentionDays;
-        _ = Task.Run(() => Reports.PruneReports(retentionDays));
+        _ = Task.Run(() =>
+        {
+            Reports.PruneReports(retentionDays);
+            TweakSnapshots.PruneSnapshots(retentionDays);
+        });
         await _runnerConnectionTask;
 
         reportStartupStatus?.Invoke(T("splash.loadingOverview"));

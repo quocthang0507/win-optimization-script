@@ -178,4 +178,30 @@ ReleaseNotesUrl: https://github.com/git-for-windows/git/releases/tag/v2.55.0.win
         Assert.Contains("Git is a free and open source", details.Description);
         Assert.Contains("Comes with Git Credential Manager", details.ReleaseNotes);
     }
+
+    [Fact]
+    public void FilterPinnedPackages_AndTogglePinnedPackage_WorkCorrectly()
+    {
+        WingetPackage[] packages =
+        [
+            new("Git", "Git.Git", "2.40", "2.41", "winget"),
+            new("Docker Desktop", "Docker.DockerDesktop", "4.30", "4.31", "winget"),
+            new("PowerToys", "Microsoft.PowerToys", "0.80", "0.81", "winget")
+        ];
+
+        var pinned = WingetService.TogglePinnedPackage([], "Docker.DockerDesktop", out var isNowPinned);
+        Assert.True(isNowPinned);
+        Assert.True(WingetService.IsPackagePinned("docker.dockerdesktop", pinned));
+
+        var unpinnedOnly = WingetService.FilterPinnedPackages(packages, pinned, includePinned: false);
+        Assert.Equal(2, unpinnedOnly.Count);
+        Assert.DoesNotContain(unpinnedOnly, p => p.Id == "Docker.DockerDesktop");
+
+        var allPackages = WingetService.FilterPinnedPackages(packages, pinned, includePinned: true);
+        Assert.Equal(3, allPackages.Count);
+
+        var afterUnpin = WingetService.TogglePinnedPackage(pinned, "DOCKER.DOCKERDESKTOP", out isNowPinned);
+        Assert.False(isNowPinned);
+        Assert.Empty(afterUnpin);
+    }
 }

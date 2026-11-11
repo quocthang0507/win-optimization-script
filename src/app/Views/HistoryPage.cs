@@ -204,6 +204,15 @@ public sealed partial class HistoryPage : BasePage
 
             if (failures == 0)
             {
+                try
+                {
+                    MainWindow.TweakSnapshots.RestoreRegistryEntries(snapshot);
+                }
+                catch
+                {
+                    // Exact value restoration is best-effort after logical state verification.
+                }
+
                 MainWindow.TweakSnapshots.Delete(path);
                 MainWindow.SetStatusText(T("history.undoComplete"), isBusy: false);
                 await OnNavigatedToAsync();

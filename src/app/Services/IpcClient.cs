@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
@@ -6,13 +7,15 @@ namespace WinOptimizationApp.Services;
 
 public sealed class IpcClient
 {
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private NamedPipeClientStream? _pipeClient;
     private StreamWriter? _writer;
     private Task? _readTask;
     private readonly CancellationTokenSource _cts = new();
 
-    private TaskCompletionSource<string>? _activeResponseTcs;
-    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingRequests =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public event Action<string>? OnProgressReceived;
     public event Action? OnDisconnected;
@@ -30,7 +33,7 @@ public sealed class IpcClient
         {
             _pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             await _pipeClient.ConnectAsync(timeoutMs, _cts.Token);
-            _writer = new StreamWriter(_pipeClient, Encoding.UTF8) { AutoFlush = true };
+            _writer = new StreamWriter(_pipeClient, Utf8NoBom, bufferSize: 1024, leaveOpen: true) { AutoFlush = true };
 
             _readTask = Task.Run(ReadLoopAsync);
             return true;
@@ -53,16 +56,14 @@ public sealed class IpcClient
             throw new InvalidOperationException("IPC Client is not connected to Runner.");
         }
 
-        await _sendLock.WaitAsync(cancellationToken);
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingRequests[requestId] = tcs;
+
         try
         {
-            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _activeResponseTcs = tcs;
-
-            var message = new IpcMessage(type, payload);
-            var json = JsonSerializer.Serialize(message);
-
-            await _writer.WriteLineAsync(json.AsMemory(), cancellationToken);
+            var message = new IpcMessage(type, payload, requestId);
+            await WriteMessageAsync(message, cancellationToken);
 
             try
             {
@@ -70,26 +71,71 @@ public sealed class IpcClient
             }
             catch (OperationCanceledException)
             {
-                // The protocol is sequential and has no request IDs. Closing the pipe prevents
-                // a late response from being mistaken for the next request after cancellation.
-                Disconnect();
+                _pendingRequests.TryRemove(requestId, out _);
+                await TrySendCancelAsync(requestId);
                 throw;
             }
         }
         finally
         {
-            _activeResponseTcs = null;
-            _sendLock.Release();
+            _pendingRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    private async Task WriteMessageAsync(IpcMessage message, CancellationToken cancellationToken)
+    {
+        var writer = _writer ?? throw new InvalidOperationException("IPC Client writer is not initialized.");
+        var json = JsonSerializer.Serialize(message);
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            await writer.WriteLineAsync(json.AsMemory(), cancellationToken);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task TrySendCancelAsync(string requestId)
+    {
+        if (_pipeClient?.IsConnected != true || _writer == null || _cts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            var cancelMessage = new IpcMessage("CancelRequest", requestId, Guid.NewGuid().ToString("N"));
+            var json = JsonSerializer.Serialize(cancelMessage);
+            if (!await _writeLock.WaitAsync(TimeSpan.FromMilliseconds(500)))
+            {
+                return;
+            }
+
+            try
+            {
+                if (_pipeClient?.IsConnected == true && _writer != null)
+                {
+                    await _writer.WriteLineAsync(json);
+                }
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
+        }
+        catch
+        {
+            // Best-effort remote cancellation; late response is already ignored via RequestId removal.
         }
     }
 
     public void Disconnect()
     {
         _cts.Cancel();
-        _activeResponseTcs?.TrySetException(new IOException("IPC connection was closed."));
-        _activeResponseTcs = null;
-        _writer?.Dispose();
-        _pipeClient?.Dispose();
+        FailAllPendingRequests(new IOException("IPC connection was closed."));
+        try { _pipeClient?.Dispose(); } catch { }
     }
 
     private async Task ReadLoopAsync()
@@ -99,13 +145,13 @@ public sealed class IpcClient
             return;
         }
 
-        using var reader = new StreamReader(_pipeClient, Encoding.UTF8);
+        using var reader = new StreamReader(_pipeClient, Utf8NoBom, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
 
         while (!_cts.Token.IsCancellationRequested && _pipeClient.IsConnected)
         {
             try
             {
-                var line = await reader.ReadLineAsync();
+                var line = await reader.ReadLineAsync(_cts.Token);
                 if (line == null)
                 {
                     break;
@@ -123,19 +169,22 @@ public sealed class IpcClient
                 }
                 else if (message.Type == "Response")
                 {
-                    var tcs = _activeResponseTcs;
-                    if (tcs != null)
+                    if (TryTakePendingRequest(message.RequestId, out var tcs))
                     {
-                        _activeResponseTcs = null;
                         tcs.TrySetResult(message.Payload ?? string.Empty);
+                    }
+                }
+                else if (message.Type == "Cancelled")
+                {
+                    if (TryTakePendingRequest(message.RequestId, out var tcs))
+                    {
+                        tcs.TrySetCanceled();
                     }
                 }
                 else if (message.Type == "Error")
                 {
-                    var tcs = _activeResponseTcs;
-                    if (tcs != null)
+                    if (TryTakePendingRequest(message.RequestId, out var tcs))
                     {
-                        _activeResponseTcs = null;
                         tcs.TrySetException(new Exception(message.Payload ?? "Unknown server error."));
                     }
                 }
@@ -146,8 +195,37 @@ public sealed class IpcClient
             }
         }
 
-        _activeResponseTcs?.TrySetException(new IOException("IPC runner disconnected before responding."));
-        _activeResponseTcs = null;
+        FailAllPendingRequests(new IOException("IPC runner disconnected before responding."));
         OnDisconnected?.Invoke();
+    }
+
+    private bool TryTakePendingRequest(string? requestId, out TaskCompletionSource<string> tcs)
+    {
+        if (!string.IsNullOrWhiteSpace(requestId))
+        {
+            return _pendingRequests.TryRemove(requestId, out tcs!);
+        }
+
+        foreach (var pair in _pendingRequests)
+        {
+            if (_pendingRequests.TryRemove(pair.Key, out tcs!))
+            {
+                return true;
+            }
+        }
+
+        tcs = null!;
+        return false;
+    }
+
+    private void FailAllPendingRequests(Exception error)
+    {
+        foreach (var key in _pendingRequests.Keys)
+        {
+            if (_pendingRequests.TryRemove(key, out var tcs))
+            {
+                tcs.TrySetException(error);
+            }
+        }
     }
 }

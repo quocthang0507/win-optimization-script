@@ -44,5 +44,19 @@ public sealed class AppSettings
     public int AutopilotMinFreeSpaceGb { get; set; } = 15;
 
     public bool AutopilotCleanTempFiles { get; set; } = true;
-}
 
+    public List<string> PinnedWingetPackageIds { get; set; } = [];
+
+    public List<string> StorageBookmarks { get; set; } = [];
+
+    public List<string> CookieKeepDomains { get; set; } =
+    [
+        "google.com",
+        "github.com",
+        "microsoft.com",
+        "live.com",
+        "office.com",
+        "youtube.com",
+        "facebook.com"
+    ];
+}

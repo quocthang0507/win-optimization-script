@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\core\WinOptimization.Core.csproj" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="coverlet.collector" Version="10.0.1">
       <PrivateAssets>all</PrivateAssets>
@@ -24,114 +25,6 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\app\Models\AppTheme.cs" Link="Production\Models\AppTheme.cs" />
-    <Compile Include="..\app\Models\AppLanguage.cs" Link="Production\Models\AppLanguage.cs" />
-    <Compile Include="..\app\Models\AppSettings.cs" Link="Production\Models\AppSettings.cs" />
-    <Compile Include="..\app\Models\AppWinUiStyle.cs" Link="Production\Models\AppWinUiStyle.cs" />
-    <Compile Include="..\app\Models\CleanerEntry.cs" Link="Production\Models\CleanerEntry.cs" />
-    <Compile Include="..\app\Services\AppSettingsService.cs" Link="Production\Services\AppSettingsService.cs" />
-    <Compile Include="..\app\Services\PathExpander.cs" Link="Production\Services\PathExpander.cs" />
-    <Compile Include="..\app\Services\Winapp2Parser.cs" Link="Production\Services\Winapp2Parser.cs" />
-    <Compile Include="..\app\Services\Winapp2Service.cs" Link="Production\Services\Winapp2Service.cs" />
-    <Compile Include="..\app\Services\Winapp2CleanupService.cs" Link="Production\Services\Winapp2CleanupService.cs" />
-    <Compile Include="..\app\Models\AppUpdateInfo.cs" Link="Production\Models\AppUpdateInfo.cs" />
-    <Compile Include="..\app\Models\CleanupTargetPreview.cs" Link="Production\Models\CleanupTargetPreview.cs" />
-    <Compile Include="..\app\Models\CloudStorageLocation.cs" Link="Production\Models\CloudStorageLocation.cs" />
-    <Compile Include="..\app\Models\CloudStorageProvider.cs" Link="Production\Models\CloudStorageProvider.cs" />
-    <Compile Include="..\app\Models\DiskItem.cs" Link="Production\Models\DiskItem.cs" />
-    <Compile Include="..\app\Models\DashboardDriveStatus.cs" Link="Production\Models\DashboardDriveStatus.cs" />
-    <Compile Include="..\app\Models\DashboardStatus.cs" Link="Production\Models\DashboardStatus.cs" />
-    <Compile Include="..\app\Models\HealthCheckFinding.cs" Link="Production\Models\HealthCheckFinding.cs" />
-    <Compile Include="..\app\Models\HealthCheckRecommendation.cs" Link="Production\Models\HealthCheckRecommendation.cs" />
-    <Compile Include="..\app\Models\HealthCheckResult.cs" Link="Production\Models\HealthCheckResult.cs" />
-    <Compile Include="..\app\Models\HealthCheckScanMetrics.cs" Link="Production\Models\HealthCheckScanMetrics.cs" />
-    <Compile Include="..\app\Models\DiskScanOptions.cs" Link="Production\Models\DiskScanOptions.cs" />
-    <Compile Include="..\app\Models\DiskScanProgress.cs" Link="Production\Models\DiskScanProgress.cs" />
-    <Compile Include="..\app\Models\DiskScanResult.cs" Link="Production\Models\DiskScanResult.cs" />
-    <Compile Include="..\app\Models\FileTypeSummary.cs" Link="Production\Models\FileTypeSummary.cs" />
-    <Compile Include="..\app\Models\FileAgeSummary.cs" Link="Production\Models\FileAgeSummary.cs" />
-    <Compile Include="..\app\Models\MaintenanceTask.cs" Link="Production\Models\MaintenanceTask.cs" />
-    <Compile Include="..\app\Models\PrivacyCleanupItem.cs" Link="Production\Models\PrivacyCleanupItem.cs" />
-    <Compile Include="..\app\Models\RiskLevel.cs" Link="Production\Models\RiskLevel.cs" />
-    <Compile Include="..\app\Models\StartupEntry.cs" Link="Production\Models\StartupEntry.cs" />
-    <Compile Include="..\app\Models\StartupImpactAnalysis.cs" Link="Production\Models\StartupImpactAnalysis.cs" />
-    <Compile Include="..\app\Models\StartupImpactLevel.cs" Link="Production\Models\StartupImpactLevel.cs" />
-    <Compile Include="..\app\Models\StorageCleanupCandidate.cs" Link="Production\Models\StorageCleanupCandidate.cs" />
-    <Compile Include="..\app\Models\StorageCleanupMode.cs" Link="Production\Models\StorageCleanupMode.cs" />
-    <Compile Include="..\app\Models\TaskRunResult.cs" Link="Production\Models\TaskRunResult.cs" />
-    <Compile Include="..\app\Models\CleanupWarning.cs" Link="Production\Models\CleanupWarning.cs" />
-    <Compile Include="..\app\Models\OneClickOperationState.cs" Link="Production\Models\OneClickOperationState.cs" />
-    <Compile Include="..\app\Models\TaskPreview.cs" Link="Production\Models\TaskPreview.cs" />
-    <Compile Include="..\app\Models\RegistryIssue.cs" Link="Production\Models\RegistryIssue.cs" />
-    <Compile Include="..\app\Models\InstalledApp.cs" Link="Production\Models\InstalledApp.cs" />
-    <Compile Include="..\app\Models\LeftoverCleanupCandidate.cs" Link="Production\Models\LeftoverCleanupCandidate.cs" />
-    <Compile Include="..\app\Models\SystemMetrics.cs" Link="Production\Models\SystemMetrics.cs" />
-    <Compile Include="..\app\Models\WingetPackage.cs" Link="Production\Models\WingetPackage.cs" />
-    <Compile Include="..\app\Models\Winapp2CleanupPreview.cs" Link="Production\Models\Winapp2CleanupPreview.cs" />
-    <Compile Include="..\app\Models\OneClickMaintenance.cs" Link="Production\Models\OneClickMaintenance.cs" />
-    <Compile Include="..\app\Services\AppProcessLauncher.cs" Link="Production\Services\AppProcessLauncher.cs" />
-    <Compile Include="..\app\Services\AppRuntimePaths.cs" Link="Production\Services\AppRuntimePaths.cs" />
-    <Compile Include="..\app\Services\CloudStorageDetector.cs" Link="Production\Services\CloudStorageDetector.cs" />
-    <Compile Include="..\app\Services\CleanupService.cs" Link="Production\Services\CleanupService.cs" />
-    <Compile Include="..\app\Services\CommandRunner.cs" Link="Production\Services\CommandRunner.cs" />
-    <Compile Include="..\app\Services\DashboardExportService.cs" Link="Production\Services\DashboardExportService.cs" />
-    <Compile Include="..\app\Services\DashboardHealthCheckService.cs" Link="Production\Services\DashboardHealthCheckService.cs" />
-    <Compile Include="..\app\Services\HealthCheckScanService.cs" Link="Production\Services\HealthCheckScanService.cs" />
-    <Compile Include="..\app\Services\DiskAnalysisService.cs" Link="Production\Services\DiskAnalysisService.cs" />
-    <Compile Include="..\app\Services\DeveloperArtifactService.cs" Link="Production\Services\DeveloperArtifactService.cs" />
-    <Compile Include="..\app\Services\Formatters.cs" Link="Production\Services\Formatters.cs" />
-    <Compile Include="..\app\Services\GitHubUpdateService.cs" Link="Production\Services\GitHubUpdateService.cs" />
-    <Compile Include="..\app\Services\LocalizationService.cs" Link="Production\Services\LocalizationService.cs" />
-    <Compile Include="..\app\Services\MaintenanceCatalog.cs" Link="Production\Services\MaintenanceCatalog.cs" />
-    <Compile Include="..\app\Services\MaintenanceExecutionService.cs" Link="Production\Services\MaintenanceExecutionService.cs" />
-    <Compile Include="..\app\Services\PathService.cs" Link="Production\Services\PathService.cs" />
-    <Compile Include="..\app\Services\PathSafetyService.cs" Link="Production\Services\PathSafetyService.cs" />
-    <Compile Include="..\app\Services\ProtectedPathService.cs" Link="Production\Services\ProtectedPathService.cs" />
-    <Compile Include="..\app\Services\PrivacyCleanerCatalog.cs" Link="Production\Services\PrivacyCleanerCatalog.cs" />
-    <Compile Include="..\app\Services\ReportService.cs" Link="Production\Services\ReportService.cs" />
-    <Compile Include="..\app\Services\RestorePointService.cs" Link="Production\Services\RestorePointService.cs" />
-    <Compile Include="..\app\Services\StartupImpactClassifier.cs" Link="Production\Services\StartupImpactClassifier.cs" />
-    <Compile Include="..\app\Services\StorageCleanupService.cs" Link="Production\Services\StorageCleanupService.cs" />
-    <Compile Include="..\app\Services\SystemStatusService.cs" Link="Production\Services\SystemStatusService.cs" />
-    <Compile Include="..\app\Services\StartupService.cs" Link="Production\Services\StartupService.cs" />
-    <Compile Include="..\app\Models\NetworkAdapterInfo.cs" Link="Production\Models\NetworkAdapterInfo.cs" />
-    <Compile Include="..\app\Models\NetworkLatencyResult.cs" Link="Production\Models\NetworkLatencyResult.cs" />
-    <Compile Include="..\app\Services\PerformanceMonitoringService.cs" Link="Production\Services\PerformanceMonitoringService.cs" />
-    <Compile Include="..\app\Services\RegistryCleanerService.cs" Link="Production\Services\RegistryCleanerService.cs" />
-    <Compile Include="..\app\Services\NetworkOptimizationService.cs" Link="Production\Services\NetworkOptimizationService.cs" />
-    <Compile Include="..\app\Services\UninstallerService.cs" Link="Production\Services\UninstallerService.cs" />
-    <Compile Include="..\app\Services\WingetService.cs" Link="Production\Services\WingetService.cs" />
-    <Compile Include="..\app\Services\IpcClient.cs" Link="Production\Services\IpcClient.cs" />
-    <Compile Include="..\app\Services\IpcMessages.cs" Link="Production\Services\IpcMessages.cs" />
-    <Compile Include="..\app\Services\ProcessEfficiencyService.cs" Link="Production\Services\ProcessEfficiencyService.cs" />
-    <Compile Include="..\app\Services\OneClickMaintenanceService.cs" Link="Production\Services\OneClickMaintenanceService.cs" />
-    <Compile Include="..\app\Models\SystemTweak.cs" Link="Production\Models\SystemTweak.cs" />
-    <Compile Include="..\app\Models\TweakSnapshot.cs" Link="Production\Models\TweakSnapshot.cs" />
-    <Compile Include="..\app\Services\TweakService.cs" Link="Production\Services\TweakService.cs" />
-    <Compile Include="..\app\Services\TweakProfileCatalog.cs" Link="Production\Services\TweakProfileCatalog.cs" />
-    <Compile Include="..\app\Services\TweakSnapshotService.cs" Link="Production\Services\TweakSnapshotService.cs" />
-    <Compile Include="..\app\Services\TweakChangePlanner.cs" Link="Production\Services\TweakChangePlanner.cs" />
-    <Compile Include="..\app\Models\MaintenanceScheduleFrequency.cs" Link="Production\Models\MaintenanceScheduleFrequency.cs" />
-    <Compile Include="..\app\Services\HeadlessCommandLine.cs" Link="Production\Services\HeadlessCommandLine.cs" />
-    <Compile Include="..\app\Services\HeadlessMaintenanceRunner.cs" Link="Production\Services\HeadlessMaintenanceRunner.cs" />
-    <Compile Include="..\app\Services\ScheduledMaintenanceService.cs" Link="Production\Services\ScheduledMaintenanceService.cs" />
-    <Compile Include="..\app\Services\StatusStateService.cs" Link="Production\Services\StatusStateService.cs" />
-    <Compile Include="..\app\Services\SystemMaintenanceService.cs" Link="Production\Services\SystemMaintenanceService.cs" />
-    <Compile Include="..\app\Models\OperationModels.cs" Link="Production\Models\OperationModels.cs" />
-    <Compile Include="..\app\Services\OperationService.cs" Link="Production\Services\OperationService.cs" />
-    <Compile Include="..\app\ViewModels\BloatwareViewModel.cs" Link="Production\ViewModels\BloatwareViewModel.cs" />
-    <Compile Include="..\app\ViewModels\StartupViewModel.cs" Link="Production\ViewModels\StartupViewModel.cs" />
-    <Compile Include="..\app\Models\CommandItem.cs" Link="Production\Models\CommandItem.cs" />
-    <Compile Include="..\app\Services\CommandPaletteService.cs" Link="Production\Services\CommandPaletteService.cs" />
-    <Compile Include="..\app\Models\OptimizationHistorySummary.cs" Link="Production\Models\OptimizationHistorySummary.cs" />
-    <Compile Include="..\app\Models\DuplicateFileGroup.cs" Link="Production\Models\DuplicateFileGroup.cs" />
-    <Compile Include="..\app\Services\DuplicateFileFinderService.cs" Link="Production\Services\DuplicateFileFinderService.cs" />
-    <Compile Include="..\app\Models\BootTimeMetrics.cs" Link="Production\Models\BootTimeMetrics.cs" />
-    <Compile Include="..\app\Services\BootTimeAnalyzerService.cs" Link="Production\Services\BootTimeAnalyzerService.cs" />
-    <Compile Include="..\app\ViewModels\UninstallerViewModel.cs" Link="Production\ViewModels\UninstallerViewModel.cs" />
   </ItemGroup>
 
   <ItemGroup>

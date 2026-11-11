@@ -9,6 +9,7 @@ public sealed class DiskAnalysisService
     private const int ProgressInterval = 250;
     private const int LargestFileLimit = 60;
     private const int DiscoveryFileLimit = 60;
+    public const int MaxRecursiveIndexItems = 2000;
     private const int ProgressUpdateIntervalMilliseconds = 150;
     private const int SnapshotIntervalMilliseconds = 500;
 
@@ -29,6 +30,7 @@ public sealed class DiskAnalysisService
         var newestFiles = new List<DiskItem>();
         var oldestFiles = new List<DiskItem>();
         var developerArtifacts = new List<DiskItem>();
+        var indexedItems = new List<DiskItem>();
         var fileAgeBytes = new long[Enum.GetValues<FileAgeRange>().Length];
         var fileAgeCounts = new int[fileAgeBytes.Length];
         var skipped = 0;
@@ -137,6 +139,10 @@ public sealed class DiskAnalysisService
             {
                 TrackLargestItem(item, developerArtifacts, DiscoveryFileLimit);
             }
+            if (!isRoot && indexedItems.Count < MaxRecursiveIndexItems)
+            {
+                indexedItems.Add(item);
+            }
             ReportProgress(directory.FullName);
             return item;
         }
@@ -208,6 +214,10 @@ public sealed class DiskAnalysisService
             TrackFileByAge(item, oldestFiles, newestFirst: false);
             TrackFileAgeSummary(item, started, fileAgeBytes, fileAgeCounts);
             TrackFileType(item, fileTypes);
+            if (indexedItems.Count < MaxRecursiveIndexItems)
+            {
+                indexedItems.Add(item);
+            }
 
             return item;
         }
@@ -275,6 +285,9 @@ public sealed class DiskAnalysisService
                 DeveloperArtifacts = developerArtifacts
                     .OrderByDescending(item => item.Size)
                     .Select(CloneDiskItem)
+                    .ToList(),
+                IndexedItems = indexedItems
+                    .Select(CloneDiskItemWithoutChildren)
                     .ToList()
             };
         }
@@ -335,6 +348,24 @@ public sealed class DiskAnalysisService
         return clone;
     }
 
+    private static DiskItem CloneDiskItemWithoutChildren(DiskItem item)
+    {
+        return new DiskItem
+        {
+            Name = item.Name,
+            FullPath = item.FullPath,
+            IsDirectory = item.IsDirectory,
+            Size = item.Size,
+            AllocatedSize = item.AllocatedSize,
+            PercentOfParent = item.PercentOfParent,
+            FileCount = item.FileCount,
+            FolderCount = item.FolderCount,
+            LastModified = item.LastModified,
+            Extension = item.Extension,
+            ScanStatus = item.ScanStatus
+        };
+    }
+
     private static DiskItem CreateFallbackRoot(string rootPath)
     {
         return new DiskItem
@@ -393,16 +424,266 @@ public sealed class DiskAnalysisService
     }
 
     public static IEnumerable<DiskItem> FilterItems(
-        IEnumerable<DiskItem> items, string? query = null, bool? directoriesOnly = null, long minimumSize = 0)
+        IEnumerable<DiskItem> items,
+        string? query = null,
+        bool? directoriesOnly = null,
+        long minimumSize = 0,
+        DateTimeOffset? referenceTime = null)
     {
-        query = query?.Trim() ?? string.Empty;
+        var now = referenceTime ?? DateTimeOffset.Now;
+        ParseSearchQuery(query, out var textTokens, out var wildcardPatterns, out var exprMinSize, out var exprMinAgeDays, out var exprMaxAgeDays);
+        var effectiveMinSize = Math.Max(minimumSize, exprMinSize);
+
         return items.Where(item =>
-            (directoriesOnly is null || item.IsDirectory == directoriesOnly.Value) &&
-            item.Size >= minimumSize &&
-            (query.Length == 0 || item.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             item.FullPath.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             item.Extension.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             item.ScanStatus.Contains(query, StringComparison.OrdinalIgnoreCase)));
+        {
+            if (directoriesOnly is not null && item.IsDirectory != directoriesOnly.Value)
+            {
+                return false;
+            }
+
+            if (item.Size < effectiveMinSize)
+            {
+                return false;
+            }
+
+            if (exprMinAgeDays.HasValue)
+            {
+                if (item.LastModified == DateTimeOffset.MinValue || (now - item.LastModified).TotalDays < exprMinAgeDays.Value)
+                {
+                    return false;
+                }
+            }
+
+            if (exprMaxAgeDays.HasValue)
+            {
+                if (item.LastModified == DateTimeOffset.MinValue || (now - item.LastModified).TotalDays > exprMaxAgeDays.Value)
+                {
+                    return false;
+                }
+            }
+
+            foreach (var pattern in wildcardPatterns)
+            {
+                if (!MatchesWildcard(item.Name, pattern) && !MatchesWildcard(item.FullPath, pattern))
+                {
+                    return false;
+                }
+            }
+
+            foreach (var token in textTokens)
+            {
+                if (!item.Name.Contains(token, StringComparison.OrdinalIgnoreCase) &&
+                    !item.FullPath.Contains(token, StringComparison.OrdinalIgnoreCase) &&
+                    !item.Extension.Contains(token, StringComparison.OrdinalIgnoreCase) &&
+                    !item.ScanStatus.Contains(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }
+
+    public IReadOnlyList<DiskItem> SearchRecursive(
+        DiskScanResult result,
+        string? query = null,
+        bool? directoriesOnly = null,
+        long minimumSize = 0,
+        int maxResults = 250,
+        DateTimeOffset? referenceTime = null)
+    {
+        if (maxResults <= 0)
+        {
+            return [];
+        }
+
+        var candidates = new Dictionary<string, DiskItem>(StringComparer.OrdinalIgnoreCase);
+        void AddCandidate(DiskItem candidate)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate.FullPath) &&
+                !candidate.FullPath.Equals(result.Root.FullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                candidates.TryAdd(candidate.FullPath, candidate);
+            }
+        }
+
+        void TraverseTree(DiskItem node)
+        {
+            AddCandidate(node);
+            foreach (var child in node.Children)
+            {
+                TraverseTree(child);
+            }
+        }
+
+        TraverseTree(result.Root);
+        foreach (var item in result.IndexedItems) AddCandidate(item);
+        foreach (var item in result.LargestFiles) AddCandidate(item);
+        foreach (var item in result.NewestFiles) AddCandidate(item);
+        foreach (var item in result.OldestFiles) AddCandidate(item);
+        foreach (var item in result.DeveloperArtifacts) AddCandidate(item);
+
+        return FilterItems(candidates.Values, query, directoriesOnly, minimumSize, referenceTime ?? result.StartedAt)
+            .OrderByDescending(item => item.Size)
+            .Take(maxResults)
+            .ToList();
+    }
+
+    public static bool IsBookmarked(string? path, IEnumerable<string>? bookmarks)
+    {
+        if (string.IsNullOrWhiteSpace(path) || bookmarks is null)
+        {
+            return false;
+        }
+
+        var normalized = AppSettingsService.NormalizeStorageBookmarks([path]).FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return AppSettingsService.NormalizeStorageBookmarks(bookmarks)
+            .Any(b => b.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static IReadOnlyList<string> ToggleBookmark(
+        IEnumerable<string>? bookmarks,
+        string path,
+        out bool isNowBookmarked)
+    {
+        var list = AppSettingsService.NormalizeStorageBookmarks(bookmarks);
+        var normalized = AppSettingsService.NormalizeStorageBookmarks([path]).FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            isNowBookmarked = false;
+            return list;
+        }
+
+        var idx = list.FindIndex(b => b.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0)
+        {
+            list.RemoveAt(idx);
+            isNowBookmarked = false;
+        }
+        else
+        {
+            list.Add(normalized);
+            isNowBookmarked = true;
+        }
+
+        return list;
+    }
+
+    private static void ParseSearchQuery(
+        string? rawQuery,
+        out List<string> textTokens,
+        out List<string> wildcardPatterns,
+        out long minSizeBytes,
+        out double? minAgeDays,
+        out double? maxAgeDays)
+    {
+        textTokens = [];
+        wildcardPatterns = [];
+        minSizeBytes = 0;
+        minAgeDays = null;
+        maxAgeDays = null;
+
+        var trimmed = rawQuery?.Trim() ?? string.Empty;
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        // Normalize "> 100MB" -> ">100MB" so operator and value stay together
+        var normalized = System.Text.RegularExpressions.Regex.Replace(trimmed, @"([><]=?)\s+(\d)", "$1$2");
+        var parts = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (TryParseSizeOrAgeToken(part, out var parsedSize, out var parsedMinAge, out var parsedMaxAge))
+            {
+                if (parsedSize > minSizeBytes) minSizeBytes = parsedSize;
+                if (parsedMinAge.HasValue) minAgeDays = parsedMinAge;
+                if (parsedMaxAge.HasValue) maxAgeDays = parsedMaxAge;
+                continue;
+            }
+
+            if (part.Contains('*') || part.Contains('?'))
+            {
+                wildcardPatterns.Add(part);
+            }
+            else
+            {
+                textTokens.Add(part);
+            }
+        }
+    }
+
+    private static bool TryParseSizeOrAgeToken(
+        string token,
+        out long sizeBytes,
+        out double? minAgeDays,
+        out double? maxAgeDays)
+    {
+        sizeBytes = 0;
+        minAgeDays = null;
+        maxAgeDays = null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            token,
+            @"^(?<op>>=|<=|>|<)(?<num>\d+(?:\.\d+)?)(?<unit>kb|mb|gb|tb|b|d|days|day)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var op = match.Groups["op"].Value;
+        if (!double.TryParse(match.Groups["num"].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var number))
+        {
+            return false;
+        }
+
+        var unit = match.Groups["unit"].Value.ToLowerInvariant();
+        if (unit is "d" or "day" or "days")
+        {
+            if (op.StartsWith('>'))
+            {
+                minAgeDays = number;
+            }
+            else
+            {
+                maxAgeDays = number;
+            }
+            return true;
+        }
+
+        if (!op.StartsWith('>'))
+        {
+            return false;
+        }
+
+        var multiplier = unit switch
+        {
+            "kb" => 1024d,
+            "mb" => 1024d * 1024d,
+            "gb" => 1024d * 1024d * 1024d,
+            "tb" => 1024d * 1024d * 1024d * 1024d,
+            _ => 1d
+        };
+        sizeBytes = (long)(number * multiplier);
+        return true;
+    }
+
+    private static bool MatchesWildcard(string input, string pattern)
+    {
+        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+            .Replace("\\*", ".*")
+            .Replace("\\?", ".") + "$";
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            input,
+            regexPattern,
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     }
 
     private static long SafeAllocatedSize(FileInfo file, long logicalSize)

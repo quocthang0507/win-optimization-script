@@ -131,6 +131,12 @@ public sealed class AppSettingsService
     internal static AppSettings Normalize(AppSettings settings)
     {
         settings.ProtectedPaths = ProtectedPathService.NormalizePaths(settings.ProtectedPaths).ToList();
+        settings.PinnedWingetPackageIds = (settings.PinnedWingetPackageIds ?? [])
+            .Where(WingetService.IsValidPackageId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        settings.StorageBookmarks = NormalizeStorageBookmarks(settings.StorageBookmarks);
+        settings.CookieKeepDomains = NormalizeCookieKeepDomains(settings.CookieKeepDomains);
         settings.ScheduledMaintenanceTaskIds = (settings.ScheduledMaintenanceTaskIds ?? [])
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -166,6 +172,61 @@ public sealed class AppSettingsService
         }
 
         return settings;
+    }
+
+    internal static List<string> NormalizeStorageBookmarks(IEnumerable<string>? bookmarks)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in bookmarks ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            try
+            {
+                var full = Path.GetFullPath(raw.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (full.Length == 2 && full[1] == ':')
+                {
+                    full += Path.DirectorySeparatorChar;
+                }
+
+                if (!string.IsNullOrWhiteSpace(full) && seen.Add(full))
+                {
+                    result.Add(full);
+                }
+            }
+            catch
+            {
+                // Ignore invalid path strings.
+            }
+        }
+
+        return result;
+    }
+
+    internal static List<string> NormalizeCookieKeepDomains(IEnumerable<string>? domains)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in domains ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var candidate = raw.Trim().ToLowerInvariant();
+            if (candidate.StartsWith("https://", StringComparison.Ordinal)) candidate = candidate[8..];
+            else if (candidate.StartsWith("http://", StringComparison.Ordinal)) candidate = candidate[7..];
+            var slashIndex = candidate.IndexOf('/');
+            if (slashIndex >= 0) candidate = candidate[..slashIndex];
+            candidate = candidate.Trim().TrimStart('.');
+            if (candidate.Length is > 0 and <= 253 &&
+                candidate.Contains('.') &&
+                candidate.All(ch => char.IsLetterOrDigit(ch) || ch is '.' or '-') &&
+                !candidate.StartsWith('-') && !candidate.EndsWith('-') &&
+                seen.Add(candidate))
+            {
+                result.Add(candidate);
+            }
+        }
+
+        return result;
     }
 
     private string? PreserveCorruptSettings()

@@ -129,14 +129,55 @@ public sealed partial class StoragePage : BasePage
         browseButton.VerticalAlignment = VerticalAlignment.Bottom;
 
         // The path must stay readable even when all optional controls are visible.
+        var bookmarkBox = new ComboBox
+        {
+            Header = T("storage.bookmarks"),
+            PlaceholderText = T("storage.bookmarksPlaceholder"),
+            MinWidth = 180
+        };
+        void RefreshBookmarkDropdown()
+        {
+            bookmarkBox.Items.Clear();
+            foreach (var bookmark in MainWindow.Settings.StorageBookmarks)
+            {
+                bookmarkBox.Items.Add(bookmark);
+            }
+        }
+        RefreshBookmarkDropdown();
+        bookmarkBox.SelectionChanged += (_, _) =>
+        {
+            if (bookmarkBox.SelectedItem is string selectedBookmark && !string.IsNullOrWhiteSpace(selectedBookmark))
+            {
+                _storageRootBox.Text = selectedBookmark;
+            }
+        };
+
+        var bookmarkButton = ActionButton(
+            T("storage.toggleBookmark"),
+            Symbol.Favorite,
+            (_, _) =>
+            {
+                MainWindow.Settings.StorageBookmarks = DiskAnalysisService
+                    .ToggleBookmark(MainWindow.Settings.StorageBookmarks, _storageRootBox.Text, out var isBookmarked)
+                    .ToList();
+                MainWindow.SettingsService.Save(MainWindow.Settings);
+                RefreshBookmarkDropdown();
+                MainWindow.SetStatusText(
+                    isBookmarked ? T("storage.bookmarkAdded") : T("storage.bookmarkRemoved"),
+                    isBusy: false);
+            });
+        bookmarkButton.VerticalAlignment = VerticalAlignment.Bottom;
+
         var commandGrid = new StackPanel { Spacing = 10 };
         commandGrid.Children.Add(_storageRootBox);
         var commandOptions = new AdaptiveWrapPanel();
         commandOptions.Children.Add(driveBox);
+        commandOptions.Children.Add(bookmarkBox);
         commandOptions.Children.Add(_includeHiddenBox);
         commandOptions.Children.Add(_includeSystemBox);
         commandOptions.Children.Add(_followLinksBox);
         commandOptions.Children.Add(browseButton);
+        commandOptions.Children.Add(bookmarkButton);
         commandOptions.Children.Add(_storageScanButton);
         commandOptions.Children.Add(_duplicateScanButton);
         commandGrid.Children.Add(commandOptions);
@@ -891,6 +932,7 @@ public sealed partial class StoragePage : BasePage
         discoveries.TabItems.Add(DiscoveryTab(T("storage.newestFiles"), result.NewestFiles, result));
         discoveries.TabItems.Add(DiscoveryTab(T("storage.oldestFiles"), result.OldestFiles, result));
         discoveries.TabItems.Add(DiscoveryTab(T("storage.developerArtifacts"), result.DeveloperArtifacts, result));
+        discoveries.TabItems.Add(DiscoveryTab(T("storage.recursiveSearch"), MainWindow.DiskAnalysis.SearchRecursive(result), result));
         discoveries.SelectedIndex = _selectedDiscoveryTab;
         discoveries.SelectionChanged += (_, _) =>
         {

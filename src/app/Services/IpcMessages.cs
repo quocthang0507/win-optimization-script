@@ -4,13 +4,15 @@ public sealed class IpcMessage
 {
     public string Type { get; set; } = string.Empty;
     public string? Payload { get; set; }
+    public string? RequestId { get; set; }
 
     public IpcMessage() { }
 
-    public IpcMessage(string type, string? payload = null)
+    public IpcMessage(string type, string? payload = null, string? requestId = null)
     {
         Type = type;
         Payload = payload;
+        RequestId = requestId;
     }
 }
 

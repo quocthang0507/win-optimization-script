@@ -13,6 +13,7 @@ public sealed partial class UpdatesPage : BasePage
     private Button? _upgradeAllButton;
     private Button? _cancelUpgradeButton;
     private CheckBox? _saveInstallersCheckBox;
+    private CheckBox? _showPinnedCheckBox;
     private List<WingetPackage> _packages = [];
     private readonly Dictionary<string, TextBlock> _packageStatusLabels = new(StringComparer.OrdinalIgnoreCase);
     private bool _isUpgrading;
@@ -124,6 +125,15 @@ public sealed partial class UpdatesPage : BasePage
             IsChecked = false
         };
         panel.Children.Add(_saveInstallersCheckBox);
+
+        _showPinnedCheckBox = new CheckBox
+        {
+            Content = T("updates.showPinned"),
+            IsChecked = true
+        };
+        _showPinnedCheckBox.Checked += (_, _) => RenderPackages();
+        _showPinnedCheckBox.Unchecked += (_, _) => RenderPackages();
+        panel.Children.Add(_showPinnedCheckBox);
         return panel;
     }
 
@@ -218,9 +228,16 @@ public sealed partial class UpdatesPage : BasePage
     {
         var query = _searchBox?.Text?.Trim() ?? string.Empty;
         var sourceIndex = _sourceFilterBox?.SelectedIndex ?? 0;
+        var showPinned = _showPinnedCheckBox?.IsChecked != false;
+        var pinnedIds = MainWindow.Settings.PinnedWingetPackageIds;
 
         foreach (var package in packages)
         {
+            if (!showPinned && WingetService.IsPackagePinned(package.Id, pinnedIds))
+            {
+                continue;
+            }
+
             if (!MatchesPackageQuery(package, query))
             {
                 continue;
@@ -310,11 +327,12 @@ public sealed partial class UpdatesPage : BasePage
 
         grid.Children.Add(leftPanel);
 
+        var isPinned = WingetService.IsPackagePinned(package.Id, MainWindow.Settings.PinnedWingetPackageIds);
         var statusText = new TextBlock
         {
-            Text = T("updates.pending"),
+            Text = isPinned ? T("updates.pinned") : T("updates.pending"),
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brush(Colors.Gray),
+            Foreground = Brush(isPinned ? Colors.Goldenrod : Colors.Gray),
             VerticalAlignment = VerticalAlignment.Center
         };
         _packageStatusLabels[PackageKey(package)] = statusText;
@@ -327,6 +345,20 @@ public sealed partial class UpdatesPage : BasePage
             Spacing = 8,
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        var pinTooltip = isPinned ? T("updates.unpinPackage") : T("updates.pinPackage");
+        var pinButton = IconButton(
+            isPinned ? Symbol.UnPin : Symbol.Pin,
+            F("common.actionFor", pinTooltip, package.Name),
+            (_, _) =>
+            {
+                MainWindow.Settings.PinnedWingetPackageIds = WingetService
+                    .TogglePinnedPackage(MainWindow.Settings.PinnedWingetPackageIds, package.Id, out _)
+                    .ToList();
+                MainWindow.SettingsService.Save(MainWindow.Settings);
+                RenderPackages();
+            });
+        actions.Children.Add(pinButton);
 
         var upgradeButton = IconButton(Symbol.Download, F("common.actionFor", T("updates.upgradeOne"), package.Name), async (_, _) =>
         {
@@ -475,7 +507,8 @@ public sealed partial class UpdatesPage : BasePage
             await ScanUpdatesAsync();
         }
 
-        var packages = selectedPackages?.ToList() ?? _packages.ToList();
+        var packages = selectedPackages?.ToList()
+            ?? WingetService.FilterPinnedPackages(_packages, MainWindow.Settings.PinnedWingetPackageIds, includePinned: false).ToList();
         if (packages.Count == 0)
         {
             MainWindow.SetStatusText(T("common.ready"));

@@ -58,6 +58,8 @@ public sealed partial class OptimizePage : BasePage
 
         actions.Children.Add(ActionButton(T("optimize.exportProfile"), Symbol.Save, async (_, _) => await ExportProfileAsync()));
         actions.Children.Add(ActionButton(T("optimize.importProfile"), Symbol.OpenFile, async (_, _) => await ImportProfileAsync()));
+        actions.Children.Add(ActionButton(T("optimize.builderOpen"), Symbol.Setting, async (_, _) => await OpenConfigurationBuilderAsync()));
+        actions.Children.Add(ActionButton(T("optimize.builderImport"), Symbol.Import, async (_, _) => await ImportSetupBundleAsync()));
 
         MainContent.Children.Add(actions);
         MainContent.Children.Add(BuildFiltersAndProfiles());
@@ -209,9 +211,11 @@ public sealed partial class OptimizePage : BasePage
             try
             {
                 var previousState = _knownStates.GetValueOrDefault(tweak.Id);
+                var registryEntries = MainWindow.TweakSnapshots.CaptureRegistryEntries([tweak.Id]);
                 await MainWindow.TweakSnapshots.SaveAsync(
                     F("optimize.snapshotBeforeChange", MainWindow.Localization.TweakTitle(tweak.Id, tweak.Title)),
-                    new Dictionary<string, bool> { [tweak.Id] = previousState });
+                    new Dictionary<string, bool> { [tweak.Id] = previousState },
+                    registryEntries);
                 var response = await _tweakService.ApplyTweakAsync(tweak.Id, toggle.IsOn);
                 if (!string.IsNullOrWhiteSpace(response.Error))
                 {
@@ -423,8 +427,10 @@ public sealed partial class OptimizePage : BasePage
             };
             if (await MainWindow.ShowThemedDialogAsync(dialog) != ContentDialogResult.Primary) return;
 
+            var registryEntries = MainWindow.TweakSnapshots.CaptureRegistryEntries(plan.Changes.Select(c => c.Id));
             var backup = await MainWindow.TweakSnapshots.SaveAsync(label,
-                plan.Changes.ToDictionary(change => change.Id, change => change.Before, StringComparer.OrdinalIgnoreCase));
+                plan.Changes.ToDictionary(change => change.Id, change => change.Before, StringComparer.OrdinalIgnoreCase),
+                registryEntries);
             if (backup is null) throw new IOException(T("optimize.backupRequired"));
 
             var started = DateTimeOffset.Now;
@@ -464,6 +470,129 @@ public sealed partial class OptimizePage : BasePage
             IsEnabled = true;
             RenderTweaks();
             _applyProfileButton?.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private async Task OpenConfigurationBuilderAsync()
+    {
+        var nameBox = new TextBox
+        {
+            Header = T("optimize.builderNameHeader"),
+            Text = "Custom Windows Setup"
+        };
+        var wingetBox = new TextBox
+        {
+            Header = T("optimize.builderWingetHeader"),
+            PlaceholderText = "Git.Git, Microsoft.VisualStudioCode, 7zip.7zip",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 68
+        };
+
+        var panel = new StackPanel { Spacing = 10, MinWidth = 420 };
+        panel.Children.Add(InfoBlock(T("optimize.builderDesc")));
+        panel.Children.Add(nameBox);
+        panel.Children.Add(wingetBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = T("optimize.builderOpen"),
+            Content = panel,
+            PrimaryButtonText = T("optimize.builderExportJson"),
+            SecondaryButtonText = T("optimize.builderExportPs1"),
+            CloseButtonText = T("common.cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = MainWindow.Navigation_Internal.XamlRoot
+        };
+
+        var result = await MainWindow.ShowThemedDialogAsync(dialog);
+        if (result == ContentDialogResult.None)
+        {
+            return;
+        }
+
+        var wingetIds = (wingetBox.Text ?? string.Empty)
+            .Split([',', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        var tweakMap = _knownStates.Count > 0
+            ? new Dictionary<string, bool>(_knownStates, StringComparer.OrdinalIgnoreCase)
+            : TweakProfileCatalog.All[0].Values;
+
+        var bundle = MainWindow.SetupConfiguration.CreateBundleFromProfile(
+            nameBox.Text,
+            tweakMap,
+            wingetIds,
+            MainWindow.Settings.ScheduledMaintenanceTaskIds,
+            MainWindow.Settings.ScheduleFrequency);
+
+        var validation = MainWindow.SetupConfiguration.ValidateBundle(bundle);
+        if (!validation.IsValid)
+        {
+            MainWindow.SetStatusText(string.Join(" ", validation.Errors), isBusy: false);
+            return;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = result == ContentDialogResult.Primary ? "win-setup-bundle.json" : "win-setup-bundle.ps1"
+        };
+        if (result == ContentDialogResult.Primary)
+        {
+            picker.FileTypeChoices.Add("JSON Setup Bundle", [".json"]);
+        }
+        else
+        {
+            picker.FileTypeChoices.Add("PowerShell Script", [".ps1"]);
+        }
+
+        InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
+        var file = await picker.PickSaveFileAsync();
+        if (file == null)
+        {
+            return;
+        }
+
+        var content = result == ContentDialogResult.Primary
+            ? MainWindow.SetupConfiguration.ExportJson(bundle)
+            : MainWindow.SetupConfiguration.GeneratePowerShellScript(bundle);
+        await File.WriteAllTextAsync(file.Path, content);
+        MainWindow.SetStatusText(F("optimize.exported", file.Path), isBusy: false);
+    }
+
+    private async Task ImportSetupBundleAsync()
+    {
+        if (_isApplyingChanges) return;
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+        };
+        picker.FileTypeFilter.Add(".json");
+        InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
+
+        var file = await picker.PickSingleFileAsync();
+        if (file == null) return;
+
+        try
+        {
+            if (new FileInfo(file.Path).Length > 1024 * 1024)
+            {
+                throw new InvalidDataException(T("optimize.profileTooLarge"));
+            }
+
+            var json = await File.ReadAllTextAsync(file.Path);
+            var bundle = MainWindow.SetupConfiguration.ImportJson(json);
+            var validation = MainWindow.SetupConfiguration.ValidateBundle(bundle);
+            if (!validation.IsValid)
+            {
+                throw new InvalidDataException(string.Join(" ", validation.Errors));
+            }
+
+            await ReviewAndApplyProfileAsync(bundle.Name, bundle.TweakValues);
+        }
+        catch (Exception ex)
+        {
+            MainWindow.SetStatusText(F("optimize.importFailed", ex.Message), isBusy: false);
         }
     }
 }

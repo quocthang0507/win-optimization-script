@@ -1,11 +1,16 @@
-using WinOptimizationApp.Models;
-using Microsoft.Win32.SafeHandles;
+using System.Collections.Concurrent;
+using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
+using WinOptimizationApp.Models;
 
 namespace WinOptimizationApp.Services;
 
 public sealed class IpcServer
 {
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private readonly CleanupService _cleanup;
     private readonly MaintenanceExecutionService _execution;
     private readonly SystemStatusService _status;
@@ -19,11 +24,15 @@ public sealed class IpcServer
     private readonly string _pipeName;
     private readonly MaintenanceCatalog _catalog = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _inFlightRequests =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource<int> _expectedClientProcessId =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<bool> _ready =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _listenTask;
+
+    public Func<string, string?, CancellationToken, Task<string?>>? CustomRequestHandler { get; set; }
 
     public IpcServer(
         CleanupService cleanup,
@@ -86,6 +95,14 @@ public sealed class IpcServer
     public void Stop()
     {
         _cts.Cancel();
+        foreach (var pair in _inFlightRequests)
+        {
+            if (_inFlightRequests.TryRemove(pair.Key, out var cts))
+            {
+                cts.Cancel();
+                cts.Dispose();
+            }
+        }
     }
 
     private async Task ListenLoopAsync()
@@ -112,12 +129,14 @@ public sealed class IpcServer
                     continue;
                 }
 
-                using var reader = new StreamReader(pipeServer, Encoding.UTF8);
-                using var writer = new StreamWriter(pipeServer, Encoding.UTF8) { AutoFlush = true };
+                using var reader = new StreamReader(pipeServer, Utf8NoBom, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+                using var writer = new StreamWriter(pipeServer, Utf8NoBom, bufferSize: 1024, leaveOpen: true) { AutoFlush = true };
+                using var writeLock = new SemaphoreSlim(1, 1);
+                var activeTasks = new List<Task>();
 
                 while (!_cts.Token.IsCancellationRequested && pipeServer.IsConnected)
                 {
-                    var line = await reader.ReadLineAsync();
+                    var line = await reader.ReadLineAsync(_cts.Token);
                     if (line == null)
                     {
                         break;
@@ -129,12 +148,29 @@ public sealed class IpcServer
                         continue;
                     }
 
-                    var response = await HandleRequestAsync(request, writer);
-                    if (response != null)
+                    if (request.Type.Equals("CancelRequest", StringComparison.OrdinalIgnoreCase))
                     {
-                        var responseLine = JsonSerializer.Serialize(response);
-                        await writer.WriteLineAsync(responseLine);
+                        var targetRequestId = request.Payload ?? request.RequestId;
+                        if (!string.IsNullOrWhiteSpace(targetRequestId) &&
+                            _inFlightRequests.TryGetValue(targetRequestId, out var targetCts))
+                        {
+                            targetCts.Cancel();
+                        }
+
+                        continue;
                     }
+
+                    activeTasks.RemoveAll(t => t.IsCompleted);
+                    activeTasks.Add(Task.Run(() => ProcessAndRespondAsync(request, writer, writeLock, pipeServer)));
+                }
+
+                try
+                {
+                    await Task.WhenAll(activeTasks);
+                }
+                catch
+                {
+                    // Connection ended while in-flight requests were finishing.
                 }
             }
             catch (OperationCanceledException)
@@ -145,6 +181,47 @@ public sealed class IpcServer
             {
                 Console.WriteLine($"IPC Server connection error: {ex.Message}");
                 await Task.Delay(1000);
+            }
+        }
+    }
+
+    private async Task ProcessAndRespondAsync(
+        IpcMessage request,
+        StreamWriter writer,
+        SemaphoreSlim writeLock,
+        NamedPipeServerStream pipeServer)
+    {
+        var requestId = string.IsNullOrWhiteSpace(request.RequestId)
+            ? Guid.NewGuid().ToString("N")
+            : request.RequestId!;
+        using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        _inFlightRequests[requestId] = requestCts;
+
+        IpcMessage? response;
+        try
+        {
+            response = await HandleRequestAsync(request, writer, requestCts.Token);
+        }
+        finally
+        {
+            _inFlightRequests.TryRemove(requestId, out _);
+        }
+
+        if (response != null && pipeServer.IsConnected && !_cts.IsCancellationRequested)
+        {
+            response.RequestId = request.RequestId;
+            var responseLine = JsonSerializer.Serialize(response);
+            await writeLock.WaitAsync(_cts.Token);
+            try
+            {
+                if (pipeServer.IsConnected)
+                {
+                    await writer.WriteLineAsync(responseLine);
+                }
+            }
+            finally
+            {
+                writeLock.Release();
             }
         }
     }
@@ -167,27 +244,39 @@ public sealed class IpcServer
         SafePipeHandle pipe,
         out uint clientProcessId);
 
-    private async Task<IpcMessage?> HandleRequestAsync(IpcMessage request, StreamWriter writer)
+    private async Task<IpcMessage?> HandleRequestAsync(
+        IpcMessage request,
+        StreamWriter writer,
+        CancellationToken cancellationToken)
     {
         try
         {
+            if (CustomRequestHandler is not null)
+            {
+                var customResponse = await CustomRequestHandler(request.Type, request.Payload, cancellationToken);
+                if (customResponse is not null)
+                {
+                    return new IpcMessage("Response", customResponse, request.RequestId);
+                }
+            }
+
             switch (request.Type)
             {
                 case "Handshake":
-                    return new IpcMessage("Response", "Connected");
+                    return new IpcMessage("Response", "Connected", request.RequestId);
 
                 case "GetStatus":
                     {
-                        var status = await _status.GetAsync();
+                        var status = await _status.GetAsync(cancellationToken);
                         var json = JsonSerializer.Serialize(status);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "ScanStartup":
                     {
-                        var entries = await _startup.ScanAsync();
+                        var entries = await _startup.ScanAsync(cancellationToken);
                         var json = JsonSerializer.Serialize(entries);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "EnableStartup":
@@ -195,10 +284,10 @@ public sealed class IpcServer
                         var entry = JsonSerializer.Deserialize<StartupEntry>(request.Payload ?? "{}");
                         if (entry == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
                         var ok = await _startup.EnableAsync(entry);
-                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                        return new IpcMessage("Response", ok ? "Success" : "Failed", request.RequestId);
                     }
 
                 case "DisableStartup":
@@ -206,17 +295,17 @@ public sealed class IpcServer
                         var entry = JsonSerializer.Deserialize<StartupEntry>(request.Payload ?? "{}");
                         if (entry == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
                         var ok = await _startup.DisableAsync(entry);
-                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                        return new IpcMessage("Response", ok ? "Success" : "Failed", request.RequestId);
                     }
 
                 case "ScanWinget":
                     {
-                        var packages = await _winget.ScanAsync();
+                        var packages = await _winget.ScanAsync(cancellationToken);
                         var json = JsonSerializer.Serialize(packages);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "UpgradeWingetPackage":
@@ -224,12 +313,12 @@ public sealed class IpcServer
                         var package = JsonSerializer.Deserialize<WingetPackage>(request.Payload ?? "{}");
                         if (package == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
 
-                        var result = await _winget.UpgradePackageAsync(package);
+                        var result = await _winget.UpgradePackageAsync(package, cancellationToken);
                         var json = JsonSerializer.Serialize(result);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "DownloadWingetPackage":
@@ -237,12 +326,12 @@ public sealed class IpcServer
                         var download = JsonSerializer.Deserialize<WingetPackageDownloadRequest>(request.Payload ?? "{}");
                         if (download == null || string.IsNullOrWhiteSpace(download.DownloadDirectory))
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
 
-                        var result = await _winget.DownloadPackageAsync(download.Package, download.DownloadDirectory);
+                        var result = await _winget.DownloadPackageAsync(download.Package, download.DownloadDirectory, cancellationToken);
                         var json = JsonSerializer.Serialize(result);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "InstallWingetPackage":
@@ -250,27 +339,27 @@ public sealed class IpcServer
                         var packageId = request.Payload;
                         if (string.IsNullOrWhiteSpace(packageId))
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
 
-                        var result = await _winget.InstallPackageAsync(packageId);
+                        var result = await _winget.InstallPackageAsync(packageId, cancellationToken);
                         var json = JsonSerializer.Serialize(result);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "CheckTweakState":
                     {
                         var tweakId = request.Payload ?? "";
                         var service = new TweakService(new CommandRunner());
-                        var result = await service.CheckTweakStateAsync(tweakId);
-                        return new IpcMessage("Response", JsonSerializer.Serialize(result));
+                        var result = await service.CheckTweakStateAsync(tweakId, cancellationToken);
+                        return new IpcMessage("Response", JsonSerializer.Serialize(result), request.RequestId);
                     }
 
                 case "CheckAllTweakStates":
                     {
                         var service = new TweakService(new CommandRunner());
-                        var result = await service.CheckAllTweakStatesAsync();
-                        return new IpcMessage("Response", JsonSerializer.Serialize(result));
+                        var result = await service.CheckAllTweakStatesAsync(cancellationToken);
+                        return new IpcMessage("Response", JsonSerializer.Serialize(result), request.RequestId);
                     }
 
                 case "ApplyTweak":
@@ -279,8 +368,8 @@ public sealed class IpcServer
                         var tweakId = jsonElement.GetProperty("Id").GetString() ?? "";
                         var enable = jsonElement.GetProperty("Enable").GetBoolean();
                         var service = new TweakService(new CommandRunner());
-                        var result = await service.ApplyTweakAsync(tweakId, enable);
-                        return new IpcMessage("Response", JsonSerializer.Serialize(result));
+                        var result = await service.ApplyTweakAsync(tweakId, enable, cancellationToken);
+                        return new IpcMessage("Response", JsonSerializer.Serialize(result), request.RequestId);
                     }
 
                 case "PreviewTask":
@@ -288,16 +377,16 @@ public sealed class IpcServer
                         var payload = JsonSerializer.Deserialize<PreviewTaskRequestPayload>(request.Payload ?? "{}");
                         if (payload == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
                         if (!_catalog.TryGetById(payload.TaskId, out var task))
                         {
-                            return new IpcMessage("Error", $"Unknown task: {payload.TaskId}");
+                            return new IpcMessage("Error", $"Unknown task: {payload.TaskId}", request.RequestId);
                         }
 
-                        var preview = await _cleanup.PreviewAsync(task, payload.ProtectedPaths);
+                        var preview = await _cleanup.PreviewAsync(task, payload.ProtectedPaths, cancellationToken);
                         var json = JsonSerializer.Serialize(preview);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "RunTask":
@@ -305,16 +394,16 @@ public sealed class IpcServer
                         var payload = JsonSerializer.Deserialize<RunTaskRequestPayload>(request.Payload ?? "{}");
                         if (payload == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
                         if (!_catalog.TryGetById(payload.TaskId, out var taskObj))
                         {
-                            return new IpcMessage("Error", $"Unknown task: {payload.TaskId}");
+                            return new IpcMessage("Error", $"Unknown task: {payload.TaskId}", request.RequestId);
                         }
 
-                        var result = await _execution.RunAsync(taskObj, payload.ProtectedPaths);
+                        var result = await _execution.RunAsync(taskObj, payload.ProtectedPaths, cancellationToken);
                         var json = JsonSerializer.Serialize(result);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "SaveSettings":
@@ -322,7 +411,7 @@ public sealed class IpcServer
                         var payload = JsonSerializer.Deserialize<SettingsPayload>(request.Payload ?? "{}");
                         if (payload == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
                         var settings = _settingsService.Load();
                         if (payload.Language != null && Enum.TryParse<AppLanguage>(payload.Language, out var lang))
@@ -338,7 +427,7 @@ public sealed class IpcServer
                             settings.WinUiStyle = style;
                         }
                         var saved = _settingsService.Save(settings);
-                        return new IpcMessage("Response", saved.ToString());
+                        return new IpcMessage("Response", saved.ToString(), request.RequestId);
                     }
 
                 case "DeleteReport":
@@ -346,13 +435,13 @@ public sealed class IpcServer
                         var payload = JsonSerializer.Deserialize<DeleteReportPayload>(request.Payload ?? "{}");
                         if (payload == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
                         try
                         {
                             if (!ReportService.TryResolveReportDeleteTargets(_reports.LogsDirectory, payload.ReportPath, out var targets))
                             {
-                                return new IpcMessage("Error", "Report path is outside the logs directory or is not a maintenance report.");
+                                return new IpcMessage("Error", "Report path is outside the logs directory or is not a maintenance report.", request.RequestId);
                             }
 
                             foreach (var target in targets)
@@ -363,19 +452,19 @@ public sealed class IpcServer
                                 }
                             }
 
-                            return new IpcMessage("Response", "Success");
+                            return new IpcMessage("Response", "Success", request.RequestId);
                         }
                         catch (Exception ex)
                         {
-                            return new IpcMessage("Error", ex.Message);
+                            return new IpcMessage("Error", ex.Message, request.RequestId);
                         }
                     }
 
                 case "ScanRegistry":
                     {
-                        var issues = await _registryCleaner.ScanAsync();
+                        var issues = await _registryCleaner.ScanAsync(cancellationToken);
                         var json = JsonSerializer.Serialize(issues);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "CleanRegistry":
@@ -383,10 +472,10 @@ public sealed class IpcServer
                         var issues = JsonSerializer.Deserialize<List<RegistryIssue>>(request.Payload ?? "[]");
                         if (issues == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
-                        var ok = await _registryCleaner.CleanAsync(issues);
-                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                        var ok = await _registryCleaner.CleanAsync(issues, cancellationToken);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed", request.RequestId);
                     }
 
                 case "RunNetworkRepair":
@@ -394,19 +483,19 @@ public sealed class IpcServer
                         var action = request.Payload;
                         bool ok = action switch
                         {
-                            "FlushDns" => await _networkOptimizer.FlushDnsAsync(),
-                            "ResetWinsock" => await _networkOptimizer.ResetWinsockAsync(),
-                            "RenewIp" => await _networkOptimizer.RenewIpAsync(),
+                            "FlushDns" => await _networkOptimizer.FlushDnsAsync(cancellationToken),
+                            "ResetWinsock" => await _networkOptimizer.ResetWinsockAsync(cancellationToken),
+                            "RenewIp" => await _networkOptimizer.RenewIpAsync(cancellationToken),
                             _ => false
                         };
-                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                        return new IpcMessage("Response", ok ? "Success" : "Failed", request.RequestId);
                     }
 
                 case "ScanInstalledApps":
                     {
-                        var apps = await _uninstaller.ScanInstalledAppsAsync();
+                        var apps = await _uninstaller.ScanInstalledAppsAsync(cancellationToken);
                         var json = JsonSerializer.Serialize(apps);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "UninstallApp":
@@ -414,10 +503,10 @@ public sealed class IpcServer
                         var app = JsonSerializer.Deserialize<InstalledApp>(request.Payload ?? "{}");
                         if (app == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
-                        var ok = await _uninstaller.UninstallAppAsync(app);
-                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                        var ok = await _uninstaller.UninstallAppAsync(app, cancellationToken);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed", request.RequestId);
                     }
 
                 case "ScanLeftovers":
@@ -425,11 +514,11 @@ public sealed class IpcServer
                         var app = JsonSerializer.Deserialize<InstalledApp>(request.Payload ?? "{}");
                         if (app == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
-                        var candidates = await _uninstaller.ScanLeftoversAsync(app);
+                        var candidates = await _uninstaller.ScanLeftoversAsync(app, cancellationToken);
                         var json = JsonSerializer.Serialize(candidates);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "CleanLeftovers":
@@ -437,17 +526,17 @@ public sealed class IpcServer
                         var paths = JsonSerializer.Deserialize<List<string>>(request.Payload ?? "[]");
                         if (paths == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
-                        var ok = await _uninstaller.DeleteLeftoversAsync(paths);
-                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                        var ok = await _uninstaller.DeleteLeftoversAsync(paths, cancellationToken);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed", request.RequestId);
                     }
 
                 case "ScanAppxPackages":
                     {
-                        var apps = await _uninstaller.ScanAppxPackagesAsync();
+                        var apps = await _uninstaller.ScanAppxPackagesAsync(cancellationToken);
                         var json = JsonSerializer.Serialize(apps);
-                        return new IpcMessage("Response", json);
+                        return new IpcMessage("Response", json, request.RequestId);
                     }
 
                 case "RemoveAppxPackage":
@@ -455,23 +544,27 @@ public sealed class IpcServer
                         var app = JsonSerializer.Deserialize<InstalledApp>(request.Payload ?? "{}");
                         if (app == null)
                         {
-                            return new IpcMessage("Error", "Invalid payload");
+                            return new IpcMessage("Error", "Invalid payload", request.RequestId);
                         }
-                        var ok = await _uninstaller.RemoveAppxPackageAsync(app);
-                        return new IpcMessage("Response", ok ? "Success" : "Failed");
+                        var ok = await _uninstaller.RemoveAppxPackageAsync(app, cancellationToken);
+                        return new IpcMessage("Response", ok ? "Success" : "Failed", request.RequestId);
                     }
 
                 case "Shutdown":
                     _cts.Cancel();
-                    return new IpcMessage("Response", "Shutdown");
+                    return new IpcMessage("Response", "Shutdown", request.RequestId);
 
                 default:
-                    return new IpcMessage("Error", $"Unknown request type: {request.Type}");
+                    return new IpcMessage("Error", $"Unknown request type: {request.Type}", request.RequestId);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new IpcMessage("Cancelled", "Operation was cancelled.", request.RequestId);
         }
         catch (Exception ex)
         {
-            return new IpcMessage("Error", ex.ToString());
+            return new IpcMessage("Error", ex.ToString(), request.RequestId);
         }
     }
 }

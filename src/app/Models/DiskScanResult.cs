@@ -18,4 +18,5 @@ public sealed record DiskScanResult(
     public IReadOnlyList<DiskItem> OldestFiles { get; init; } = [];
     public IReadOnlyList<FileAgeSummary> FileAgeSummaries { get; init; } = [];
     public IReadOnlyList<DiskItem> DeveloperArtifacts { get; init; } = [];
+    public IReadOnlyList<DiskItem> IndexedItems { get; init; } = [];
 }

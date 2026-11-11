@@ -178,4 +178,23 @@ public class AppSettingsServiceTests : IDisposable
 
         Assert.False(AppSettingsService.TryImport(_tempFile, new AppSettings(), out _));
     }
+
+    [Fact]
+    public void SaveAndLoad_NormalizesPinnedPackagesBookmarksAndCookieDomains()
+    {
+        var service = new AppSettingsService(_tempFile);
+        var settings = new AppSettings
+        {
+            PinnedWingetPackageIds = ["Git.Git", "GIT.GIT", "invalid\"id", "Microsoft.PowerToys"],
+            StorageBookmarks = [@"C:\Users\Public\", @"c:\users\public"],
+            CookieKeepDomains = ["https://GitHub.com/login", ".google.com", "invalid domain!", "github.com"]
+        };
+
+        Assert.True(service.Save(settings));
+        var loaded = service.Load();
+
+        Assert.Equal(["Git.Git", "Microsoft.PowerToys"], loaded.PinnedWingetPackageIds);
+        Assert.Single(loaded.StorageBookmarks);
+        Assert.Equal(["github.com", "google.com"], loaded.CookieKeepDomains);
+    }
 }

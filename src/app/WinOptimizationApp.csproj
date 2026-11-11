@@ -44,8 +44,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\core\WinOptimization.Core.csproj" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\**\*.cs;Services\**\*.cs;ViewModels\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>

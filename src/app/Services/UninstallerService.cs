@@ -11,6 +11,8 @@ public sealed class UninstallerService
     private readonly HashSet<string> _authorizedLeftoverPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _authorizationLock = new();
 
+    public static TimeSpan DefaultUninstallTimeout { get; } = TimeSpan.FromMinutes(3);
+
     public IpcClient? Client { get; set; }
 
     public UninstallerService(CommandRunner commands)
@@ -59,55 +61,158 @@ public sealed class UninstallerService
 
     public async Task<bool> UninstallAppAsync(InstalledApp app, CancellationToken cancellationToken = default)
     {
-        if (Client?.IsConnected == true)
-        {
-            var payload = System.Text.Json.JsonSerializer.Serialize(app);
-            var response = await Client.SendRequestAsync("UninstallApp", payload, cancellationToken);
-            return response == "Success";
-        }
+        var result = await UninstallAppWithResultAsync(app, DefaultUninstallTimeout, cancellationToken);
+        return result.Success;
+    }
 
-        var trustedApp = await ResolveTrustedInstalledAppAsync(app, cancellationToken);
-        if (trustedApp is null)
-        {
-            return false;
-        }
+    public async Task<UninstallOperationResult> UninstallAppWithResultAsync(
+        InstalledApp app,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var effectiveTimeout = timeout ?? DefaultUninstallTimeout;
+        using var timeoutCts = new CancellationTokenSource(effectiveTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        var linkedToken = linkedCts.Token;
 
-        bool success;
-        if (trustedApp.Source == "Winget")
+        try
         {
-            var id = trustedApp.Id.Split('\\').Last();
-            var result = await _commands.RunCaptureAsync(
-                "winget.exe",
-                $"uninstall --id {QuoteArgument(id)} --exact --silent --accept-source-agreements --disable-interactivity",
-                cancellationToken);
-            success = result.ExitCode == 0;
-        }
-        else
-        {
-            if (string.IsNullOrWhiteSpace(trustedApp.UninstallString))
+            if (Client?.IsConnected == true)
             {
-                return false;
+                var payload = System.Text.Json.JsonSerializer.Serialize(app);
+                var response = await Client.SendRequestAsync("UninstallApp", payload, linkedToken);
+                var ok = response == "Success";
+                return new UninstallOperationResult(
+                    app,
+                    ok ? UninstallOutcomeStatus.Succeeded : UninstallOutcomeStatus.Failed,
+                    ok ? 0 : -1,
+                    ok ? "Uninstalled successfully." : response);
             }
 
-            var (exe, args) = ParseUninstallCommand(trustedApp.UninstallString);
-            if (Path.GetFileName(exe).Equals("msiexec.exe", StringComparison.OrdinalIgnoreCase) ||
-                Path.GetFileName(exe).Equals("msiexec", StringComparison.OrdinalIgnoreCase))
+            var trustedApp = await ResolveTrustedInstalledAppAsync(app, linkedToken);
+            if (trustedApp is null)
             {
-                args = NormalizeMsiUninstallArguments(args);
+                return new UninstallOperationResult(
+                    app,
+                    UninstallOutcomeStatus.Failed,
+                    -1,
+                    "Application metadata could not be verified.");
             }
-            var result = await _commands.RunCaptureAsync(exe, args, cancellationToken);
-            success = result.ExitCode == 0;
-        }
 
-        if (success)
+            CommandResult result;
+            if (trustedApp.Source == "Winget")
+            {
+                var id = trustedApp.Id.Split('\\').Last();
+                result = await _commands.RunCaptureAsync(
+                    "winget.exe",
+                    $"uninstall --id {QuoteArgument(id)} --exact --silent --accept-source-agreements --disable-interactivity",
+                    linkedToken);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(trustedApp.UninstallString))
+                {
+                    return new UninstallOperationResult(
+                        trustedApp,
+                        UninstallOutcomeStatus.Failed,
+                        -1,
+                        "Missing uninstall command.");
+                }
+
+                var (exe, args) = ParseUninstallCommand(trustedApp.UninstallString);
+                if (Path.GetFileName(exe).Equals("msiexec.exe", StringComparison.OrdinalIgnoreCase) ||
+                    Path.GetFileName(exe).Equals("msiexec", StringComparison.OrdinalIgnoreCase))
+                {
+                    args = NormalizeMsiUninstallArguments(args);
+                }
+
+                result = await _commands.RunCaptureAsync(exe, args, linkedToken);
+            }
+
+            if (result.ExitCode == 0)
+            {
+                lock (_authorizationLock)
+                {
+                    _recentlyUninstalled[trustedApp.Id] = trustedApp;
+                }
+
+                return new UninstallOperationResult(
+                    trustedApp,
+                    UninstallOutcomeStatus.Succeeded,
+                    0,
+                    "Uninstalled successfully.");
+            }
+
+            var errorDetail = string.IsNullOrWhiteSpace(result.StandardError)
+                ? $"Process exited with code {result.ExitCode}."
+                : result.StandardError.Trim();
+            return new UninstallOperationResult(
+                trustedApp,
+                UninstallOutcomeStatus.Failed,
+                result.ExitCode,
+                errorDetail);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
         {
-            lock (_authorizationLock)
+            return new UninstallOperationResult(
+                app,
+                UninstallOutcomeStatus.TimedOut,
+                -1,
+                $"Uninstaller timed out after {effectiveTimeout.TotalSeconds:0.#}s and may be waiting for user interaction.");
+        }
+        catch (OperationCanceledException)
+        {
+            return new UninstallOperationResult(
+                app,
+                UninstallOutcomeStatus.Cancelled,
+                -1,
+                "Uninstall was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            return new UninstallOperationResult(
+                app,
+                UninstallOutcomeStatus.Failed,
+                -1,
+                ex.Message);
+        }
+    }
+
+    public async Task<BatchUninstallReport> UninstallBatchAsync(
+        IEnumerable<InstalledApp> apps,
+        TimeSpan? perAppTimeout = null,
+        Action<UninstallOperationResult>? onAppCompleted = null,
+        CancellationToken cancellationToken = default)
+    {
+        var appList = apps.ToList();
+        var results = new List<UninstallOperationResult>(appList.Count);
+        var wasCancelled = false;
+
+        foreach (var app in appList)
+        {
+            if (cancellationToken.IsCancellationRequested)
             {
-                _recentlyUninstalled[trustedApp.Id] = trustedApp;
+                wasCancelled = true;
+                break;
             }
+
+            var itemResult = await UninstallAppWithResultAsync(app, perAppTimeout, cancellationToken);
+            if (itemResult.Status == UninstallOutcomeStatus.Cancelled)
+            {
+                wasCancelled = true;
+                break;
+            }
+
+            results.Add(itemResult);
+            onAppCompleted?.Invoke(itemResult);
         }
 
-        return success;
+        if (cancellationToken.IsCancellationRequested && results.Count < appList.Count)
+        {
+            wasCancelled = true;
+        }
+
+        return new BatchUninstallReport(results, wasCancelled, appList.Count);
     }
 
     public async Task<IReadOnlyList<LeftoverCleanupCandidate>> ScanLeftoversAsync(InstalledApp app, CancellationToken cancellationToken = default)

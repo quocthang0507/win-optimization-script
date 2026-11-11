@@ -1,5 +1,6 @@
 param(
-    [switch]$Compile
+    [switch]$Compile,
+    [switch]$Preview
 )
 
 # Check for Administrator privileges
@@ -20,6 +21,36 @@ function Pause-ForUser {
     [void](Read-Host $Message)
 }
 
+function Write-OperationReport {
+    param(
+        [string]$ActionName,
+        [bool]$PreviewMode,
+        [string[]]$Messages
+    )
+    try {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        if ([string]::IsNullOrWhiteSpace($repoRoot) -or -not (Test-Path -LiteralPath $repoRoot)) {
+            $repoRoot = $PSScriptRoot
+        }
+        $logsDir = Join-Path $repoRoot "logs"
+        if (-not (Test-Path -LiteralPath $logsDir)) {
+            New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+        }
+        $stamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+        $reportPath = Join-Path $logsDir "cli-report-$stamp.json"
+        $payload = [ordered]@{
+            timestamp   = (Get-Date).ToString("o")
+            action      = $ActionName
+            previewMode = $PreviewMode
+            messages    = @($Messages)
+        }
+        $payload | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+    }
+    catch {
+        # Best-effort logging
+    }
+}
+
 function Invoke-Spinner {
     param(
         [string]$Message,
@@ -27,6 +58,12 @@ function Invoke-Spinner {
         [object[]]$Arguments = @(),
         [ScriptBlock]$InitializationScript = $null
     )
+
+    if ($script:Preview) {
+        Write-Host "[PREVIEW] Would execute: $Message" -ForegroundColor Cyan
+        Write-OperationReport -ActionName $Message -PreviewMode $true -Messages @("Preview only: $Message")
+        return
+    }
 
     Write-Host -NoNewline "$Message ["
     $spinner = @('-', '\', '|', '/')
@@ -48,8 +85,10 @@ function Invoke-Spinner {
     Write-Host -NoNewline "`b] Done." -ForegroundColor Green
     Write-Host ""
     
-    Receive-Job -Job $job | ForEach-Object { Write-Host $_ }
+    $outputLines = @(Receive-Job -Job $job)
+    $outputLines | ForEach-Object { Write-Host $_ }
     Remove-Job -Job $job
+    Write-OperationReport -ActionName $Message -PreviewMode $false -Messages ($outputLines | ForEach-Object { "$_" })
 }
 
 function Write-Rule {
@@ -141,41 +180,42 @@ $script:MenuTitle = "System Maintenance Tool"
 $script:MenuSubtitle = "Run tasks by number (or 'q' to quit)"
 $script:MenuGroupOrder = @('Quick Cleanup', 'Deep Cleanup', 'Optimization', 'Repair', 'Software', 'Network', 'Privacy', 'Info', 'Exit')
 $script:MenuItemsRaw = @(
-    [pscustomobject]@{ Group = 'Quick Cleanup'; Label = 'Clean temporary files'; Action = { Clean-TempFiles } }
-    [pscustomobject]@{ Group = 'Quick Cleanup'; Label = 'Clear browser cache (Edge, Chrome)'; Action = { Clear-BrowserCache } }
-    [pscustomobject]@{ Group = 'Quick Cleanup'; Label = 'Empty Recycle Bin'; Action = { Empty-RecycleBin } }
-    [pscustomobject]@{ Group = 'Quick Cleanup'; Label = 'Clear clipboard contents'; Action = { Clear-Clipboard } }
+    [pscustomobject]@{ Group = 'Quick Cleanup'; Risk = 'Safe'; Label = 'Clean temporary files'; Action = { Clean-TempFiles } }
+    [pscustomobject]@{ Group = 'Quick Cleanup'; Risk = 'Medium'; Label = 'Clear browser cache (Edge, Chrome)'; Action = { Clear-BrowserCache } }
+    [pscustomobject]@{ Group = 'Quick Cleanup'; Risk = 'Safe'; Label = 'Empty Recycle Bin'; Action = { Empty-RecycleBin } }
+    [pscustomobject]@{ Group = 'Quick Cleanup'; Risk = 'Safe'; Label = 'Clear clipboard contents'; Action = { Clear-Clipboard } }
 
-    [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Run Disk Cleanup (automatic)'; Action = { Run-DiskCleanupAuto } }
-    [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Run Disk Cleanup (GUI)'; Action = { Run-DiskCleanupGUI } }
-    [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Clean developer caches (NuGet, pip, npm, yarn)'; Action = { Clean-DeveloperCaches } }
-    [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Clear Windows Update cache'; Action = { Clear-WindowsUpdateCache } }
-    [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Clear Windows Event Logs'; Action = { Clear-EventLogs } }
-    [pscustomobject]@{ Group = 'Deep Cleanup'; Label = 'Remove old Windows installation files'; Action = { Remove-OldWindowsFiles } }
+    [pscustomobject]@{ Group = 'Deep Cleanup'; Risk = 'Medium'; Label = 'Run Disk Cleanup (automatic)'; Action = { Run-DiskCleanupAuto } }
+    [pscustomobject]@{ Group = 'Deep Cleanup'; Risk = 'Medium'; Label = 'Run Disk Cleanup (GUI)'; Action = { Run-DiskCleanupGUI } }
+    [pscustomobject]@{ Group = 'Deep Cleanup'; Risk = 'Medium'; Label = 'Clean developer caches (NuGet, pip, npm, yarn)'; Action = { Clean-DeveloperCaches } }
+    [pscustomobject]@{ Group = 'Deep Cleanup'; Risk = 'High'; Label = 'Clear Windows Update cache'; Action = { Clear-WindowsUpdateCache } }
+    [pscustomobject]@{ Group = 'Deep Cleanup'; Risk = 'High'; Label = 'Clear Windows Event Logs'; Action = { Clear-EventLogs } }
+    [pscustomobject]@{ Group = 'Deep Cleanup'; Risk = 'High'; Label = 'Remove old Windows installation files'; Action = { Remove-OldWindowsFiles } }
 
-    [pscustomobject]@{ Group = 'Optimization'; Label = 'Optimize drives (Trim/Defrag)'; Action = { Optimize-Drives } }
-    [pscustomobject]@{ Group = 'Optimization'; Label = 'Disable Hibernation (reclaim GBs of space)'; Action = { Disable-Hibernation } }
+    [pscustomobject]@{ Group = 'Optimization'; Risk = 'Safe'; Label = 'Optimize drives (Trim/Defrag)'; Action = { Optimize-Drives } }
+    [pscustomobject]@{ Group = 'Optimization'; Risk = 'Medium'; Label = 'Disable Hibernation (reclaim GBs of space)'; Action = { Disable-Hibernation } }
 
-    [pscustomobject]@{ Group = 'Repair'; Label = 'Repair system issues using DISM'; Action = { Run-DISMRepair } }
-    [pscustomobject]@{ Group = 'Repair'; Label = 'Run System File Checker (sfc /scannow)'; Action = { Run-SFCScan } }
-    [pscustomobject]@{ Group = 'Repair'; Label = 'Restart Windows Explorer'; Action = { Restart-Explorer } }
+    [pscustomobject]@{ Group = 'Repair'; Risk = 'Medium'; Label = 'Repair system issues using DISM'; Action = { Run-DISMRepair } }
+    [pscustomobject]@{ Group = 'Repair'; Risk = 'Safe'; Label = 'Run System File Checker (sfc /scannow)'; Action = { Run-SFCScan } }
+    [pscustomobject]@{ Group = 'Repair'; Risk = 'Safe'; Label = 'Restart Windows Explorer'; Action = { Restart-Explorer } }
 
-    [pscustomobject]@{ Group = 'Software'; Label = "Update software (winget upgrade --all)"; Action = { Run-WingetUpgrade } }
-    [pscustomobject]@{ Group = 'Software'; Label = 'Quick compile this tool to EXE'; Action = { Compile-UtilitiesToExe } }
+    [pscustomobject]@{ Group = 'Software'; Risk = 'Medium'; Label = "Update software (winget upgrade --all)"; Action = { Run-WingetUpgrade } }
+    [pscustomobject]@{ Group = 'Software'; Risk = 'Safe'; Label = 'Quick compile this tool to EXE'; Action = { Compile-UtilitiesToExe } }
 
-    [pscustomobject]@{ Group = 'Network'; Label = 'Flush DNS cache'; Action = { Flush-DNS } }
+    [pscustomobject]@{ Group = 'Network'; Risk = 'Safe'; Label = 'Flush DNS cache'; Action = { Flush-DNS } }
 
-    [pscustomobject]@{ Group = 'Info'; Label = 'Check system uptime'; Action = { Show-Uptime } }
+    [pscustomobject]@{ Group = 'Info'; Risk = 'Safe'; Label = 'Check system uptime'; Action = { Show-Uptime } }
 
-    [pscustomobject]@{ Group = 'Privacy'; Label = 'Clear PowerShell command history'; Action = { Clear-History } }
-    [pscustomobject]@{ Group = 'Privacy'; Label = 'Clear Start/Taskbar recent list (Windows 11)'; Action = { Clear-StartTaskbarRecentList } }
+    [pscustomobject]@{ Group = 'Privacy'; Risk = 'Medium'; Label = 'Clear PowerShell command history'; Action = { Clear-History } }
+    [pscustomobject]@{ Group = 'Privacy'; Risk = 'Safe'; Label = 'Clear Start/Taskbar recent list (Windows 11)'; Action = { Clear-StartTaskbarRecentList } }
 
-    [pscustomobject]@{ Group = 'Exit'; Label = 'Exit'; Action = { } }
+    [pscustomobject]@{ Group = 'Exit'; Risk = 'Safe'; Label = 'Exit'; Action = { } }
 )
 
 
 function Show-FullMenu {
-    Write-Title -Text $script:MenuTitle -Subtitle $script:MenuSubtitle
+    $subtitle = if ($script:Preview) { "$($script:MenuSubtitle) [PREVIEW DRY-RUN MODE]" } else { $script:MenuSubtitle }
+    Write-Title -Text $script:MenuTitle -Subtitle $subtitle
     
     $flatItems = Get-OrderedMenuItems
     $i = 1
@@ -186,7 +226,8 @@ function Show-FullMenu {
         if ($items.Count -gt 0) {
             Write-Host " [$group]" -ForegroundColor Magenta
             foreach ($item in $items) {
-                Write-Host (" {0}  {1}" -f $i.ToString().PadLeft(2), $item.Label)
+                $riskBadge = if ($item.Risk) { "[$($item.Risk)]" } else { "[Safe]" }
+                Write-Host (" {0}  {1,-8} {2}" -f $i.ToString().PadLeft(2), $riskBadge, $item.Label)
                 $i++
             }
             Write-Host ""
@@ -387,11 +428,28 @@ function Clean-TempFiles {
 
 function Clean-DeveloperCaches {
     Invoke-Spinner -Message "Cleaning developer caches (NuGet, pip, npm, yarn)" -ScriptBlock {
+        $commandsRun = 0
+        if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+            dotnet nuget locals all --clear *>&1 | Out-Null
+            $commandsRun++
+        }
+        if (Get-Command pip -ErrorAction SilentlyContinue) {
+            pip cache purge *>&1 | Out-Null
+            $commandsRun++
+        }
+        if (Get-Command npm -ErrorAction SilentlyContinue) {
+            npm cache clean --force *>&1 | Out-Null
+            $commandsRun++
+        }
+        if (Get-Command yarn -ErrorAction SilentlyContinue) {
+            yarn cache clean *>&1 | Out-Null
+            $commandsRun++
+        }
+
         $freedBytes = 0
         $clearedPaths = 0
 
         $targets = @(
-            (Join-Path $env:USERPROFILE ".nuget\packages"),
             (Join-Path $env:LOCALAPPDATA "NuGet\v3-cache"),
             (Join-Path $env:LOCALAPPDATA "pip\cache"),
             (Join-Path $env:LOCALAPPDATA "npm-cache"),
@@ -406,8 +464,8 @@ function Clean-DeveloperCaches {
             }
         }
 
-        if ($freedBytes -gt 0) {
-            Write-Output ("Cleared {0} developer cache locations, approx. freed {1:N2} MB." -f $clearedPaths, ($freedBytes / 1MB))
+        if ($commandsRun -gt 0 -or $freedBytes -gt 0) {
+            Write-Output ("Executed {0} official cache CLI commands and cleared {1} cache folders (approx. freed {2:N2} MB)." -f $commandsRun, $clearedPaths, ($freedBytes / 1MB))
         }
         elseif ($clearedPaths -gt 0) {
             Write-Output "Developer cache locations were checked and cleared where possible."

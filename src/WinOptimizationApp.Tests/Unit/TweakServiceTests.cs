@@ -107,4 +107,42 @@ public sealed class TweakServiceTests
         Assert.Equal(states.Count, states.Select(state => state.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.All(service.GetAllTweaks(), tweak => Assert.Contains(states, state => state.Id == tweak.Id));
     }
+
+    [Fact]
+    public async Task CheckAllTweakStatesAsync_UsesDirectRegistryAccessorWithoutPowerShell()
+    {
+        var registry = new InMemoryRegistryAccessor();
+        registry.WriteValue("HKCU", @"Software\Microsoft\GameBar", "AllowAutoGameMode", "DWord", "1");
+        registry.WriteValue("HKCU", @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced", "HideFileExt", "DWord", "0");
+
+        var service = new TweakService(new CommandRunner(), registry);
+        var states = await service.CheckAllTweakStatesAsync();
+
+        Assert.True(registry.ReadCount > 0);
+        var gameMode = Assert.Single(states, s => s.Id == "gaming.gameMode");
+        Assert.True(gameMode.IsEnabled);
+
+        var showExt = Assert.Single(states, s => s.Id == "ui.showFileExtensions");
+        Assert.True(showExt.IsEnabled);
+
+        var telemetry = Assert.Single(states, s => s.Id == "privacy.telemetry");
+        Assert.False(telemetry.IsEnabled);
+    }
+
+    [Fact]
+    public async Task ApplyTweakAsync_AppliesAndRevertsViaDirectRegistryAccessor()
+    {
+        var registry = new InMemoryRegistryAccessor();
+        var service = new TweakService(new CommandRunner(), registry);
+
+        var enabled = await service.ApplyTweakAsync("privacy.webSearch", true);
+        Assert.True(enabled.IsEnabled);
+        Assert.Equal(string.Empty, enabled.Error);
+        Assert.Equal("1", registry.ReadValue("HKCU", @"Software\Policies\Microsoft\Windows\Explorer", "DisableSearchBoxSuggestions").RawValue);
+
+        var disabled = await service.ApplyTweakAsync("privacy.webSearch", false);
+        Assert.False(disabled.IsEnabled);
+        Assert.Equal(string.Empty, disabled.Error);
+        Assert.False(registry.ReadValue("HKCU", @"Software\Policies\Microsoft\Windows\Explorer", "DisableSearchBoxSuggestions").Exists);
+    }
 }

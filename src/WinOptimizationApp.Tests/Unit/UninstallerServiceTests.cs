@@ -82,4 +82,85 @@ public sealed class UninstallerServiceTests : IDisposable
         // 5. Verify the folder was actually deleted
         Assert.False(Directory.Exists(_testDirPath));
     }
+
+    [Fact]
+    public async Task UninstallAppWithResultAsync_DistinguishesTimeoutFromCancellationAndSuccess()
+    {
+        using (var key = Registry.CurrentUser.CreateSubKey(TestRegistryPath))
+        {
+            key.SetValue("DisplayName", TestAppName);
+            key.SetValue("DisplayVersion", "1.0");
+            key.SetValue("Publisher", "WinOptPublisher");
+            key.SetValue("UninstallString", "powershell.exe -NoProfile -Command \"Start-Sleep -Seconds 5\"");
+            key.SetValue("InstallLocation", _testDirPath);
+        }
+
+        var app = new InstalledApp
+        {
+            Id = $"HKCU\\{TestRegistryId}",
+            Name = TestAppName,
+            Version = "1.0",
+            Publisher = "WinOptPublisher",
+            UninstallString = "powershell.exe -NoProfile -Command \"Start-Sleep -Seconds 5\"",
+            InstallLocation = _testDirPath,
+            Source = "Registry"
+        };
+
+        var service = new UninstallerService(new CommandRunner());
+        var result = await service.UninstallAppWithResultAsync(app, timeout: TimeSpan.FromMilliseconds(150));
+
+        Assert.Equal(UninstallOutcomeStatus.TimedOut, result.Status);
+        Assert.True(result.IsTimedOut);
+        Assert.False(result.Success);
+    }
+
+    [Fact]
+    public async Task UninstallBatchAsync_PreservesPartialResultsWhenCancelledMidBatch()
+    {
+        using (var key = Registry.CurrentUser.CreateSubKey(TestRegistryPath))
+        {
+            key.SetValue("DisplayName", TestAppName);
+            key.SetValue("DisplayVersion", "1.0");
+            key.SetValue("Publisher", "WinOptPublisher");
+            key.SetValue("UninstallString", "cmd.exe /c exit 0");
+            key.SetValue("InstallLocation", _testDirPath);
+        }
+
+        var fastApp = new InstalledApp
+        {
+            Id = $"HKCU\\{TestRegistryId}",
+            Name = TestAppName,
+            Version = "1.0",
+            Publisher = "WinOptPublisher",
+            UninstallString = "cmd.exe /c exit 0",
+            InstallLocation = _testDirPath,
+            Source = "Registry"
+        };
+        var secondApp = new InstalledApp
+        {
+            Id = "Winget\\NonExistent.SecondApp",
+            Name = "Second App",
+            Version = "1.0",
+            Publisher = "Test",
+            UninstallString = "cmd.exe /c exit 0",
+            InstallLocation = string.Empty,
+            Source = "Winget"
+        };
+
+        using var cts = new CancellationTokenSource();
+        var service = new UninstallerService(new CommandRunner());
+        var report = await service.UninstallBatchAsync(
+            [fastApp, secondApp],
+            perAppTimeout: TimeSpan.FromSeconds(5),
+            onAppCompleted: _ => cts.Cancel(),
+            cancellationToken: cts.Token);
+
+        Assert.True(report.WasCancelled);
+        Assert.Equal(1, report.SucceededCount);
+        Assert.Equal(1, report.NotProcessedCount);
+        var taskReport = report.ToTaskRunResult(DateTimeOffset.Now.AddSeconds(-1), DateTimeOffset.Now);
+        Assert.False(taskReport.Success);
+        Assert.Equal(1, taskReport.FilesRemoved);
+        Assert.Equal(1, taskReport.FilesSkipped);
+    }
 }

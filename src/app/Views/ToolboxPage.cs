@@ -85,6 +85,22 @@ public sealed partial class ToolboxPage : BasePage
         };
         pivot.Items.Add(systemToolsTab);
 
+        // 5. Power & Battery Tab
+        var powerTab = new PivotItem
+        {
+            Header = T("toolbox.tab.power"),
+            Content = CreatePowerLayout()
+        };
+        pivot.Items.Add(powerTab);
+
+        // 6. Context Menu Tab
+        var contextMenuTab = new PivotItem
+        {
+            Header = T("toolbox.tab.contextMenu"),
+            Content = CreateContextMenuLayout()
+        };
+        pivot.Items.Add(contextMenuTab);
+
         MainContent.Children.Add(pivot);
     }
 
@@ -1290,6 +1306,197 @@ public sealed partial class ToolboxPage : BasePage
         {
             MainWindow.SetStatusText(ex.Message, isBusy: false);
             await MainWindow.ShowDialogAsync_Internal(T("common.error"), InfoBlock(ex.Message), T("common.close"));
+        }
+    }
+
+    private ScrollViewer CreatePowerLayout()
+    {
+        var panel = new StackPanel { Spacing = 14, Padding = new Thickness(0, 12, 0, 12) };
+        var resultsContainer = new StackPanel { Spacing = 10 };
+
+        var actions = new AdaptiveWrapPanel { Spacing = 10 };
+        var refreshBtn = ActionButton(T("power.refresh"), Symbol.Refresh, async (_, _) => await RefreshPowerAndBatteryAsync(resultsContainer));
+        var ultimateBtn = ActionButton(T("power.unlockUltimate"), Symbol.Play, async (_, _) =>
+        {
+            await MainWindow.PowerManagement.UnlockUltimatePerformancePlanAsync();
+            await RefreshPowerAndBatteryAsync(resultsContainer);
+        });
+        actions.Children.Add(refreshBtn);
+        actions.Children.Add(ultimateBtn);
+
+        panel.Children.Add(actions);
+        panel.Children.Add(resultsContainer);
+        resultsContainer.Children.Add(InfoBlock(T("power.clickRefreshHint")));
+
+        return new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+    }
+
+    private async Task RefreshPowerAndBatteryAsync(StackPanel container)
+    {
+        container.Children.Clear();
+        MainWindow.SetStatusText(T("common.loading"), isBusy: true);
+        try
+        {
+            var battery = await MainWindow.PowerManagement.GetBatteryHealthAsync();
+            var plans = await MainWindow.PowerManagement.GetPowerPlansAsync();
+            var requests = await MainWindow.PowerManagement.GetPowerRequestsAsync();
+
+            container.Children.Add(SectionTitle(T("power.batterySection")));
+            var batteryText = battery.HasBattery
+                ? $"{battery.BatteryName} ({battery.Chemistry}) — {battery.StatusSummary}" +
+                  (battery.CycleCount.HasValue ? $" | Cycles: {battery.CycleCount.Value}" : string.Empty)
+                : battery.StatusSummary;
+            container.Children.Add(InfoBlock(batteryText));
+
+            container.Children.Add(SectionTitle(T("power.plansSection")));
+            foreach (var plan in plans)
+            {
+                var row = new Grid { ColumnSpacing = 12 };
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var title = new TextBlock
+                {
+                    Text = $"{plan.Name} ({plan.SchemeGuid}){(plan.IsActive ? " *" : string.Empty)}",
+                    FontWeight = plan.IsActive ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                row.Children.Add(title);
+
+                var activateBtn = ActionButton(
+                    plan.IsActive ? T("power.activePlan") : T("power.activatePlan"),
+                    Symbol.Accept,
+                    async (_, _) =>
+                    {
+                        await MainWindow.PowerManagement.SetActivePowerPlanAsync(plan.SchemeGuid);
+                        await RefreshPowerAndBatteryAsync(container);
+                    });
+                activateBtn.IsEnabled = !plan.IsActive;
+                Grid.SetColumn(activateBtn, 1);
+                row.Children.Add(activateBtn);
+
+                container.Children.Add(new Border
+                {
+                    Padding = new Thickness(12),
+                    CornerRadius = new CornerRadius(8),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = ThemeBorderBrush(),
+                    Background = ThemeCardBackground(),
+                    Child = row
+                });
+            }
+
+            container.Children.Add(SectionTitle(T("power.requestsSection")));
+            if (requests.Count == 0)
+            {
+                container.Children.Add(InfoBlock(T("power.noRequests")));
+            }
+            else
+            {
+                foreach (var req in requests)
+                {
+                    container.Children.Add(InfoBlock($"[{req.Category}] {req.Requester}\n{req.Reason}".Trim()));
+                }
+            }
+
+            MainWindow.SetStatusText(T("common.ready"), isBusy: false);
+        }
+        catch (Exception ex)
+        {
+            container.Children.Add(InfoBlock(ex.Message));
+            MainWindow.SetStatusText(ex.Message, isBusy: false);
+        }
+    }
+
+    private ScrollViewer CreateContextMenuLayout()
+    {
+        var panel = new StackPanel { Spacing = 14, Padding = new Thickness(0, 12, 0, 12) };
+        var extensionsContainer = new StackPanel { Spacing = 8 };
+
+        var classicToggle = new ToggleSwitch
+        {
+            Header = T("contextMenu.classicHeader"),
+            IsOn = MainWindow.ContextMenus.IsClassicContextMenuEnabled(),
+            OffContent = T("common.off"),
+            OnContent = T("common.on")
+        };
+        classicToggle.Toggled += (_, _) =>
+        {
+            MainWindow.ContextMenus.SetClassicContextMenu(classicToggle.IsOn);
+            MainWindow.SetStatusText(T("run.completed"), isBusy: false);
+        };
+
+        var scanBtn = ActionButton(T("contextMenu.scanExtensions"), Symbol.Refresh, (_, _) => RenderContextMenuExtensions(extensionsContainer));
+        panel.Children.Add(classicToggle);
+        panel.Children.Add(scanBtn);
+        panel.Children.Add(SectionTitle(T("contextMenu.extensionsTitle")));
+        panel.Children.Add(extensionsContainer);
+
+        RenderContextMenuExtensions(extensionsContainer);
+
+        return new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+    }
+
+    private void RenderContextMenuExtensions(StackPanel container)
+    {
+        container.Children.Clear();
+        var entries = MainWindow.ContextMenus.GetShellExtensions();
+        if (entries.Count == 0)
+        {
+            container.Children.Add(InfoBlock(T("contextMenu.noExtensions")));
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            var grid = new Grid { ColumnSpacing = 12 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var info = new StackPanel { Spacing = 2 };
+            info.Children.Add(new TextBlock { Text = $"{entry.Name} ({entry.Scope})", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            info.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(entry.BinaryPath) ? entry.Clsid : $"{entry.Clsid} — {entry.BinaryPath}",
+                Opacity = 0.75,
+                TextWrapping = TextWrapping.Wrap
+            });
+            grid.Children.Add(info);
+
+            var toggle = new ToggleSwitch
+            {
+                IsOn = entry.IsEnabled,
+                OffContent = T("common.off"),
+                OnContent = T("common.on"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            toggle.Toggled += (_, _) =>
+            {
+                MainWindow.ContextMenus.SetShellExtensionEnabled(entry.Clsid, entry.Name, toggle.IsOn);
+                MainWindow.SetStatusText(T("run.completed"), isBusy: false);
+            };
+            Grid.SetColumn(toggle, 1);
+            grid.Children.Add(toggle);
+
+            container.Children.Add(new Border
+            {
+                Padding = new Thickness(12),
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                BorderBrush = ThemeBorderBrush(),
+                Background = ThemeCardBackground(),
+                Child = grid
+            });
         }
     }
 

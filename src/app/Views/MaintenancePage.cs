@@ -53,11 +53,13 @@ public sealed partial class MaintenancePage : BasePage
         if (_includeOneClick)
         {
             MainContent.Children.Add(OneClickPanel());
+            MainContent.Children.Add(StorageSensePanel());
         }
 
         if (includePrivacy)
         {
             MainContent.Children.Add(PrivacyCleanerPanel());
+            MainContent.Children.Add(CookieKeepListPanel());
         }
 
         foreach (var groupName in groups)
@@ -824,5 +826,167 @@ public sealed partial class MaintenancePage : BasePage
     {
         var path = MainWindow.Settings.CustomWinapp2DatabasePath;
         return !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+    }
+
+    private UIElement StorageSensePanel()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(SectionTitle(T("storageSense.title")));
+        panel.Children.Add(new TextBlock
+        {
+            Text = T("storageSense.subtitle"),
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.78
+        });
+
+        var current = MainWindow.StorageSense.GetStorageSenseState();
+        var enableToggle = new ToggleSwitch
+        {
+            Header = T("storageSense.enableHeader"),
+            IsOn = current.IsEnabled,
+            OffContent = T("common.off"),
+            OnContent = T("common.on")
+        };
+        var tempCheck = new CheckBox
+        {
+            Content = T("storageSense.cleanTemp"),
+            IsChecked = current.CleanTemporaryFiles
+        };
+        var recycleCheck = new CheckBox
+        {
+            Content = T("storageSense.cleanRecycleBin"),
+            IsChecked = current.CleanRecycleBin
+        };
+
+        var compactStatus = new TextBlock
+        {
+            Text = T("storageSense.compactUnknown"),
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.8
+        };
+
+        var actions = new AdaptiveWrapPanel { Spacing = 8 };
+        actions.Children.Add(ActionButton(T("storageSense.savePolicy"), Symbol.Save, (_, _) =>
+        {
+            MainWindow.StorageSense.ConfigureStorageSense(
+                enableToggle.IsOn,
+                tempCheck.IsChecked == true,
+                recycleCheck.IsChecked == true,
+                current.RecycleBinThresholdDays,
+                current.RunFrequencyDays == 0 ? 30 : current.RunFrequencyDays);
+            MainWindow.SetStatusText(T("run.completed"), isBusy: false);
+        }));
+        actions.Children.Add(ActionButton(T("storageSense.queryCompactOs"), Symbol.Find, async (_, _) =>
+        {
+            var state = await MainWindow.StorageSense.QueryCompactOsAsync();
+            compactStatus.Text = string.IsNullOrWhiteSpace(state.RawSummary)
+                ? (state.IsCompressed ? T("storageSense.compactEnabled") : T("storageSense.compactDisabled"))
+                : state.RawSummary;
+        }));
+        actions.Children.Add(ActionButton(T("storageSense.enableCompactOs"), Symbol.Accept, async (_, _) =>
+        {
+            var res = await MainWindow.StorageSense.SetCompactOsAsync(true);
+            compactStatus.Text = string.IsNullOrWhiteSpace(res.StandardOutput) ? res.StandardError : res.StandardOutput.Trim();
+        }));
+
+        panel.Children.Add(enableToggle);
+        panel.Children.Add(tempCheck);
+        panel.Children.Add(recycleCheck);
+        panel.Children.Add(actions);
+        panel.Children.Add(compactStatus);
+
+        return new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Child = panel
+        };
+    }
+
+    private UIElement CookieKeepListPanel()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(SectionTitle(T("cookieKeep.title")));
+        panel.Children.Add(new TextBlock
+        {
+            Text = T("cookieKeep.subtitle"),
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.78
+        });
+
+        var domainsBox = new TextBox
+        {
+            Header = T("cookieKeep.domainsHeader"),
+            PlaceholderText = "github.com, google.com, microsoft.com",
+            Text = string.Join(", ", MainWindow.Settings.CookieKeepDomains ?? []),
+            TextWrapping = TextWrapping.Wrap
+        };
+
+        var resultText = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.85
+        };
+
+        var actions = new AdaptiveWrapPanel { Spacing = 8 };
+        actions.Children.Add(ActionButton(T("cookieKeep.saveDomains"), Symbol.Save, (_, _) =>
+        {
+            var rawDomains = (domainsBox.Text ?? string.Empty)
+                .Split([',', ';', '\r', '\n', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            MainWindow.Settings.CookieKeepDomains = AppSettingsService.NormalizeCookieKeepDomains(rawDomains);
+            MainWindow.SettingsService.Save(MainWindow.Settings);
+            domainsBox.Text = string.Join(", ", MainWindow.Settings.CookieKeepDomains);
+            resultText.Text = F("cookieKeep.savedCount", MainWindow.Settings.CookieKeepDomains.Count);
+        }));
+        actions.Children.Add(ActionButton(T("cookieKeep.cleanSelective"), Symbol.Delete, (_, _) =>
+        {
+            var rawDomains = (domainsBox.Text ?? string.Empty)
+                .Split([',', ';', '\r', '\n', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            MainWindow.Settings.CookieKeepDomains = AppSettingsService.NormalizeCookieKeepDomains(rawDomains);
+            MainWindow.SettingsService.Save(MainWindow.Settings);
+
+            var targets = MainWindow.BrowserCookies.DiscoverTargets();
+            if (targets.Count == 0)
+            {
+                resultText.Text = T("cookieKeep.noBrowsersFound");
+                return;
+            }
+
+            var totalDeleted = 0;
+            var totalRemaining = 0;
+            var skippedRunning = 0;
+            foreach (var target in targets)
+            {
+                var res = MainWindow.BrowserCookies.CleanCookieDatabase(target, MainWindow.Settings.CookieKeepDomains);
+                if (res.SkippedBecauseRunning)
+                {
+                    skippedRunning++;
+                }
+                else
+                {
+                    totalDeleted += res.CookiesDeleted;
+                    totalRemaining += res.CookiesRemaining;
+                }
+            }
+
+            resultText.Text = F("cookieKeep.cleanSummary", totalDeleted, totalRemaining, skippedRunning);
+        }));
+
+        panel.Children.Add(domainsBox);
+        panel.Children.Add(actions);
+        panel.Children.Add(resultText);
+
+        return new Border
+        {
+            Padding = new Thickness(14),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = ThemeBorderBrush(),
+            Background = ThemeCardBackground(),
+            Child = panel
+        };
     }
 }

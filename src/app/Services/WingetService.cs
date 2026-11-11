@@ -217,6 +217,58 @@ public sealed class WingetService
                packageId.All(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_' or '+');
     }
 
+    public static bool IsPackagePinned(string packageId, IEnumerable<string>? pinnedIds)
+    {
+        if (string.IsNullOrWhiteSpace(packageId) || pinnedIds is null)
+        {
+            return false;
+        }
+
+        return pinnedIds.Any(id => id.Equals(packageId.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static IReadOnlyList<WingetPackage> FilterPinnedPackages(
+        IEnumerable<WingetPackage> packages,
+        IEnumerable<string>? pinnedIds,
+        bool includePinned = false)
+    {
+        var pinnedSet = (pinnedIds ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return packages
+            .Where(pkg => includePinned || !pinnedSet.Contains(pkg.Id))
+            .ToList();
+    }
+
+    public static IReadOnlyList<string> TogglePinnedPackage(
+        IEnumerable<string>? pinnedIds,
+        string packageId,
+        out bool isNowPinned)
+    {
+        var list = (pinnedIds ?? [])
+            .Where(IsValidPackageId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!IsValidPackageId(packageId))
+        {
+            isNowPinned = false;
+            return list;
+        }
+
+        var existingIndex = list.FindIndex(id => id.Equals(packageId, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+        {
+            list.RemoveAt(existingIndex);
+            isNowPinned = false;
+        }
+        else
+        {
+            list.Add(packageId);
+            isNowPinned = true;
+        }
+
+        return list;
+    }
+
     public static bool IsSafeDownloadDirectory(string directory)
     {
         if (string.IsNullOrWhiteSpace(directory)) return false;

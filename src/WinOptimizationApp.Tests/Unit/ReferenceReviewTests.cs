@@ -48,4 +48,56 @@ public sealed class ReferenceReviewTests
             DateTimeOffset.Now, DateTimeOffset.Now, 0, 0, 0, skipped, [], [], [], partial);
         Assert.Equal(incomplete, result.HasIncompleteTotals);
     }
+
+    [Fact]
+    public void StorageFilter_SupportsWildcardSizeAndAgeExpressions()
+    {
+        var now = new DateTimeOffset(2026, 11, 11, 0, 0, 0, TimeSpan.Zero);
+        DiskItem[] items =
+        [
+            new() { Name = "ubuntu.iso", FullPath = @"C:\Downloads\ubuntu.iso", Size = 200 * 1024 * 1024L, LastModified = now.AddDays(-120) },
+            new() { Name = "tiny.iso", FullPath = @"C:\Downloads\tiny.iso", Size = 2 * 1024 * 1024L, LastModified = now.AddDays(-120) },
+            new() { Name = "fresh.iso", FullPath = @"C:\Downloads\fresh.iso", Size = 300 * 1024 * 1024L, LastModified = now.AddDays(-5) },
+            new() { Name = "archive.zip", FullPath = @"C:\Downloads\archive.zip", Size = 500 * 1024 * 1024L, LastModified = now.AddDays(-200) }
+        ];
+
+        var matches = DiskAnalysisService.FilterItems(items, "*.iso > 50MB > 30d", referenceTime: now).ToList();
+        var match = Assert.Single(matches);
+        Assert.Equal("ubuntu.iso", match.Name);
+    }
+
+    [Fact]
+    public async Task SearchRecursive_AndBookmarks_WorkAcrossNestedScanTree()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "WinOptimizationApp.Tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var nestedDir = Path.Combine(tempRoot, "level1", "level2", "deep");
+            Directory.CreateDirectory(nestedDir);
+            var deepFile = Path.Combine(nestedDir, "deep-target.iso");
+            await File.WriteAllBytesAsync(deepFile, new byte[4096]);
+
+            var service = new DiskAnalysisService();
+            var scanResult = await service.ScanAsync(new DiskScanOptions(tempRoot));
+
+            var recursiveMatches = service.SearchRecursive(scanResult, "*.iso > 1KB");
+            var found = Assert.Single(recursiveMatches);
+            Assert.Equal("deep-target.iso", found.Name);
+
+            var bookmarks = DiskAnalysisService.ToggleBookmark([], nestedDir, out var added);
+            Assert.True(added);
+            Assert.True(DiskAnalysisService.IsBookmarked(nestedDir, bookmarks));
+
+            bookmarks = DiskAnalysisService.ToggleBookmark(bookmarks, nestedDir, out var stillAdded);
+            Assert.False(stillAdded);
+            Assert.False(DiskAnalysisService.IsBookmarked(nestedDir, bookmarks));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
 }

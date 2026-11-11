@@ -1,6 +1,16 @@
 using System;
+using System.Collections.Generic;
 
 namespace WinOptimizationApp.Models;
+
+public sealed record TweakRegistryRule(
+    string Hive,
+    string SubKey,
+    string ValueName,
+    string ValueKind = "DWord",
+    string EnabledValue = "1",
+    string? DisabledValue = null,
+    bool RequiredForCheck = true);
 
 public sealed class SystemTweak
 {
@@ -16,13 +26,17 @@ public sealed class SystemTweak
     public string SupportedWindows { get; set; } = "Windows 10/11";
 
     public string RestartRequirement { get; set; } = "None";
-    
+
+    public IReadOnlyList<TweakRegistryRule> RegistryRules { get; set; } = [];
+
+    public bool UsesCustomApplyScript { get; set; }
+
     // PowerShell script that returns "True" if enabled/applied, otherwise "False"
     public string CheckScript { get; set; } = string.Empty;
-    
+
     // PowerShell script to apply the tweak
     public string EnableScript { get; set; } = string.Empty;
-    
+
     // PowerShell script to revert the tweak
     public string DisableScript { get; set; } = string.Empty;
 }
